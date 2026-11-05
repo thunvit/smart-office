@@ -1,0 +1,17 @@
+# Cấu hình Cloudflare Tunnel cho SmartOffice (dùng khi tạo tunnel bằng dòng lệnh).
+# Sao chép thành config.yml, thay <TUNNEL_ID> và đường dẫn tệp chứng thực.
+tunnel: <TUNNEL_ID>
+credentials-file: C:\Users\<TEN_NGUOI_DUNG>\.cloudflared\<TUNNEL_ID>.json
+# Linux: /etc/cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # Cổng chính
+  - hostname: smartoffice.vnptninhbinh.com.vn
+    service: http://localhost:3000
+    originRequest:
+      connectTimeout: 30s
+      noTLSVerify: false
+  # Dành cho giai đoạn đa đơn vị (mỗi khách hàng một tên miền con) – cần chứng chỉ đa cấp, xem hướng dẫn mục IV.3
+  # - hostname: "*.smartoffice.vnptninhbinh.com.vn"
+  #   service: http://localhost:3000
+  - service: http_status:404

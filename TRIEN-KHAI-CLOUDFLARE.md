@@ -1,0 +1,142 @@
+# HƯỚNG DẪN TRIỂN KHAI SMARTOFFICE QUA CLOUDFLARE
+
+Phiên bản tài liệu: 1.4 · Ngày lập: 05/11/2026 · Áp dụng cho SmartOffice v1.4 (có PWA)
+
+## I. MỤC ĐÍCH, PHẠM VI
+
+1. Đưa SmartOffice ra Internet tại địa chỉ `https://smartoffice.vnptninhbinh.com.vn`, người dùng truy cập được từ máy tính và điện thoại, cài được như ứng dụng (PWA).
+2. Không mở cổng vào (inbound) trên tường lửa của đơn vị; toàn bộ kết nối từ Internet đi qua Cloudflare.
+3. Dữ liệu nghiệp vụ (cơ sở dữ liệu, tệp đính kèm) lưu tại máy chủ của đơn vị; Cloudflare chỉ làm nhiệm vụ trung chuyển có mã hóa, chống tấn công và lưu đệm tệp giao diện tĩnh.
+
+## II. MÔ HÌNH KẾT NỐI
+
+```
+Người dùng (trình duyệt / ứng dụng PWA)
+        │  HTTPS, chứng chỉ do Cloudflare cấp
+        ▼
+Cloudflare (tên miền, WAF, chống DDoS, giới hạn tần suất)
+        │  Cloudflare Tunnel – kết nối mã hóa do máy chủ chủ động mở ra ngoài
+        ▼
+Máy chủ SmartOffice (Node.js, cổng 3000 nội bộ) ── data/smartoffice.db, data/files
+```
+
+Máy chủ chỉ cần kết nối Internet chiều đi; không cần IP tĩnh, không cần mở cổng 80/443.
+
+## III. ĐIỀU KIỆN TIÊN QUYẾT
+
+| STT | Nội dung | Đầu mối |
+|---|---|---|
+| 1 | Máy chủ chạy liên tục 24/7 (Windows 10/11, Windows Server hoặc Ubuntu 22.04 trở lên), tối thiểu 4 vCPU, 8 GB RAM, ổ SSD | Kỹ thuật |
+| 2 | Node.js phiên bản 22.13 trở lên | Kỹ thuật |
+| 3 | Tài khoản Cloudflare của đơn vị (gói Free đủ cho giai đoạn thí điểm) | Kỹ thuật |
+| 4 | Quyền quản lý DNS của tên miền `vnptninhbinh.com.vn` (xem mục IV) | Lãnh đạo đơn vị, bộ phận quản lý tên miền |
+
+## IV. TÊN MIỀN – HIỆN TRẠNG VÀ PHƯƠNG ÁN
+
+### IV.1. Hiện trạng
+
+Kết quả tra cứu ngày 05/11/2026: tên miền `vnptninhbinh.com.vn` đang dùng máy chủ tên miền `ns1.vdconline.vn`, `ns2.vdconline.vn` (VDC), **chưa đặt trên Cloudflare**. Muốn gắn `smartoffice.vnptninhbinh.com.vn` vào Cloudflare Tunnel, phải chọn một trong các phương án dưới đây.
+
+### IV.2. Các phương án
+
+| Phương án | Cách làm | Gói Cloudflare | Ưu điểm | Hạn chế |
+|---|---|---|---|---|
+| **A. Chuyển DNS toàn bộ tên miền sang Cloudflare (khuyến nghị)** | Thêm `vnptninhbinh.com.vn` vào Cloudflare, kiểm tra đủ các bản ghi hiện có (website, MX thư điện tử, SPF, DKIM…), sau đó đổi máy chủ tên miền tại nhà đăng ký sang 2 máy chủ Cloudflare cấp | Free | Miễn phí; quản lý tập trung; thuận lợi cho giai đoạn đa đơn vị | Ảnh hưởng toàn bộ tên miền của đơn vị, cần lãnh đạo phê duyệt và rà soát kỹ bản ghi thư điện tử trước khi đổi |
+| B. Giữ DNS tại VDC, dùng Cloudflare for SaaS | Đặt một tên miền khác của đơn vị trên Cloudflare; tại VDC tạo bản ghi CNAME `smartoffice` trỏ về tên miền đó; khai báo `smartoffice.vnptninhbinh.com.vn` là tên miền tùy chỉnh | Free (100 tên miền tùy chỉnh đầu tiên miễn phí, sau đó 0,10 USD/tên miền) | Không động đến DNS hiện tại | Phải có thêm một tên miền trên Cloudflare; không hỗ trợ tên miền tùy chỉnh dạng `*` (trừ gói Enterprise) nên mỗi khách hàng một bản ghi |
+| C. Thiết lập CNAME (partial) cho `vnptninhbinh.com.vn` | Giữ DNS tại VDC, chỉ ủy quyền từng tên miền con qua CNAME | Business trở lên | Không đổi máy chủ tên miền | Chi phí gói Business |
+
+Ghi chú: ủy quyền riêng tên miền con `smartoffice.vnptninhbinh.com.vn` thành một vùng (zone) độc lập trên Cloudflare chỉ áp dụng cho gói Enterprise.
+
+### IV.3. Lưu ý cho giai đoạn đa đơn vị
+
+Chứng chỉ miễn phí (Universal SSL) của Cloudflare chỉ bảo vệ tên miền gốc và tên miền con cấp 1, tức là bảo vệ `smartoffice.vnptninhbinh.com.vn` nhưng **không** bảo vệ `<mã-đơn-vị>.smartoffice.vnptninhbinh.com.vn` (cấp 2). Khi triển khai đa đơn vị theo tên miền con, cần một trong các cách sau:
+
+- mua Advanced Certificate Manager để cấp chứng chỉ cho `*.smartoffice.vnptninhbinh.com.vn`;
+- hoặc tải lên chứng chỉ riêng;
+- hoặc đổi quy ước địa chỉ sang tên miền con cấp 1 (ví dụ `<mã-đơn-vị>-so.vnptninhbinh.com.vn`).
+
+Nội dung này cần được chốt trước Phiên 2 của kế hoạch phát triển.
+
+## V. CÁC BƯỚC TRIỂN KHAI TRÊN WINDOWS
+
+**Bước 1. Cài đặt phần mềm.** Cài Node.js 22 LTS. Chép thư mục SmartOffice vào ổ đĩa máy chủ, ví dụ `C:\SmartOffice`.
+
+**Bước 2. Cho SmartOffice tự chạy cùng máy chủ.** Chuột phải tệp `deploy\cloudflare\Cai-SmartOffice-tu-khoi-dong.bat` → *Run as administrator*. Tệp tạo tác vụ "SmartOffice" trong Task Scheduler, chạy với `TRUST_PROXY=1` và `PUBLIC_ORIGINS=https://smartoffice.vnptninhbinh.com.vn`. Nhật ký ghi tại `data\server.log`.
+
+**Bước 3. Tạo tunnel trên Cloudflare.** Đăng nhập Cloudflare → *Zero Trust* → *Networks* → *Tunnels* → *Create a tunnel* → chọn *Cloudflared* → đặt tên `smartoffice` → sao chép mã token ở bước *Install and run a connector*.
+
+**Bước 4. Cài connector.** Chuột phải `deploy\cloudflare\Cai-dat-Cloudflare-Tunnel.bat` → *Run as administrator* → dán mã token. Tệp cài `cloudflared` thành dịch vụ Windows, tự khởi động cùng máy.
+
+**Bước 5. Gắn tên miền.** Trên trang tunnel, mục *Public Hostname* → *Add a public hostname*:
+- Subdomain: `smartoffice`
+- Domain: `vnptninhbinh.com.vn`
+- Service: `HTTP` · URL: `localhost:3000`
+
+Bước này chỉ thực hiện được sau khi đã hoàn thành một phương án tại mục IV.
+
+**Bước 6. Kiểm tra.**
+- Mở `https://smartoffice.vnptninhbinh.com.vn/healthz`, kết quả phải là `ok`.
+- Đăng nhập bằng tài khoản quản trị; đổi mật khẩu mặc định.
+- Trên điện thoại, cài ứng dụng theo mục VII.
+
+### Triển khai trên Ubuntu/Debian
+
+Chạy lệnh `sudo bash deploy/linux/install.sh <MÃ_TOKEN_TUNNEL>`. Kịch bản thực hiện các việc sau:
+- cài Node.js 22;
+- tạo tài khoản hệ thống `smartoffice`;
+- chép mã nguồn vào `/opt/smartoffice` và đặt dữ liệu tại `/var/lib/smartoffice`;
+- tạo dịch vụ systemd `smartoffice`;
+- cài `cloudflared` từ kho chính thức của Cloudflare.
+
+## VI. CẤU HÌNH AN TOÀN KHUYẾN NGHỊ TRÊN CLOUDFLARE
+
+| STT | Mục cấu hình | Giá trị |
+|---|---|---|
+| 1 | SSL/TLS → Edge Certificates → Always Use HTTPS | Bật |
+| 2 | SSL/TLS → Edge Certificates → Minimum TLS Version | TLS 1.2 |
+| 3 | Security → WAF → Managed rules | Bật bộ quy tắc miễn phí |
+| 4 | Security → WAF → Rate limiting rules | Giới hạn đường dẫn `/api/login` (ví dụ 10 yêu cầu/phút/IP), hành động *Block* |
+| 5 | Caching → Cache Rules | Bỏ qua lưu đệm (*Bypass cache*) cho đường dẫn bắt đầu bằng `/api/` |
+| 6 | Speed → Optimization | Không bật Rocket Loader (có thể làm sai thứ tự nạp mã giao diện) |
+
+Phía máy chủ, SmartOffice v1.4 đã có các cơ chế sau:
+- **Định danh người dùng thật:** nhận diện IP thật qua header `CF-Connecting-IP`, áp dụng cho giới hạn đăng nhập sai và chấm công theo IP.
+- **Cookie phiên an toàn:** cookie phiên được gắn cờ `Secure` khi truy cập qua HTTPS.
+- **HSTS:** gửi header `Strict-Transport-Security`.
+- **Chặn nhúng trang:** gửi header `X-Frame-Options: DENY`.
+- **Kiểm tra nguồn gửi:** yêu cầu ghi dữ liệu chỉ được chấp nhận từ địa chỉ khai báo trong `PUBLIC_ORIGINS`.
+
+## VII. CÀI ỨNG DỤNG (PWA) CHO NGƯỜI DÙNG
+
+| Thiết bị | Cách cài |
+|---|---|
+| Android (Chrome) | Mở địa chỉ SmartOffice → chạm thông báo "Cài đặt" ở cuối màn hình, hoặc menu tài khoản → *Cài ứng dụng lên thiết bị* |
+| iPhone, iPad (Safari) | Mở bằng Safari → nút *Chia sẻ* → *Thêm vào MH chính* → *Thêm* |
+| Máy tính Windows, macOS (Chrome, Edge) | Biểu tượng cài đặt ở thanh địa chỉ, hoặc menu tài khoản → *Cài ứng dụng lên thiết bị* |
+
+Đặc điểm của bản PWA:
+- **Mở như ứng dụng:** chạy toàn màn hình, không hiện thanh địa chỉ.
+- **Lối tắt:** có lối tắt nhanh tới Phê duyệt, Công việc, Chấm công, Nhắn tin.
+- **Khi mất mạng:** khung giao diện vẫn mở được, có thanh báo trạng thái và tự tải lại dữ liệu khi có mạng.
+- **Dữ liệu không lưu trên thiết bị:** dữ liệu nghiệp vụ không được lưu đệm trên thiết bị, nhằm bảo vệ thông tin khi nhiều người dùng chung máy.
+
+PWA chỉ hoạt động khi truy cập qua HTTPS (hoặc `localhost`). Vì vậy truy cập trực tiếp bằng địa chỉ IP nội bộ dạng `http://192.168.x.x:3000` sẽ không cài được ứng dụng.
+
+## VIII. VẬN HÀNH
+
+1. **Sao lưu:** sao lưu hằng ngày thư mục `data` (gồm `smartoffice.db` và `files`), lưu ít nhất một bản ở vị trí khác máy chủ.
+2. **Cập nhật phiên bản:** cập nhật mã nguồn, tăng giá trị `VERSION` trong `public/sw.js`, rồi khởi động lại tác vụ "SmartOffice". Người dùng sẽ nhận thông báo "Đã có phiên bản SmartOffice mới".
+3. **Giám sát:** theo dõi địa chỉ `/healthz` (có thể dùng Cloudflare Health Checks hoặc công cụ giám sát của đơn vị) và trạng thái tunnel trên trang Zero Trust.
+
+## IX. CĂN CỨ, LƯU Ý PHÁP LÝ
+
+1. Luật Bảo vệ dữ liệu cá nhân năm 2025 và Nghị định số 356/2025/NĐ-CP (hiệu lực từ 01/01/2026):
+   - Cloudflare giải mã lưu lượng HTTPS tại điểm biên, nên là bên tham gia xử lý dữ liệu.
+   - Khi kinh doanh dịch vụ, pháp chế cần nêu rõ nội dung này trong hợp đồng xử lý dữ liệu với khách hàng.
+   - Pháp chế cần đánh giá nghĩa vụ liên quan đến chuyển dữ liệu ra nước ngoài, nếu có.
+2. Luật An ninh mạng số 116/2025/QH15 (hiệu lực từ 01/7/2026) và các văn bản hướng dẫn về lưu trữ dữ liệu: mô hình Tunnel giữ cơ sở dữ liệu tại máy chủ đặt ở Việt Nam. Pháp chế cần đối chiếu yêu cầu cụ thể của văn bản hướng dẫn hiện hành.
+3. Các mức giá, gói dịch vụ Cloudflare nêu tại mục IV được tra cứu từ tài liệu chính thức của Cloudflare ngày 05/11/2026 và có thể thay đổi:
+   - [Subdomain setup](https://developers.cloudflare.com/dns/zone-setups/subdomain-setup/)
+   - [Partial (CNAME) setup](https://developers.cloudflare.com/dns/zone-setups/partial-setup/setup/)
+   - [Cloudflare for SaaS – Plans](https://developers.cloudflare.com/cloudflare-for-platforms/cloudflare-for-saas/plans/)
+   - [Universal SSL – Limitations](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations)

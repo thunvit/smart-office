@@ -1,0 +1,22 @@
+name: Kiểm tra mã nguồn
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  kiem-tra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Kiểm tra cú pháp
+        run: for f in *.js public/*.js; do node --check "$f"; done
+      - name: Khởi động thử và gọi kiểm tra sức khỏe
+        run: |
+          DATA_DIR=$RUNNER_TEMP/so PORT=3000 node server.js > server.log 2>&1 &
+          for i in $(seq 1 20); do curl -fsS http://localhost:3000/healthz && break; sleep 1; done
+          curl -fsS http://localhost:3000/manifest.webmanifest > /dev/null
+          curl -fsS -X POST http://localhost:3000/api/login -H 'content-type: application/json' -d '{"username":"admin","password":"Admin@123"}' | grep -q '"user"'
+          echo "Đạt."

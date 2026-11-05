@@ -1,0 +1,15 @@
+{
+  "name": "smartoffice",
+  "version": "1.4.0",
+  "description": "SmartOffice - phần mềm văn phòng số: công việc, phê duyệt, quy trình, nhân sự, chấm công, tiền lương, kinh doanh (PWA)",
+  "main": "server.js",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "start:empty": "node -e \"process.env.NO_DEMO='1';require('./server.js')\"",
+    "start:cloudflare": "node -e \"process.env.TRUST_PROXY='1';require('./server.js')\""
+  }
+}

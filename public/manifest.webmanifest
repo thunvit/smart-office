@@ -1,0 +1,28 @@
+{
+  "id": "/",
+  "name": "SmartOffice – Văn phòng số",
+  "short_name": "SmartOffice",
+  "description": "Phần mềm quản trị văn phòng số: công việc, phê duyệt, nhân sự, chấm công, tiền lương, kinh doanh.",
+  "lang": "vi",
+  "dir": "ltr",
+  "start_url": "/?source=pwa#tong-quan",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "theme_color": "#0e6f68",
+  "background_color": "#f6f7f6",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Phê duyệt", "short_name": "Phê duyệt", "url": "/?source=shortcut#phe-duyet", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Công việc – Dự án", "short_name": "Công việc", "url": "/?source=shortcut#cong-viec", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Chấm công", "short_name": "Chấm công", "url": "/?source=shortcut#cham-cong", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Nhắn tin", "short_name": "Nhắn tin", "url": "/?source=shortcut#nhan-tin", "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

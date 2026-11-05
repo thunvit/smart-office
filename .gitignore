@@ -1,0 +1,15 @@
+# Dữ liệu vận hành – tuyệt đối không đưa lên kho mã
+data/
+*.db
+*.db-*
+*.log
+.env
+.env.*
+# Tệp chứng thực Cloudflare Tunnel
+.cloudflared/
+deploy/cloudflare/config.yml
+deploy/cloudflare/*.json
+cert.pem
+node_modules/
+.DS_Store
+Thumbs.db
