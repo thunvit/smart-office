@@ -797,7 +797,7 @@ async function handle(req, res) {
     if (!rt.raw) json(200, result === undefined ? { ok: true } : result);
   } catch (e) {
     if (e instanceof HttpError) return json(e.status, { error: e.message });
-    console.error(new Date().toISOString(), req.method, req.url, e);
+    console.error(new Date().toISOString(), req.method, req.url, (e && e.message) || String(e), e && e.stack);
     json(500, { error: 'Lỗi hệ thống. Vui lòng thử lại hoặc liên hệ quản trị viên.' });
   }
 }
