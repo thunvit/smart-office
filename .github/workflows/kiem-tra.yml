@@ -12,7 +12,7 @@ jobs:
         with:
           node-version: 22
       - name: Kiểm tra cú pháp
-        run: for f in *.js public/*.js worker/*.js test/*.js; do node --check "$f"; done; for f in functions/healthz.js "functions/api/[[path]].js"; do node --input-type=module --check < "$f"; done
+        run: for f in *.js public/*.js worker/*.js test/*.js; do node --check "$f"; done
       - name: Khởi động thử và gọi kiểm tra sức khỏe
         run: |
           DATA_DIR=$RUNNER_TEMP/so PORT=3000 node server.js > server.log 2>&1 &

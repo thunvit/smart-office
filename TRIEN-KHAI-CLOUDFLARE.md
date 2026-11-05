@@ -22,9 +22,7 @@ Cloudflare Worker "smart-office"
    └─ /api/*, /healthz → Durable Object "SmartOffice" (SQLite: dữ liệu nghiệp vụ, tệp đính kèm)
 ```
 
-- Địa chỉ cho người dùng: **`https://smart-office-vnpt.pages.dev`**. Dự án Cloudflare Pages `smart-office-vnpt` phục vụ giao diện và PWA từ thư mục `public/`; các đường dẫn `/api/*` và `/healthz` được chuyển nội bộ sang Worker `smart-office` qua liên kết dịch vụ `SO_WORKER` (tệp `functions/`). Pages và Worker đều tự triển khai khi có mã mới trên nhánh `main`.
-- Địa chỉ kỹ thuật của Worker: `https://smart-office.thunv-it.workers.dev` (cùng dữ liệu).
-- Lý do không dùng `smart-office.workers.dev` hoặc `smart-office.pages.dev`: Cloudflare cấp địa chỉ Worker theo dạng `<tên-worker>.<tên-tài-khoản>.workers.dev`; còn tên `smart-office` trên `pages.dev` đã có người khác sử dụng (kiểm tra ngày 05/11/2026).
+- Địa chỉ hiện tại: `https://smart-office.thunv-it.workers.dev` (Cloudflare cấp địa chỉ Worker theo dạng `<tên-worker>.<tên-tài-khoản>.workers.dev`).
 - Địa chỉ chính thức `https://smartoffice.vnptninhbinh.com.vn` gắn được sau khi hoàn thành một phương án tên miền tại mục IV. Khi đó bỏ dấu chú thích dòng `routes` trong `wrangler.jsonc`.
 - Durable Objects tự sao lưu dữ liệu; có thể khôi phục về thời điểm bất kỳ trong 30 ngày gần nhất.
 
