@@ -3,21 +3,33 @@
  * Cơ sở dữ liệu SmartOffice (SQLite tích hợp sẵn trong Node.js >= 22.13).
  * Tệp dữ liệu: ./data/smartoffice.db (đổi bằng biến môi trường DATA_DIR).
  */
-const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
-fs.mkdirSync(DATA_DIR, { recursive: true });
-const DB_FILE = path.join(DATA_DIR, 'smartoffice.db');
-const db = new DatabaseSync(DB_FILE);
-db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+/* Hai môi trường chạy:
+ *  - Node.js: SQLite tệp (node:sqlite) tại DATA_DIR.
+ *  - Cloudflare Workers: SQLite của Durable Object, được worker/do-core.js gắn vào globalThis.__SO_SQL
+ *    trước khi nạp mô-đun này (cùng giao diện prepare/all/get/run/exec). */
+const IS_WORKER = !!globalThis.__SO_SQL;
+let db, DATA_DIR = null, DB_FILE = null;
+if (IS_WORKER) {
+  db = globalThis.__SO_SQL;
+} else {
+  const fs = require('fs');
+  const sqliteMod = 'node:' + 'sqlite'; // tránh trình đóng gói của Workers cố nạp mô-đun này
+  const { DatabaseSync } = require(sqliteMod);
+  DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+  DB_FILE = path.join(DATA_DIR, 'smartoffice.db');
+  db = new DatabaseSync(DB_FILE);
+  db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
+}
 
 const all = (sql, ...p) => db.prepare(sql).all(...p);
 const get = (sql, ...p) => db.prepare(sql).get(...p);
 const run = (sql, ...p) => db.prepare(sql).run(...p);
 function tx(fn) {
+  if (db.transactionSync) return db.transactionSync(fn);
   db.exec('BEGIN');
   try { const r = fn(); db.exec('COMMIT'); return r; }
   catch (e) { try { db.exec('ROLLBACK'); } catch (_) {} throw e; }
@@ -40,10 +52,14 @@ function verifyPw(pw, stored) {
 
 /* ---------------- Ngày giờ (giờ máy chủ) ---------------- */
 const pad = n => String(n).padStart(2, '0');
-const isoDate = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-const today = () => isoDate(new Date());
-const now = () => { const d = new Date(); return isoDate(d) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
-const addDays = (s, n) => { const d = new Date(s + 'T00:00:00'); d.setDate(d.getDate() + n); return isoDate(d); };
+/* Luôn tính theo giờ Việt Nam (UTC+7, không có giờ mùa hè), không phụ thuộc múi giờ máy chủ. */
+const vnNow = () => new Date(Date.now() + 7 * 3600e3);
+const isoDate = d => d.getUTCFullYear() + '-' + pad(d.getUTCMonth() + 1) + '-' + pad(d.getUTCDate());
+const today = () => isoDate(vnNow());
+const now = () => { const d = vnNow(); return isoDate(d) + ' ' + pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()) + ':' + pad(d.getUTCSeconds()); };
+const nowHM = () => { const d = vnNow(); return pad(d.getUTCHours()) + ':' + pad(d.getUTCMinutes()); };
+const vnMonth = () => vnNow().getUTCMonth();
+const addDays = (s, n) => { const d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return isoDate(d); };
 
 /* ---------------- Lược đồ ---------------- */
 db.exec(`
@@ -142,8 +158,9 @@ CREATE TABLE IF NOT EXISTS payroll_lines (
   UNIQUE(period_id, user_id));
 `);
 /* Nâng cấp CSDL cũ: bổ sung cột còn thiếu, không ảnh hưởng dữ liệu hiện có */
-const hasCol = (t, c) => all(`PRAGMA table_info(${t})`).some(r => r.name === c);
-if (!hasCol('requests', 'hours')) db.exec('ALTER TABLE requests ADD COLUMN hours REAL DEFAULT 0');
+const hasCol = (t, c) => { try { return all(`PRAGMA table_info(${t})`).some(r => r.name === c); } catch (e) { return null; } };
+const addCol = (t, c, def) => { const h = hasCol(t, c); if (h === true) return; try { db.exec(`ALTER TABLE ${t} ADD COLUMN ${c} ${def}`); } catch (e) { if (!/duplicate column/i.test(e.message)) throw e; } };
+addCol('requests', 'hours', 'REAL DEFAULT 0');
 
 /* ---------------- Cấu hình ---------------- */
 function getSettings() {
@@ -294,7 +311,7 @@ function seedDemo() {
     ct(U.mai, '30/2023/HĐLĐ', 'Xác định thời hạn 36 tháng', '2023-09-14', d(25));
 
     /* Mục tiêu – KPI */
-    const y = Number(year), q = Math.floor((new Date().getMonth()) / 3);
+    const y = Number(year), q = Math.floor(vnMonth() / 3);
     const qs = [[1, 3], [4, 6], [7, 9], [10, 12]][q];
     const lastDay = new Date(y, qs[1], 0).getDate();
     const cyc = Number(run('INSERT INTO goal_cycles(name,start_date,end_date) VALUES(?,?,?)', `Quý ${['I', 'II', 'III', 'IV'][q]}/${y}`,
@@ -327,7 +344,7 @@ function seedEmpty() {
   tx(() => {
     const dep = Number(run('INSERT INTO departments(name) VALUES(?)', 'Ban Giám đốc').lastInsertRowid);
     const id = Number(run(`INSERT INTO users(username,pass_hash,full_name,title,dept_id,role,must_change_pw,created_at)
-      VALUES('admin',?,?,?,?, 'admin', 1, ?)`, hashPw('Admin@123'), 'Quản trị hệ thống', 'Quản trị viên', dep, now()).lastInsertRowid);
+      VALUES('admin',?,?,?,?, 'admin', 1, ?)`, hashPw(process.env.ADMIN_PASSWORD || (IS_WORKER ? crypto.randomBytes(24).toString('hex') : 'Admin@123')), 'Quản trị hệ thống', 'Quản trị viên', dep, now()).lastInsertRowid);
     run('UPDATE departments SET head_id=? WHERE id=?', id, dep);
     setSetting('director_id', id); setSetting('accountant_id', id); setSetting('hr_approver_id', id);
     setSetting('org_name', 'Đơn vị của tôi');
@@ -340,4 +357,4 @@ function init() {
   return false;
 }
 
-module.exports = { db, all, get, run, tx, hashPw, verifyPw, today, now, addDays, isoDate, getSettings, setSetting, init, DB_FILE, COLORS };
+module.exports = { db, all, get, run, tx, hashPw, verifyPw, today, now, nowHM, vnMonth, addDays, isoDate, getSettings, setSetting, init, DB_FILE, COLORS, IS_WORKER };

@@ -387,7 +387,7 @@ function seedExt() {
     course('Kỹ năng đàm phán và chốt hợp đồng B2B', 'benngoai', 'Trung tâm Đào tạo doanh nghiệp', -30, -29, 'Hà Nội', 16, 5, 12000000, 'Khóa học bên ngoài cho Phòng Kinh doanh.', [[id.huy, 'completed', 8.5], [id.anh, 'completed', 9], [id.quan, 'completed', 8]]);
     course('An toàn thông tin cho người dùng văn phòng', 'noibo', 'Phòng Kỹ thuật', 15, 15, 'Phòng họp lớn', 3, 40, 0, 'Nhận diện thư điện tử lừa đảo, quản lý mật khẩu, sao lưu dữ liệu.', []);
     /* Đánh giá */
-    const qn = ['I', 'II', 'III', 'IV'][Math.floor(new Date().getMonth() / 3)];
+    const qn = ['I', 'II', 'III', 'IV'][Math.floor(D.vnMonth() / 3)];
     const cid = Number(run('INSERT INTO review_cycles(name,start_date,end_date,criteria,created_at) VALUES(?,?,?,?,?)', `Đánh giá Quý ${qn}/${y}`, d(-5), d(25), JSON.stringify(DEFAULT_CRITERIA), now()).lastInsertRowid);
     for (const u of all(`SELECT id FROM users WHERE active=1 AND username<>'admin'`)) run('INSERT INTO reviews(cycle_id,user_id,reviewer_id) VALUES(?,?,?)', cid, u.id, (function () { const x = get('SELECT d.head_id h FROM users u JOIN departments d ON d.id=u.dept_id WHERE u.id=?', u.id); return x && x.h !== u.id ? x.h : (u.id !== id.thanh ? id.thanh : null); })());
     run(`UPDATE reviews SET self_scores=?, self_comment=?, self_at=?, status='self' WHERE cycle_id=? AND user_id=?`, JSON.stringify([5, 4, 4, 5, 4]), 'Hoàn thành vượt chỉ tiêu doanh số quý, chốt 01 hợp đồng lớn.', now(), cid, id.huy);

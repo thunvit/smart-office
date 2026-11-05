@@ -1,0 +1,34 @@
+# Phương án dự phòng: triển khai bằng GitHub Actions.
+# Chỉ dùng MỘT trong hai cách: (1) Cloudflare Workers Builds kết nối kho GitHub (khuyến nghị),
+# hoặc (2) tệp này. Tệp này chỉ triển khai khi kho có bí mật CLOUDFLARE_API_TOKEN và CLOUDFLARE_ACCOUNT_ID.
+name: Triển khai Cloudflare (GitHub Actions)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HAS_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+    steps:
+      - name: Bỏ qua khi chưa cấu hình bí mật
+        if: env.HAS_TOKEN != 'true'
+        run: echo "Chưa có CLOUDFLARE_API_TOKEN – bỏ qua (đang dùng Workers Builds hoặc chưa cấu hình)."
+      - uses: actions/checkout@v4
+        if: env.HAS_TOKEN == 'true'
+      - uses: actions/setup-node@v4
+        if: env.HAS_TOKEN == 'true'
+        with:
+          node-version: 22
+      - name: Kiểm tra cú pháp và lõi Cloudflare
+        if: env.HAS_TOKEN == 'true'
+        run: |
+          for f in *.js public/*.js worker/*.js; do node --check "$f"; done
+          node test/worker-smoke.js
+      - name: Triển khai
+        if: env.HAS_TOKEN == 'true'
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

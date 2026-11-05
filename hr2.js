@@ -143,7 +143,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
     return { date: T, record: get('SELECT * FROM attendance WHERE user_id=? AND work_date=?', user.id, T) || null, work_start: s.work_start, work_end: s.work_end, workday: isWorkday(T, s) && !s.holidays.includes(T) };
   });
   route('POST', '/api/attendance/check', ({ user, req }) => {
-    const T = today(), d = new Date(), t = pad(d.getHours()) + ':' + pad(d.getMinutes());
+    const T = today(), t = D.nowHM();
     const r = get('SELECT * FROM attendance WHERE user_id=? AND work_date=?', user.id, T);
     const ip = String((process.env.TRUST_PROXY === '1' && (req.headers['cf-connecting-ip'] || String(req.headers['x-forwarded-for'] || '').split(',')[0].trim())) || req.socket.remoteAddress || '').replace('::ffff:', '');
     if (!r) { run(`INSERT INTO attendance(user_id,work_date,check_in,source,note,updated_at) VALUES(?,?,?,?,?,?)`, user.id, T, t, 'web', 'IP ' + ip, now()); return { action: 'in', time: t }; }

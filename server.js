@@ -4,20 +4,21 @@
  * Chạy: node server.js   (cổng mặc định 3000, đổi bằng biến môi trường PORT)
  * Không dùng thư viện ngoài; yêu cầu Node.js >= 22.13.
  */
-const [maj, min] = process.versions.node.split('.').map(Number);
-if (maj < 22 || (maj === 22 && min < 13)) {
-  console.error('\n[LỖI] SmartOffice cần Node.js phiên bản 22.13 trở lên (khuyến nghị bản LTS mới nhất).');
-  console.error('      Phiên bản hiện tại: ' + process.version + '. Tải tại https://nodejs.org\n');
-  process.exit(1);
+const IS_WORKER = !!globalThis.__SO_WORKER; // true khi chạy trong Cloudflare Durable Object (worker/do-core.js)
+if (!IS_WORKER) {
+  const [maj, min] = process.versions.node.split('.').map(Number);
+  if (maj < 22 || (maj === 22 && min < 13)) {
+    console.error('\n[LỖI] SmartOffice cần Node.js phiên bản 22.13 trở lên (khuyến nghị bản LTS mới nhất).');
+    console.error('      Phiên bản hiện tại: ' + process.version + '. Tải tại https://nodejs.org\n');
+    process.exit(1);
+  }
+  process.removeAllListeners('warning');
+  process.on('warning', w => { if (w.name !== 'ExperimentalWarning') console.warn(w); });
 }
-process.removeAllListeners('warning');
-process.on('warning', w => { if (w.name !== 'ExperimentalWarning') console.warn(w); });
 
-const http = require('http');
-const fs = require('fs');
+const fs = IS_WORKER ? null : require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const os = require('os');
 const D = require('./db');
 const HR2 = require('./hr2');
 const BIZ = require('./biz');
@@ -695,6 +696,7 @@ route('PUT', '/api/admin/settings', ({ body }) => {
   return D.getSettings();
 }, { admin: true });
 route('GET', '/api/admin/backup', ({ res }) => {
+  if (IS_WORKER) bad('Trên Cloudflare, dữ liệu được Durable Objects sao lưu tự động và có thể khôi phục về thời điểm bất kỳ trong 30 ngày gần nhất. Liên hệ đơn vị cung cấp dịch vụ khi cần khôi phục.');
   const f = path.join(path.dirname(D.DB_FILE), `sao-luu-${today()}-${Date.now()}.db`);
   D.db.exec(`VACUUM INTO '${f.replace(/'/g, "''")}'`);
   res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="smartoffice-sao-luu-${today()}.db"` });
@@ -747,6 +749,7 @@ function originAllowed(req) {
 }
 function sendStatic(req, res, pathname) {
   let p = path.normalize(decodeURIComponent(pathname)).replace(/^([\\/])+/, '');
+  if (/(^|[\\/])[_.]/.test(p)) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Không tìm thấy.'); }
   if (!p || p.endsWith(path.sep)) p = 'index.html';
   let file = path.join(PUBLIC, p);
   if (!file.startsWith(PUBLIC)) { res.writeHead(403); return res.end(); }
@@ -761,6 +764,12 @@ function sendStatic(req, res, pathname) {
   fs.createReadStream(file).pipe(res);
 }
 function readBody(req, limit = 5e6) {
+  if (req.rawBody !== undefined) { // Cloudflare: thân yêu cầu đã được đọc sẵn
+    const b = req.rawBody;
+    if (!b || !b.length) return Promise.resolve({});
+    if (b.length > limit) return Promise.reject(new HttpError(413, 'Dữ liệu gửi lên quá lớn.'));
+    try { return Promise.resolve(JSON.parse(b.toString('utf8'))); } catch (e) { return Promise.reject(new HttpError(400, 'Dữ liệu không đúng định dạng JSON.')); }
+  }
   return new Promise((resolve, reject) => {
     let size = 0; const chunks = [];
     req.on('data', c => { size += c.length; if (size > limit) { reject(new HttpError(413, 'Dữ liệu gửi lên quá lớn.')); req.destroy(); } else chunks.push(c); });
@@ -768,11 +777,11 @@ function readBody(req, limit = 5e6) {
     req.on('error', reject);
   });
 }
-const server = http.createServer(async (req, res) => {
+async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   securityHeaders(req, res);
   if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); return res.end('ok'); }
-  if (!url.pathname.startsWith('/api/')) return sendStatic(req, res, url.pathname);
+  if (!url.pathname.startsWith('/api/')) { if (IS_WORKER) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Không tìm thấy.'); } return sendStatic(req, res, url.pathname); }
   const json = (status, obj) => { if (res.headersSent) return; res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
   try {
     let m = null, rt = null;
@@ -791,12 +800,28 @@ const server = http.createServer(async (req, res) => {
     console.error(new Date().toISOString(), req.method, req.url, e);
     json(500, { error: 'Lỗi hệ thống. Vui lòng thử lại hoặc liên hệ quản trị viên.' });
   }
-});
+}
 
 const created = D.init();
 HR2.seedExtras();
 BIZ.seedBiz();
 EXT.seedExt();
+
+/* Cloudflare: đặt lại mật khẩu quản trị ban đầu theo bí mật ADMIN_PASSWORD (chỉ khi tài khoản admin chưa đổi mật khẩu). */
+function applyAdminSecret() {
+  const pw = process.env.ADMIN_PASSWORD;
+  if (!pw) return false;
+  const a = get("SELECT id, must_change_pw FROM users WHERE username='admin'");
+  if (!a || !a.must_change_pw) return false;
+  run('UPDATE users SET pass_hash=? WHERE id=?', D.hashPw(pw), a.id);
+  return true;
+}
+module.exports = { handle, applyAdminSecret };
+
+if (!IS_WORKER) {
+const http = require('http');
+const os = require('os');
+const server = http.createServer(handle);
 server.listen(PORT, '0.0.0.0', () => {
   const ips = [];
   for (const list of Object.values(os.networkInterfaces())) for (const i of list || []) if (i.family === 'IPv4' && !i.internal) ips.push(i.address);
@@ -814,3 +839,4 @@ server.on('error', e => {
   else console.error(e);
   process.exit(1);
 });
+}

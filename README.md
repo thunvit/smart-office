@@ -46,11 +46,11 @@ Trên Windows: chạy `Khoi-dong-SmartOffice.bat`. Tài khoản quản trị m�
 
 ## Triển khai
 
-Xem [TRIEN-KHAI-CLOUDFLARE.md](TRIEN-KHAI-CLOUDFLARE.md) để triển khai qua Cloudflare Tunnel; tài liệu gồm các phần:
-- tên miền;
-- các bước trên Windows và Linux;
-- cấu hình an toàn;
-- cài PWA cho người dùng.
+Xem [TRIEN-KHAI-CLOUDFLARE.md](TRIEN-KHAI-CLOUDFLARE.md). Có hai phương án:
+- **Cloudflare Workers + Durable Objects (khuyến nghị):** Cloudflare Workers Builds tự triển khai mỗi khi có mã mới trên nhánh `main`; cấu hình nằm trong `wrangler.jsonc`.
+- **Cloudflare Tunnel:** chạy trên máy chủ của đơn vị.
+
+Kiểm thử lõi Cloudflare bằng Node.js: `node test/worker-smoke.js`.
 
 Hướng dẫn nghiệp vụ cho người dùng nằm tại [HUONG-DAN-SU-DUNG.md](HUONG-DAN-SU-DUNG.md).
 
@@ -63,7 +63,10 @@ hr2.js           Chấm công, tiền lương
 biz.js           Bảng tin, lịch họp, tài liệu, CRM, thu chi, tài sản
 ext.js           Tuyển dụng, nhắn tin, khách đến, khen thưởng – kỷ luật, đào tạo, đánh giá
 public/          Giao diện (SPA thuần JavaScript), PWA: manifest, sw.js, pwa.js, icons
+worker/          Cloudflare Workers: điểm vào, Durable Object, lớp tương thích SQLite
+wrangler.jsonc   Cấu hình triển khai Cloudflare Workers
 deploy/          Kịch bản triển khai Cloudflare Tunnel (Windows, Linux)
+test/            Kiểm thử lõi Cloudflare (mô phỏng Durable Object)
 ```
 
 ## Lưu ý bảo mật

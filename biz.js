@@ -2,14 +2,29 @@
 /**
  * Phân hệ nhóm Thông tin (Bảng tin, Lịch họp, Tài liệu) và nhóm Kinh doanh (Khách hàng, Thu chi, Tài sản).
  */
-const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const D = require('./db');
 const { db, all, get, run, tx, today, now, addDays } = D;
 
-const FILE_DIR = path.join(path.dirname(D.DB_FILE), 'files');
-fs.mkdirSync(FILE_DIR, { recursive: true });
+/* Kho tệp đính kèm: Node.js lưu trên đĩa (data/files); Cloudflare lưu trong SQLite của Durable Object,
+ * chia khối 1 MB (giới hạn kích thước một dòng của Durable Object là 2 MB). */
+db.exec('CREATE TABLE IF NOT EXISTS file_chunks (stored_name TEXT NOT NULL, seq INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY(stored_name, seq))');
+const CHUNK = 1024 * 1024;
+const FILES = D.IS_WORKER ? {
+  put(name, buf) { tx(() => { for (let i = 0, k = 0; i < buf.length; i += CHUNK, k++) run('INSERT INTO file_chunks(stored_name,seq,data) VALUES(?,?,?)', name, k, buf.subarray(i, i + CHUNK)); }); },
+  read(name) { const rows = all('SELECT data FROM file_chunks WHERE stored_name=? ORDER BY seq', name); return rows.length ? Buffer.concat(rows.map(r => Buffer.from(r.data))) : null; },
+  del(name) { run('DELETE FROM file_chunks WHERE stored_name=?', name); }
+} : (() => {
+  const fs = require('fs');
+  const FILE_DIR = path.join(path.dirname(D.DB_FILE), 'files');
+  fs.mkdirSync(FILE_DIR, { recursive: true });
+  return {
+    put(name, buf) { fs.writeFileSync(path.join(FILE_DIR, name), buf); },
+    read(name) { const f = path.join(FILE_DIR, name); return fs.existsSync(f) ? fs.readFileSync(f) : null; },
+    del(name) { fs.unlink(path.join(FILE_DIR, name), () => {}); }
+  };
+})();
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS posts (
@@ -225,12 +240,12 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
   route('GET', '/api/docs/:id/file', ({ user, params, res }) => {
     const d = get('SELECT * FROM doc_items WHERE id=?', int(params.id)) || notFound();
     if (!docVisible(user, d)) forbid();
-    const f = d.stored_name && path.join(FILE_DIR, d.stored_name);
-    if (!f || !fs.existsSync(f)) notFound('Không tìm thấy tệp đính kèm.');
+    const buf = d.stored_name && FILES.read(d.stored_name);
+    if (!buf) notFound('Không tìm thấy tệp đính kèm.');
     const ascii = d.file_name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').replace(/[^\w.\- ]/g, '_');
-    res.writeHead(200, { 'Content-Type': d.mime || 'application/octet-stream', 'Content-Length': fs.statSync(f).size, 'X-Content-Type-Options': 'nosniff',
+    res.writeHead(200, { 'Content-Type': d.mime || 'application/octet-stream', 'Content-Length': buf.length, 'X-Content-Type-Options': 'nosniff',
       'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(d.file_name)}` });
-    fs.createReadStream(f).pipe(res);
+    res.end(buf);
   }, { raw: true });
   function docInput(b) {
     const title = str(b.title, 300); if (!title) bad('Vui lòng nhập trích yếu / tên tài liệu.');
@@ -246,7 +261,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
     const name = str(b.file_name, 200) || 'tep-dinh-kem';
     if (/\.(exe|bat|cmd|com|msi|scr|ps1|vbs|js|jar|sh)$/i.test(name)) bad('Không cho phép tải lên tệp chương trình (.exe, .bat, …).');
     const stored = crypto.randomBytes(16).toString('hex') + path.extname(name).toLowerCase().replace(/[^.\w]/g, '');
-    fs.writeFileSync(path.join(FILE_DIR, stored), buf);
+    FILES.put(stored, buf);
     return { name, stored, size: buf.length, mime: str(b.file_mime, 120) || 'application/octet-stream' };
   }
   route('POST', '/api/docs', ({ user, body }) => {
@@ -262,7 +277,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
     const d = get('SELECT * FROM doc_items WHERE id=?', int(params.id)) || notFound();
     if (!(isAdmin(user) || d.uploaded_by === user.id)) forbid();
     const x = docInput(body), f = saveFile(body);
-    if (f && d.stored_name) fs.unlink(path.join(FILE_DIR, d.stored_name), () => {});
+    if (f && d.stored_name) FILES.del(d.stored_name);
     run(`UPDATE doc_items SET title=?, number=?, issued_date=?, issuer=?, category=?, dept_id=?, description=?, body=?, updated_at=? WHERE id=?`, x.title, x.number, x.issued, x.issuer, x.cat, x.dept, x.desc, x.body, now(), d.id);
     if (f) run(`UPDATE doc_items SET kind='file', file_name=?, file_size=?, mime=?, stored_name=? WHERE id=?`, f.name, f.size, f.mime, f.stored, d.id);
     return { ok: true };
@@ -271,7 +286,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
     const d = get('SELECT * FROM doc_items WHERE id=?', int(params.id)) || notFound();
     if (!(isAdmin(user) || d.uploaded_by === user.id)) forbid();
     run('DELETE FROM doc_items WHERE id=?', d.id);
-    if (d.stored_name) fs.unlink(path.join(FILE_DIR, d.stored_name), () => {});
+    if (d.stored_name) FILES.del(d.stored_name);
     log(user.id, `xóa tài liệu <b>${esc(d.title)}</b>`);
     return { ok: true };
   });
@@ -603,4 +618,4 @@ function seedBiz() {
   });
 }
 
-module.exports = { register, seedBiz, FILE_DIR };
+module.exports = { register, seedBiz };

@@ -1,10 +1,74 @@
-# HƯỚNG DẪN TRIỂN KHAI SMARTOFFICE QUA CLOUDFLARE
+# HƯỚNG DẪN TRIỂN KHAI SMARTOFFICE LÊN CLOUDFLARE
 
-Phiên bản tài liệu: 1.4 · Ngày lập: 05/11/2026 · Áp dụng cho SmartOffice v1.4 (có PWA)
+Phiên bản tài liệu: 1.5 · Ngày lập: 05/11/2026 · Áp dụng cho SmartOffice v1.5
+
+SmartOffice v1.5 có hai cách triển khai lên Cloudflare, dùng chung một mã nguồn:
+
+| Phương án | Nơi chạy và lưu dữ liệu | Cập nhật phiên bản | Khi nào dùng |
+|---|---|---|---|
+| **A. Cloudflare Workers + Durable Objects (khuyến nghị)** | Hạ tầng Cloudflare; dữ liệu trong SQLite của Durable Object | Tự động mỗi lần đẩy mã lên nhánh `main` của GitHub | Kinh doanh dịch vụ, không muốn vận hành máy chủ |
+| B. Cloudflare Tunnel | Máy chủ của đơn vị; Cloudflare chỉ trung chuyển | Cập nhật thủ công trên máy chủ | Yêu cầu dữ liệu phải nằm trên máy chủ của đơn vị |
+
+# PHẦN A. CLOUDFLARE WORKERS, TỰ ĐỘNG TRIỂN KHAI TỪ GITHUB
+
+## A.1. Mô hình
+
+```
+GitHub thunvit/smart-office (nhánh main)
+        │  mỗi lần đẩy mã: Cloudflare Workers Builds tự chạy "npx wrangler deploy"
+        ▼
+Cloudflare Worker "smart-office"
+   ├─ public/  → Workers Static Assets: giao diện, PWA (manifest, sw.js, biểu tượng)
+   └─ /api/*, /healthz → Durable Object "SmartOffice" (SQLite: dữ liệu nghiệp vụ, tệp đính kèm)
+```
+
+- Địa chỉ có sẵn ngay sau lần triển khai đầu: `https://smart-office.<tên-tài-khoản>.workers.dev`.
+- Địa chỉ chính thức `https://smartoffice.vnptninhbinh.com.vn` gắn được sau khi hoàn thành một phương án tên miền tại mục IV. Khi đó bỏ dấu chú thích dòng `routes` trong `wrangler.jsonc`.
+- Durable Objects tự sao lưu dữ liệu; có thể khôi phục về thời điểm bất kỳ trong 30 ngày gần nhất.
+
+## A.2. Các bước thiết lập (thực hiện một lần)
+
+1. **Kết nối GitHub với Cloudflare:**
+   - đăng nhập Cloudflare, vào *Workers & Pages* → *Create* → *Import a repository*;
+   - chọn GitHub, cấp quyền cho ứng dụng Cloudflare truy cập kho `thunvit/smart-office`.
+2. **Cấu hình bản dựng:**
+   - Project name: `smart-office`;
+   - Production branch: `main`;
+   - Build command: để trống;
+   - Deploy command: `npx wrangler deploy`.
+
+   Lưu để chạy lần triển khai đầu tiên.
+3. **Khai báo mật khẩu quản trị ban đầu:**
+   - vào *Workers & Pages* → `smart-office` → *Settings* → *Variables and Secrets* → *Add*;
+   - chọn loại *Secret*, tên `ADMIN_PASSWORD`, nhập mật khẩu mạnh (tối thiểu 12 ký tự).
+
+   Chưa khai báo bí mật này thì tài khoản `admin` không đăng nhập được. Mục đích là để không ai lợi dụng mật khẩu mặc định trên địa chỉ công khai.
+4. **Đăng nhập lần đầu:**
+   - mở địa chỉ `workers.dev`, đăng nhập `admin` bằng mật khẩu vừa khai báo;
+   - hệ thống bắt buộc đổi mật khẩu ngay;
+   - sau đó vào *Quản trị* để khai báo đơn vị, phòng ban và người dùng.
+5. **Bản trình diễn cho khách hàng (nếu cần):** tạo thêm một Worker riêng, đặt biến `SO_DEMO=1` để nạp dữ liệu mẫu. Không bật dữ liệu mẫu trên bản dùng thật, vì tài khoản mẫu dùng mật khẩu đơn giản.
+
+Từ đó về sau, mỗi lần mã mới được đẩy lên nhánh `main`:
+- GitHub Actions tự kiểm tra cú pháp và chạy kiểm thử lõi;
+- Cloudflare tự triển khai bản mới;
+- người dùng PWA nhận thông báo "Đã có phiên bản SmartOffice mới".
+
+Nếu muốn triển khai bằng GitHub Actions thay cho Workers Builds, khai báo hai bí mật `CLOUDFLARE_API_TOKEN` và `CLOUDFLARE_ACCOUNT_ID` cho kho GitHub; tệp `.github/workflows/trien-khai-cloudflare.yml` sẽ tự chạy. Chỉ dùng một trong hai cách để tránh triển khai hai lần.
+
+## A.3. Gói dịch vụ, giới hạn
+
+1. **Chọn gói:** nên dùng gói **Workers Paid**. Ở gói Free, thời gian CPU cho mỗi yêu cầu rất thấp; thao tác băm mật khẩu khi đăng nhập (scrypt) có thể vượt giới hạn này.
+2. **Mô hình dữ liệu hiện tại:** toàn bộ dữ liệu nằm trong một Durable Object `main`, tức một đơn vị khách hàng. Việc tách mỗi khách hàng một Durable Object riêng sẽ làm theo Thiết kế đa đơn vị, Phiên 2–4.
+3. **Kích thước tệp:** tệp đính kèm tối đa 20 MB, lưu thành các khối 1 MB vì mỗi dòng dữ liệu của Durable Object giới hạn 2 MB.
+4. **Sao lưu:** chức năng "Sao lưu" trong phần Quản trị không áp dụng trên Cloudflare; thay vào đó là cơ chế khôi phục theo thời điểm của Durable Objects.
+5. **Giờ hệ thống:** ứng dụng luôn tính theo giờ Việt Nam (UTC+7) cho chấm công, hạn công việc và nhật ký, dù máy chủ Cloudflare chạy theo giờ UTC.
+
+# PHẦN B. CLOUDFLARE TUNNEL (MÁY CHỦ CỦA ĐƠN VỊ)
 
 ## I. MỤC ĐÍCH, PHẠM VI
 
-1. Đưa SmartOffice ra Internet tại địa chỉ `https://smartoffice.vnptninhbinh.com.vn`, người dùng truy cập được từ máy tính và điện thoại, cài được như ứng dụng (PWA).
+1. Phần B áp dụng khi chọn Phương án B. Đưa SmartOffice ra Internet tại địa chỉ `https://smartoffice.vnptninhbinh.com.vn`, người dùng truy cập được từ máy tính và điện thoại, cài được như ứng dụng (PWA).
 2. Không mở cổng vào (inbound) trên tường lửa của đơn vị; toàn bộ kết nối từ Internet đi qua Cloudflare.
 3. Dữ liệu nghiệp vụ (cơ sở dữ liệu, tệp đính kèm) lưu tại máy chủ của đơn vị; Cloudflare chỉ làm nhiệm vụ trung chuyển có mã hóa, chống tấn công và lưu đệm tệp giao diện tĩnh.
 
@@ -31,7 +95,7 @@ Máy chủ chỉ cần kết nối Internet chiều đi; không cần IP tĩnh, 
 | 3 | Tài khoản Cloudflare của đơn vị (gói Free đủ cho giai đoạn thí điểm) | Kỹ thuật |
 | 4 | Quyền quản lý DNS của tên miền `vnptninhbinh.com.vn` (xem mục IV) | Lãnh đạo đơn vị, bộ phận quản lý tên miền |
 
-## IV. TÊN MIỀN – HIỆN TRẠNG VÀ PHƯƠNG ÁN
+## IV. TÊN MIỀN – HIỆN TRẠNG VÀ PHƯƠNG ÁN (áp dụng cho cả Phần A và Phần B)
 
 ### IV.1. Hiện trạng
 
