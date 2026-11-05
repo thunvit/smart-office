@@ -20,7 +20,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SmartOffice"] }],
 
   "vars": {
-    "PUBLIC_ORIGINS": "https://smartoffice.vnptninhbinh.com.vn,https://smart-office.pages.dev",
+    "PUBLIC_ORIGINS": "https://smartoffice.vnptninhbinh.com.vn,https://smart-office-vnpt.pages.dev",
     // "1" = nạp dữ liệu mẫu (bản trình diễn). Để trống = cơ sở dữ liệu trống, chỉ có tài khoản admin.
     "SO_DEMO": ""
   },
