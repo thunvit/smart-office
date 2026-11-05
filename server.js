@@ -26,7 +26,7 @@ const EXT = require('./ext');
 const { all, get, run, tx, today, now, addDays } = D;
 
 const PORT = Number(process.env.PORT || 3000);
-const PUBLIC = path.join(__dirname, 'public');
+const PUBLIC = IS_WORKER ? '' : path.join(__dirname, 'public');
 const SESSION_DAYS = 7;
 /* Chạy sau Cloudflare (Tunnel/proxy): đặt TRUST_PROXY=1 để lấy IP thật của người dùng và nhận biết HTTPS.
  * PUBLIC_ORIGINS: danh sách địa chỉ công khai được phép gửi yêu cầu ghi dữ liệu, cách nhau bởi dấu phẩy,
