@@ -59,6 +59,11 @@ const chk = (label, cond, info = '') => { if (!cond) { FAILS++; console.log('SAI
   const wp = r.body && r.body.id; r = wp ? await call('GET', `/api/projects/${wp}/fields`) : r;
   console.log('work-template', r.status, r.body && r.body.fields ? r.body.fields.length : -1); chk('tạo dự án từ mẫu', r.status === 200 && r.body.fields.length === 3);
   r = wp ? await call('POST', `/api/projects/${wp}/posts`, { title: 'Thảo luận', body: 'Nội dung' }) : r; console.log('work-post', r.status);
+  /* P0-9: xuất bản sao lưu chạy được trên lõi Cloudflare */
+  r = await call('GET', '/api/admin/export/manifest'); console.log('backup-manifest', r.status, r.body.tables ? r.body.tables.length : -1, r.body.files ? r.body.files.length : -1);
+  chk('danh mục sao lưu', r.status === 200 && r.body.tables.length > 60 && r.body.files.length === 1, r.status);
+  if (r.status === 200) { const t = r.body.tables.find(x => x.name === 'users'); const p = await call('GET', `/api/admin/export/rows?table=users&after=0&max=${t.max_rowid}`); chk('xuất bảng users', p.status === 200 && p.body.rows.length === t.rows, p.status);
+    const f = r.body.files[0], c = await call('GET', `/api/admin/export/file?name=${f.name}&seq=2`); chk('xuất khối tệp thứ 3', c.status === 200 && Buffer.from(c.body.data, 'base64').length === f.size - 2 * 1048576, c.status); }
   // Durable Object được khởi tạo lại trong cùng isolate: storage cũ không còn dùng được
   st1.kill();
   app = core.createApp(fakeStorage(DBF), demo ? { SO_DEMO: '1' } : { ADMIN_PASSWORD: 'Thu-Nghiem#2026' });

@@ -588,10 +588,36 @@ VIEWS['quan-tri'] = async main => {
   } else if (adminTab === 'hrset') {
     main.innerHTML = head + window.SO_HR.hrSettingsHtml(B.settings);
   } else {
-    main.innerHTML = head + `<section class="card"><div class="card-b stack" style="gap:12px">
-      <p style="margin:0">Tải về bản sao toàn bộ cơ sở dữ liệu tại thời điểm hiện tại (tệp <span class="mono">.db</span>). Đề nghị sao lưu định kỳ hằng tuần và lưu bản sao ở thiết bị khác.</p>
-      <div><a class="btn primary" href="/api/admin/backup">Tải bản sao lưu</a></div>
-      <p class="hint" style="margin:0">Khôi phục: dừng máy chủ, đổi tên tệp sao lưu thành <span class="mono">smartoffice.db</span> và chép đè vào thư mục <span class="mono">data</span> của ứng dụng, sau đó khởi động lại.</p></div></section>`;
+    const cf = B.runtime === 'cloudflare';
+    main.innerHTML = head + `<div class="stack" style="gap:14px"><p class="notice warn" role="note"><b>Lưu ý:</b> ${cf ? 'xóa Worker <span class="mono">smart-office</span> trên Cloudflare là <b>mất toàn bộ dữ liệu</b>; khôi phục theo thời điểm không cứu được trường hợp này.' : 'mất thư mục dữ liệu là mất toàn bộ dữ liệu.'} Đề nghị tải bản sao lưu đầy đủ tối thiểu hằng tuần và lưu ở nơi khác (ổ mạng, ổ cứng ngoài).</p>
+    <section class="card"><div class="card-h"><h2>1. Tải bản sao lưu đầy đủ</h2></div><div class="card-b stack" style="gap:10px">
+      <p style="margin:0">Tệp <span class="mono">.json.gz</span> gồm toàn bộ dữ liệu và tệp đính kèm, dùng được cho cả bản cài trên máy chủ và bản Cloudflare. Phiên đăng nhập không được sao lưu. Nên tải vào lúc ít người sử dụng để dữ liệu nhất quán.</p>
+      <div class="actions"><button class="btn primary" data-act="bk-export">Tải bản sao lưu đầy đủ</button>${cf ? '' : '<a class="btn" href="/api/admin/backup">Tải tệp cơ sở dữ liệu (.db)</a>'}</div>
+      <div id="bk-prog" class="hint" aria-live="polite"></div></div></section>
+    <section class="card"><div class="card-h"><h2>2. Khôi phục từ tệp sao lưu</h2></div><div class="card-b stack" style="gap:10px">
+      <p style="margin:0">Thay thế <b>toàn bộ</b> dữ liệu hiện có bằng dữ liệu trong tệp. Mọi người dùng bị đăng xuất và đăng nhập lại bằng tài khoản, mật khẩu trong bản sao lưu. Nếu có lỗi, dữ liệu giữ nguyên như trước.${cf ? ' Hệ thống ghi lại mã thời điểm ngay trước khi khôi phục để có thể hoàn tác (mục 3).' : ' Trên bản cài máy chủ, hãy tải tệp .db trước khi khôi phục.'}</p>
+      <div class="field"><label for="bk-file">Tệp sao lưu (.json.gz hoặc .json)</label><input type="file" id="bk-file" accept=".gz,.json,application/json,application/gzip"></div>
+      <div id="bk-sum" class="hint"></div>
+      <div class="field"><label for="bk-cf">Gõ <b>KHÔI PHỤC</b> để xác nhận</label><input id="bk-cf" autocomplete="off"></div>
+      <div class="actions"><button class="btn danger" data-act="bk-restore">Khôi phục dữ liệu</button></div><div id="bk-res" aria-live="polite"></div><p class="err" id="bk-err" hidden></p></div></section>
+    ${cf ? `<section class="card"><div class="card-h"><h2>3. Khôi phục theo thời điểm (30 ngày gần nhất)</h2></div><div class="card-b stack" style="gap:10px">
+      <p style="margin:0">Durable Objects lưu nhật ký thay đổi 30 ngày. Mã thời điểm (bookmark) đại diện cho trạng thái dữ liệu tại một thời điểm. Khôi phục về một mã sẽ trả lại mã của trạng thái ngay trước khi khôi phục để có thể hoàn tác. <b>Ghi lại mã này.</b></p>
+      <div class="actions"><button class="btn" data-act="pitr-cur">Lấy mã thời điểm hiện tại</button></div>
+      <div class="form"><div class="field"><label for="pitr-at">Thời điểm cần khôi phục (giờ Việt Nam)</label><input type="datetime-local" id="pitr-at"></div><div class="field"><span class="lbl">&nbsp;</span><button class="btn" data-act="pitr-get">Lấy mã của thời điểm này</button></div>
+      <div class="field full"><label for="pitr-bm">Mã thời điểm sẽ khôi phục về</label><input id="pitr-bm" class="mono" autocomplete="off"></div>
+      <div class="field"><label for="pitr-cf">Gõ <b>KHÔI PHỤC</b> để xác nhận</label><input id="pitr-cf" autocomplete="off"></div><div class="field"><span class="lbl">&nbsp;</span><button class="btn danger" data-act="pitr-restore">Khôi phục về mã này</button></div></div>
+      <div id="pitr-res" aria-live="polite"></div><p class="err" id="pitr-err" hidden></p></div></section>` : ''}</div>`;
+    let BK = null;
+    $('#bk-file').addEventListener('change', async e => {
+      const f = e.target.files[0]; BK = null; $('#bk-sum').textContent = ''; if (!f) return;
+      try {
+        const txt = /\.gz$/i.test(f.name) ? await new Response(f.stream().pipeThrough(new DecompressionStream('gzip'))).text() : await f.text();
+        const d = JSON.parse(txt); if (!d.manifest || d.manifest.format !== 'smartoffice-backup') throw new Error('Không phải tệp sao lưu SmartOffice.');
+        BK = d; const m = d.manifest, rows = m.tables.reduce((a, t) => a + t.rows, 0), usersN = (m.tables.find(t => t.name === 'users') || {}).rows || 0;
+        $('#bk-sum').innerHTML = `Bản sao lưu của <b>${esc(m.org_name)}</b> lập lúc <b>${esc(fmtDT(m.created_at))}</b> (${m.runtime === 'cloudflare' ? 'Cloudflare' : 'máy chủ'}): ${m.tables.length} bảng, ${rows.toLocaleString('vi-VN')} dòng, ${usersN} tài khoản, ${m.files.length} tệp đính kèm.`;
+      } catch (er) { showErr('#bk-err', 'Không đọc được tệp: ' + er.message); }
+    });
+    main._bk = () => BK;
   }
 };
 function userForm(u) {
@@ -709,6 +735,42 @@ const ACTIONS = {
   'new-cycle': () => cycleForm(),
   'new-user': () => userForm(null),
   'import-users': () => importForm(),
+  'bk-export': btn => busy(btn, async () => {
+    const pr = t => { $('#bk-prog').textContent = t; };
+    try {
+      const m = await GET('/api/admin/export/manifest'), out = { manifest: m, tables: {}, files: {} }; let n = 0;
+      for (const t of m.tables) {
+        const d = { columns: t.columns, rows: [] }; let after = 0;
+        while (t.rows) { const p = await GET(`/api/admin/export/rows?table=${encodeURIComponent(t.name)}&after=${after}&max=${t.max_rowid}`); d.rows.push(...p.rows); if (p.next == null) break; after = p.next; }
+        out.tables[t.name] = d; pr(`Đang xuất bảng ${++n}/${m.tables.length}…`);
+      }
+      let k = 0; for (const f of m.files) { out.files[f.name] = []; for (let i = 0; i < f.chunks; i++) out.files[f.name].push((await GET(`/api/admin/export/file?name=${f.name}&seq=${i}`)).data); pr(`Đang xuất tệp đính kèm ${++k}/${m.files.length}…`); }
+      let blob = new Blob([JSON.stringify(out)], { type: 'application/json' }), ext = 'json';
+      if (window.CompressionStream) { blob = await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob(); ext = 'json.gz'; }
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `smartoffice-sao-luu-${m.created_at.slice(0, 16).replace(/[: ]/g, '-')}.${ext}`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      pr(`Đã tạo bản sao lưu: ${m.tables.length} bảng, ${m.tables.reduce((x, t) => x + t.rows, 0).toLocaleString('vi-VN')} dòng, ${m.files.length} tệp đính kèm, ${(blob.size / 1048576).toLocaleString('vi-VN', { maximumFractionDigits: 1 })} MB.`);
+      toast('Đã tải bản sao lưu');
+    } catch (e) { pr(''); toast(e.message, true); }
+  }),
+  'bk-restore': btn => busy(btn, async () => {
+    const BK = $('#main')._bk && $('#main')._bk(); $('#bk-err').hidden = true;
+    if (!BK) return showErr('#bk-err', 'Vui lòng chọn tệp sao lưu.');
+    if ($('#bk-cf').value.trim() !== 'KHÔI PHỤC') return showErr('#bk-err', 'Vui lòng gõ đúng KHÔI PHỤC để xác nhận.');
+    try {
+      let i = 0; const names = Object.keys(BK.files || {});
+      for (const name of names) { const ch = BK.files[name]; for (let s = 0; s < ch.length; s++) await POST('/api/admin/restore/file', { name, seq: s, data: ch[s] }); $('#bk-res').textContent = `Đang nạp tệp đính kèm ${++i}/${names.length}…`; }
+      $('#bk-res').textContent = 'Đang khôi phục dữ liệu…';
+      const r = await POST('/api/admin/restore', { manifest: BK.manifest, tables: BK.tables, confirm: 'KHÔI PHỤC' });
+      $('#bk-res').innerHTML = `<p class="notice ok"><b>Đã khôi phục ${r.rows.toLocaleString('vi-VN')} dòng.</b> Mọi người dùng đã bị đăng xuất.${r.undo_bookmark ? `<br>Mã hoàn tác (trạng thái ngay trước khi khôi phục), hãy ghi lại: <span class="mono">${esc(r.undo_bookmark)}</span>` : ''}</p><button class="btn primary" data-act="logout">Đăng nhập lại</button>`;
+    } catch (e) { $('#bk-res').textContent = ''; showErr('#bk-err', e); }
+  }),
+  'pitr-cur': btn => busy(btn, async () => { try { const r = await GET('/api/admin/pitr'); $('#pitr-res').innerHTML = `<p class="notice">Mã thời điểm hiện tại (${esc(fmtDT(new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 19).replace('T', ' ')))}): <span class="mono">${esc(r.current)}</span></p>`; } catch (e) { showErr('#pitr-err', e); } }),
+  'pitr-get': btn => busy(btn, async () => { const v = $('#pitr-at').value; if (!v) return showErr('#pitr-err', 'Vui lòng chọn thời điểm.');
+    try { const r = await GET('/api/admin/pitr?at=' + encodeURIComponent(v + ':00+07:00')); $('#pitr-bm').value = r.bookmark; $('#pitr-res').innerHTML = `<p class="notice">Mã của thời điểm ${esc(v.replace('T', ' '))}: <span class="mono">${esc(r.bookmark)}</span><br>Mã hiện tại (dùng để hoàn tác nếu cần): <span class="mono">${esc(r.current)}</span></p>`; } catch (e) { showErr('#pitr-err', e); } }),
+  'pitr-restore': btn => busy(btn, async () => { $('#pitr-err').hidden = true;
+    if ($('#pitr-cf').value.trim() !== 'KHÔI PHỤC') return showErr('#pitr-err', 'Vui lòng gõ đúng KHÔI PHỤC để xác nhận.');
+    try { const r = await POST('/api/admin/pitr/restore', { bookmark: $('#pitr-bm').value.trim(), confirm: 'KHÔI PHỤC' });
+      $('#pitr-res').innerHTML = `<p class="notice ok"><b>Đã đặt lệnh khôi phục.</b> Hệ thống khởi động lại sau vài giây. Mã hoàn tác (trạng thái ngay trước khi khôi phục), hãy ghi lại: <span class="mono">${esc(r.undo_bookmark)}</span></p><button class="btn primary" data-act="logout">Tải lại và đăng nhập</button>`; } catch (e) { showErr('#pitr-err', e); } }),
   'new-dept': () => deptForm(null),
   'change-pw': () => passwordModal(false),
   'save-settings': btn => busy(btn, async () => {

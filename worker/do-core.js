@@ -11,8 +11,10 @@ const { makeSql } = require('./sqlite-shim.js');
 
 let APP = null;
 let CURRENT_STORAGE = null; // storage của Durable Object đang phục vụ; cập nhật ở mỗi yêu cầu
-function createApp(storage, env = {}) {
-  CURRENT_STORAGE = storage;
+let CURRENT_CTX = null; // ctx của Durable Object đang phục vụ (PITR: bookmark, abort); cập nhật ở mỗi yêu cầu, không giữ cố định
+function createApp(storage, env = {}, ctx = null) {
+  CURRENT_STORAGE = storage; CURRENT_CTX = ctx;
+  globalThis.__SO_CTX = () => CURRENT_CTX;
   if (APP) return APP;
   process.env.TRUST_PROXY = '1';
   process.env.NO_DEMO = env.SO_DEMO === '1' ? '' : '1';

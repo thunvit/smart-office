@@ -1,16 +1,18 @@
 /* Kiểm thử giao diện phân hệ Công việc – Dự án bằng Playwright (chỉ chạy cục bộ, không thuộc mã chạy, không đưa vào CI).
  * Yêu cầu: máy chủ Node với DATA_DIR rỗng (dữ liệu mẫu, mật khẩu mẫu 123456 chỉ dùng cục bộ) tại cổng 3999.
  *   DATA_DIR=$(mktemp -d) PORT=3999 node server.js &  ;  node test/work-ui.js <thư-mục-lưu-ảnh>
+ * Ghi chú: hộp thoại tự đặt tiêu điểm vào ô đầu tiên sau 30 ms (openModal), nên kiểm thử chờ 150 ms sau khi hộp thoại hiện rồi mới nhập.
  * 30 điều kiện: tạo dự án, nhóm, thiết lập, giao việc, việc con, đầu việc, kết quả, Kanban, Gantt, báo cáo,
  * điện thoại 390 px chế độ tối, đánh giá, chặn người ngoài dự án; không có lỗi JavaScript. */
 const { chromium } = require('playwright');
 const SP = process.argv[2], BASE = 'http://localhost:3999';
+let CUR = null;
 (async () => {
   const br = await chromium.launch(); const errs = []; let fails = 0;
   const ok = (c, m) => { console.log((c ? 'ĐẠT ' : 'LỖI ') + m); if (!c) fails++; };
   async function session(user, width, scheme) {
     const ctx = await br.newContext({ viewport: { width, height: 900 }, colorScheme: scheme });
-    const pg = await ctx.newPage();
+    const pg = await ctx.newPage(); CUR = pg;
     pg.on('console', m => { if (m.type() === 'error' && !/ERR_TUNNEL_CONNECTION_FAILED|status of 401|status of 403/.test(m.text())) errs.push(user + ': ' + m.text()); });
     pg.on('pageerror', e => errs.push(user + ' pageerror: ' + e.message));
     await pg.goto(BASE + '/');
@@ -33,7 +35,7 @@ const SP = process.argv[2], BASE = 'http://localhost:3999';
   await pg.click('[data-act="np-save"]'); await pg.waitForSelector('.w-ph:has-text("Dự án kiểm thử giao diện")');
   ok(/p=\d+/.test(pg.url()), 'Tạo dự án và mở chi tiết: ' + pg.url().split('#')[1]);
   // Thêm nhóm
-  await pg.click('[data-wv="settings"]'); await pg.waitForSelector('.w-setnav'); await pg.click('.w-setnav a:has-text("Nhóm công việc")'); await pg.waitForSelector('#pg-n');
+  await pg.click('[data-wv="settings"]'); await pg.waitForSelector('.w-setnav'); await pg.click('.w-setnav a:has-text("Nhóm công việc")'); await pg.waitForSelector('#pg-n'); await pg.waitForTimeout(150);
   await pg.fill('#pg-n', 'Khảo sát'); await pg.fill('#pg-h', '4'); await pg.click('[data-act="w-gadd"]');
   await pg.waitForSelector('td b:has-text("Khảo sát")'); ok(true, 'Thêm nhóm công việc');
   // Bật đánh giá
@@ -46,11 +48,11 @@ const SP = process.argv[2], BASE = 'http://localhost:3999';
   const qa = pg.locator('[data-wqadd]').first(); await qa.fill('Khảo sát hiện trạng hạ tầng'); await qa.press('Enter');
   await pg.waitForSelector('.t-title:has-text("Khảo sát hiện trạng hạ tầng")'); ok(true, 'Thêm nhanh công việc bằng Enter');
   // Tạo việc giao cho Huy
-  await pg.click('[data-act="w-new-task"]'); await pg.waitForSelector('#nt-t');
+  await pg.click('[data-act="w-new-task"]'); await pg.waitForSelector('#nt-t'); await pg.waitForTimeout(150);
   await pg.fill('#nt-t', 'Lập báo cáo khảo sát'); await pg.selectOption('#nt-a', { label: /Đỗ Quang Huy/ }).catch(async () => { const v = await pg.$eval('#nt-a', s => [...s.options].find(o => o.text.includes('Đỗ Quang Huy')).value); await pg.selectOption('#nt-a', v); });
   await pg.click('[data-act="nt-save"]'); await pg.waitForSelector('.t-title:has-text("Lập báo cáo khảo sát")'); ok(true, 'Giao việc cho thành viên');
   // Tạo công việc đầy đủ: nhãn, mục tiêu, tệp đính kèm, tài liệu từ kho
-  await pg.click('[data-act="w-new-task"]'); await pg.waitForSelector('#nt-t');
+  await pg.click('[data-act="w-new-task"]'); await pg.waitForSelector('#nt-t'); await pg.waitForTimeout(150);
   await pg.fill('#nt-t', 'Lập hồ sơ thiết kế hạ tầng'); await pg.fill('#nt-tags', 'Hạ tầng, Hồ sơ');
   const goalN = await pg.$$eval('#nt-goal option', o => o.length); ok(goalN > 1, 'Hộp chọn mục tiêu có dữ liệu (' + (goalN - 1) + ' mục tiêu)');
   await pg.selectOption('#nt-goal', { index: 1 });
@@ -105,7 +107,7 @@ const SP = process.argv[2], BASE = 'http://localhost:3999';
   ok(await pg.locator('.w-cal-c').count() === 42 && await pg.locator('.w-cal-t').count() >= 1, 'Chế độ xem Lịch tháng có công việc');
   // Lặp lại
   await pg.click('[data-wv="recur"]'); await pg.waitForSelector('[data-act="w-recnew"]');
-  await pg.click('[data-act="w-recnew"]'); await pg.waitForSelector('#rc-t'); await pg.fill('#rc-t', 'Báo cáo tuần'); await pg.selectOption('#rc-f', 'month');
+  await pg.click('[data-act="w-recnew"]'); await pg.waitForSelector('#rc-t'); await pg.waitForTimeout(150); await pg.fill('#rc-t', 'Báo cáo tuần'); await pg.selectOption('#rc-f', 'month');
   await pg.fill('#rc-md', '15'); await pg.check('#rc-last'); await pg.click('[data-act="rc-prev"]'); await pg.waitForFunction(() => document.querySelector('#rc-out').textContent.length > 5);
   ok((await pg.textContent('#rc-out')).split('·').length === 10, 'Xem trước 10 lần lặp: ' + (await pg.textContent('#rc-out')).slice(0, 40) + '…');
   await pg.click('[data-act="rc-save"]'); await pg.waitForSelector('td:has-text("Hằng tháng: ngày 15, cuối tháng")'); ok(true, 'Tạo công việc lặp lại hằng tháng');
@@ -118,7 +120,7 @@ const SP = process.argv[2], BASE = 'http://localhost:3999';
   await pg.fill('#tk-cm', 'Đề nghị hoàn thành trong tuần'); await pg.press('#tk-cm', 'Enter'); await pg.waitForSelector('.cmt p:has-text("Đề nghị hoàn thành")'); ok(true, 'Gửi trao đổi');
   await pg.click('[data-act="tk-st"][data-s="doing"]'); await pg.waitForSelector('.w-status .s-doing'); ok(true, 'Bắt đầu thực hiện');
   await pg.fill('#tk-rn', 'Đã khảo sát 50%'); await pg.fill('#tk-rp', '50'); await pg.click('[data-act="tk-res"]'); await pg.waitForSelector('.cmt .tag:has-text("50%")'); ok(true, 'Cập nhật kết quả 50%');
-  await pg.click('[data-act="tk-sub"]'); await pg.waitForSelector('#nt-t'); await pg.fill('#nt-t', 'Việc con: đo băng thông'); await pg.click('[data-act="nt-save"]');
+  await pg.click('[data-act="tk-sub"]'); await pg.waitForSelector('#nt-t'); await pg.waitForTimeout(150); await pg.fill('#nt-t', 'Việc con: đo băng thông'); await pg.click('[data-act="nt-save"]');
   await pg.waitForSelector('#modal td:has-text("đo băng thông")'); ok(true, 'Tạo việc con, quay lại chi tiết việc cha có việc con');
   await pg.screenshot({ path: SP + '/ui-4-task.png' });
   await pg.click('#modal .modal-f [data-act="close"]'); await pg.waitForTimeout(500);
@@ -159,4 +161,4 @@ const SP = process.argv[2], BASE = 'http://localhost:3999';
   await ctx.close(); await br.close();
   console.log('Lỗi console:', errs.length ? errs : 'không có'); console.log(fails ? `KẾT QUẢ: ${fails} LỖI` : 'KẾT QUẢ: TẤT CẢ ĐẠT');
   process.exit(fails || errs.length ? 1 : 0);
-})().catch(async e => { console.error('NGOẠI LỆ', e.message.split('\n').slice(0,6).join(' | ')); process.exit(2); });
+})().catch(async e => { console.error('NGOẠI LỆ', e.message.split('\n').slice(0,6).join(' | ')); if (CUR) { await CUR.screenshot({ path: SP + '/ui-loi.png', fullPage: true }).catch(() => 0); console.error('URL: ' + CUR.url() + ' | MAIN: ' + (await CUR.locator('#main').innerText().catch(() => '')).slice(0, 300).replace(/\n/g, ' / ')); } process.exit(2); });

@@ -244,6 +244,9 @@ table.tbl{width:100%;border-collapse:collapse;min-width:720px}
 .kv dd{margin:0;min-width:0;white-space:pre-wrap}
 .notice{font-size:12.5px;color:var(--muted);border-left:3px solid var(--warn);background:var(--warn-weak);padding:8px 12px;border-radius:0 6px 6px 0;margin:0}
 .notice.info{border-color:var(--info);background:var(--info-weak)}
+.notice.ok{border-color:var(--ok);background:var(--ok-weak);color:var(--fg)}
+.notice.warn{color:var(--fg)}
+.notice .mono{word-break:break-all}
 .step-edit{display:grid;grid-template-columns:28px minmax(0,1.6fr) minmax(0,1fr) 80px auto;gap:8px;align-items:center}
 .step-edit input,.step-edit select{border:1px solid var(--line-strong);background:var(--surface);border-radius:7px;padding:7px 9px;width:100%;min-width:0}
 .step-edit .n{font-weight:600;color:var(--muted);text-align:center}

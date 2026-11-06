@@ -14,7 +14,11 @@ const CHUNK = 1024 * 1024;
 const FILES = D.IS_WORKER ? {
   put(name, buf) { tx(() => { for (let i = 0, k = 0; i < buf.length; i += CHUNK, k++) run('INSERT INTO file_chunks(stored_name,seq,data) VALUES(?,?,?)', name, k, buf.subarray(i, i + CHUNK)); }); },
   read(name) { const rows = all('SELECT data FROM file_chunks WHERE stored_name=? ORDER BY seq', name); return rows.length ? Buffer.concat(rows.map(r => Buffer.from(r.data))) : null; },
-  del(name) { run('DELETE FROM file_chunks WHERE stored_name=?', name); }
+  del(name) { run('DELETE FROM file_chunks WHERE stored_name=?', name); },
+  /* Sao lưu, khôi phục (P0-9): liệt kê, đọc và ghi theo khối 1 MB */
+  list() { return all('SELECT stored_name name, COUNT(*) chunks, SUM(length(data)) size FROM file_chunks GROUP BY stored_name ORDER BY stored_name'); },
+  chunk(name, seq) { const r = D.get('SELECT data FROM file_chunks WHERE stored_name=? AND seq=?', name, seq); return r ? Buffer.from(r.data) : null; },
+  writeChunk(name, seq, buf) { run('INSERT INTO file_chunks(stored_name,seq,data) VALUES(?,?,?) ON CONFLICT(stored_name,seq) DO UPDATE SET data=excluded.data', name, seq, buf); }
 } : (() => {
   const fs = require('fs');
   const FILE_DIR = path.join(path.dirname(D.DB_FILE), 'files');
@@ -22,7 +26,10 @@ const FILES = D.IS_WORKER ? {
   return {
     put(name, buf) { fs.writeFileSync(path.join(FILE_DIR, name), buf); },
     read(name) { const f = path.join(FILE_DIR, name); return fs.existsSync(f) ? fs.readFileSync(f) : null; },
-    del(name) { fs.unlink(path.join(FILE_DIR, name), () => {}); }
+    del(name) { fs.unlink(path.join(FILE_DIR, name), () => {}); },
+    list() { return fs.readdirSync(FILE_DIR).filter(n => /^[0-9a-f]{32}[.\w]*$/.test(n)).sort().map(n => { const size = fs.statSync(path.join(FILE_DIR, n)).size; return { name: n, size, chunks: Math.max(1, Math.ceil(size / CHUNK)) }; }); },
+    chunk(name, seq) { const f = path.join(FILE_DIR, name); if (!fs.existsSync(f)) return null; const fd = fs.openSync(f, 'r'); try { const b = Buffer.alloc(CHUNK); const n = fs.readSync(fd, b, 0, CHUNK, seq * CHUNK); return b.subarray(0, n); } finally { fs.closeSync(fd); } },
+    writeChunk(name, seq, buf) { const f = path.join(FILE_DIR, name); const fd = fs.openSync(f, fs.existsSync(f) ? 'r+' : 'w'); try { fs.writeSync(fd, buf, 0, buf.length, seq * CHUNK); } finally { fs.closeSync(fd); } }
   };
 })();
 
@@ -53,4 +60,4 @@ function sendFile(res, buf, fileName, mime) {
   res.end(buf);
 }
 
-module.exports = { FILES, saveUpload, sendFile, BLOCKED };
+module.exports = { FILES, saveUpload, sendFile, BLOCKED, CHUNK };

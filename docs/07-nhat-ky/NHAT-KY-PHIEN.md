@@ -185,6 +185,22 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Hộp thoại "Nhập danh sách người dùng" hiển thị 7 cột, nhận .xlsx.
 - **Chưa kiểm chứng trên Cloudflare thật:** khóa đăng nhập, thu hồi phiên, ép đổi mật khẩu. Không thử bằng đăng nhập sai trên hệ thống thật; các chức năng này mới kiểm thử cục bộ/mô phỏng.
 
+## 06/11/2026 (20:19–21:40). P0-9 sao lưu, khôi phục (so-1.10.0)
+- **Yêu cầu của chủ sở hữu:** làm tiếp P0-9 trước khi nhập 91 tài khoản.
+- **Căn cứ:** tài liệu Cloudflare về PITR của Durable Objects (`getCurrentBookmark`, `getBookmarkForTime`, `onNextSessionRestoreBookmark`, `ctx.abort`; 30 ngày; không hỗ trợ cục bộ).
+- **Việc đã làm (nhánh `tinh-nang/sao-luu-p0-9`; ADR-009):**
+  - `backup.js`: xuất chia trang, khôi phục trong một giao dịch, PITR.
+  - `files.js`: duyệt và ghi tệp theo khối cho cả Node và Cloudflare.
+  - `worker/do-core.js` và `worker/index.js`: truyền `ctx` theo từng yêu cầu.
+  - Giao diện Quản trị › Sao lưu dữ liệu.
+  - Thông báo cũ trên Cloudflare (không có `.db`) chỉ sang chức năng mới.
+- **Kiểm thử:**
+  - `backup-test` 45/0: DO A xuất (chia trang nhỏ), DO B mới khôi phục; so sánh trực tiếp 70 bảng kể cả `file_chunks` đều trùng khớp. Đã làm sai thử một dòng để xác nhận phép so sánh phát hiện được. Các ca lỗi khóa ngoại, thiếu dòng đều hoàn tác toàn bộ. PITR kiểm tra bằng `ctx` giả lập.
+  - `backup-ui` 18/0 trên bản Node (tệp trên đĩa), ba lần liên tiếp. Một lần trước đó dừng giữa chừng, nhiều khả năng do cổng máy chủ chưa giải phóng.
+  - Trong lúc viết kiểm thử phát hiện 2 lỗi kịch bản: dữ liệu thử nén quá nhỏ, và phép đếm tài liệu so `undefined` với `undefined` nên đạt giả. Đã sửa.
+- **`work-ui` không ổn định:** trên mã mới lỗi 2/3 lần, bản `6ef65f4` đạt 3/3. Ảnh chụp lúc lỗi cho thấy số "15" bị gõ vào ô tiêu đề ("Báo cáo tuần15"), vì hộp thoại tự đặt tiêu điểm sau 30 ms trong lúc kịch bản đang gõ. Đây là lỗi thời gian của kịch bản. Đã thêm chờ 150 ms sau khi mở hộp thoại (5 vị trí) và chụp màn hình khi có ngoại lệ; sau đó đạt 4/4.
+- **Chưa làm:** xuất định kỳ ra R2 (cần chủ sở hữu tạo bucket); diễn tập PITR và khôi phục từ tệp trên Cloudflare thật.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
 2. **Các việc P0 theo báo cáo rà soát:**

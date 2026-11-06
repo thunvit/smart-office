@@ -149,6 +149,7 @@ route('GET', '/api/bootstrap', ({ user }) => {
   return {
     me: publicUser(user),
     settings: s,
+    runtime: IS_WORKER ? 'cloudflare' : 'node',
     users: all('SELECT id, full_name, title, dept_id, color, role, active FROM users ORDER BY full_name'),
     departments: all('SELECT id, name, head_id FROM departments ORDER BY sort, id'),
     projects: (isAdmin(user) || isDirector(user)) ? all('SELECT id, name, color, owner_id, kind, status FROM projects ORDER BY status=\'closed\', name')
@@ -625,7 +626,7 @@ route('PUT', '/api/admin/settings', ({ body }) => {
   return D.getSettings();
 }, { admin: true });
 route('GET', '/api/admin/backup', ({ res }) => {
-  if (IS_WORKER) bad('Trên Cloudflare, dữ liệu được Durable Objects sao lưu tự động và có thể khôi phục về thời điểm bất kỳ trong 30 ngày gần nhất. Liên hệ đơn vị cung cấp dịch vụ khi cần khôi phục.');
+  if (IS_WORKER) bad('Trên Cloudflare không có tệp .db. Dùng Quản trị › Sao lưu dữ liệu › Tải bản sao lưu đầy đủ (.json.gz), hoặc khôi phục theo thời điểm trong 30 ngày.');
   const f = path.join(path.dirname(D.DB_FILE), `sao-luu-${today()}-${Date.now()}.db`);
   D.db.exec(`VACUUM INTO '${f.replace(/'/g, "''")}'`);
   res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Disposition': `attachment; filename="smartoffice-sao-luu-${today()}.db"` });
@@ -660,6 +661,7 @@ HR2API = HR2.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector,
 EXTAPI = EXT.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate });
 WORKAPI = WORK.register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc, str, int, isDate });
 BIZAPI = BIZ.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate });
+require('./backup').register({ route, bad, str, int, secLog, clientIp, cookieAttrs });
 
 /* ================= Máy chủ HTTP ================= */
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
@@ -726,7 +728,7 @@ async function handle(req, res) {
     if (user && user.must_change_pw && !rt.public && !MUST_CHANGE_OK.has(url.pathname)) forbid('Vui lòng đổi mật khẩu lần đầu trước khi sử dụng hệ thống.');
     if (rt.admin && !isAdmin(user)) forbid('Chức năng dành cho quản trị viên.');
     const params = {}; rt.keys.forEach((k, i) => params[k] = decodeURIComponent(m[i + 1]));
-    const body = ['POST', 'PUT', 'DELETE'].includes(req.method) ? await readBody(req, (url.pathname.startsWith('/api/docs') ? 30e6 : /^\/api\/(tasks\/\d+\/(files|results)|projects\/\d+\/(files|import))$/.test(url.pathname) ? 15e6 : 5e6)) : {};
+    const body = ['POST', 'PUT', 'DELETE'].includes(req.method) ? await readBody(req, (url.pathname.startsWith('/api/docs') || url.pathname === '/api/admin/restore' ? 30e6 : /^\/api\/(tasks\/\d+\/(files|results)|projects\/\d+\/(files|import))$/.test(url.pathname) ? 15e6 : 5e6)) : {};
     const result = await rt.handler({ req, res, user, params, body, query: Object.fromEntries(url.searchParams) });
     if (!rt.raw) json(200, result === undefined ? { ok: true } : result);
   } catch (e) {

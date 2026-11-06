@@ -94,13 +94,14 @@ Mọi thay đổi phải đáp ứng ba tiêu chuẩn và danh mục kiểm tra 
 
 Chạy và xác nhận đạt toàn bộ:
 1. `for f in *.js public/*.js worker/*.js test/*.js; do node --check "$f"; done`
-2. `node test/worker-smoke.js`: phải có `KẾT QUẢ: đạt`, `download 200 true`, `re-instantiate 200`, `lockout persist 429`. Kịch bản trả mã thoát 1 khi có bước sai. Thêm điều kiện cho chức năng mới.
+2. `node test/worker-smoke.js`: phải có `KẾT QUẢ: đạt`, `download 200 true`, `re-instantiate 200`, `lockout persist 429`, `backup-manifest 200`. Kịch bản trả mã thoát 1 khi có bước sai. Thêm điều kiện cho chức năng mới.
 3. Khởi động bản Node với `DATA_DIR` tạm và gọi `/healthz`, `/api/login`.
 3a. `node test/work-test.js`: phải in `0 không đạt` (phân quyền và luồng trạng thái phân hệ Công việc – Dự án).
 3b. `node test/work-plan-test.js`: phải in `0 không đạt` (quy tắc công việc lặp lại theo các ví dụ của Base Wework).
 3c. `node test/work-ext-test.js`: phải in `0 không đạt` (trường tùy chỉnh, mẫu, nhân bản, nhập/xuất, báo cáo, tác vụ hàng loạt; ADR-007). `node test/worker-smoke.js` phải có thêm `work-template 200 3` và `work-post 200`.
 3d. Thay đổi giao diện phân hệ Công việc: chạy cục bộ `node test/work-ui.js` và `node test/work-ui-full.js` (Playwright, cần máy chủ Node cổng 3999 với `DATA_DIR` tạm).
 3e. `node test/auth-test.js`: phải in `0 không đạt` (xác thực theo mục 4.4: đăng nhập, khóa khi sai nhiều lần, đổi mật khẩu, thu hồi phiên, ép đổi mật khẩu lần đầu, phân quyền, nhật ký an ninh, mật khẩu ban đầu một lần; ADR-008).
+3f. `node test/backup-test.js`: phải in `0 không đạt` (xuất rồi khôi phục vào Durable Object mới trùng khớp từng dòng, từng byte; PITR với ctx giả lập; ADR-009). Thay đổi giao diện sao lưu: chạy cục bộ `node test/backup-ui.js` (hai máy chủ Node cổng 3999 và 3996).
 4. **Sửa lỗi:** mỗi lỗi phải kèm kiểm thử tái hiện. Kiểm thử đó phải báo lỗi trên mã cũ và đạt trên mã mới.
 5. **Giới hạn của bản mô phỏng:** `test/fake-do.js` chỉ mô phỏng Durable Object, không thay được Cloudflare thật. Sau khi triển khai, kiểm tra lại trên địa chỉ thật và ghi rõ kết quả.
 
@@ -109,7 +110,7 @@ Chạy và xác nhận đạt toàn bộ:
 1. **Đẩy mã lên nhánh `main` của `thunvit/smart-office` là triển khai thật**: Cloudflare Workers Builds tự triển khai Worker `smart-office` tại https://smart-office.thunv-it.workers.dev.
    - Không đẩy khi kiểm thử chưa đạt.
    - Thay đổi lớn làm trên nhánh riêng.
-2. **Không xóa Worker `smart-office`:** xóa Worker là mất toàn bộ cơ sở dữ liệu Durable Object. Đã xảy ra ngày 05/11/2026.
+2. **Không xóa Worker `smart-office`:** xóa Worker là mất toàn bộ cơ sở dữ liệu Durable Object, khôi phục theo thời điểm không cứu được. Đã xảy ra ngày 05/11/2026. Trước thay đổi lớn hoặc nhập dữ liệu hàng loạt, tải bản sao lưu đầy đủ (Quản trị › Sao lưu dữ liệu; ADR-009).
 3. **Không đổi tên lớp Durable Object hay sửa `migrations` trong `wrangler.jsonc`** khi chưa có kế hoạch chuyển dữ liệu được duyệt.
 4. **Thao tác trên trang quản trị Cloudflare hoặc GitHub làm thay đổi tài nguyên** (tạo, xóa, đổi cấu hình, cấp quyền): chỉ làm khi chủ sở hữu yêu cầu rõ. Thao tác xóa phải được xác nhận lại trước khi làm.
 5. **Commit:**

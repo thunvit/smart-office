@@ -26,6 +26,7 @@ jobs:
           node test/worker-smoke.js | tee out.txt
           grep -q "KẾT QUẢ: đạt" out.txt
           grep -q "lockout persist 429" out.txt
+          grep -q "backup-manifest 200" out.txt
           grep -q "download 200 true" out.txt
           grep -q "re-instantiate 200" out.txt
           grep -q "work-template 200 3" out.txt
@@ -47,3 +48,8 @@ jobs:
           set -o pipefail
           node test/auth-test.js | tee auth.txt
           grep -q "0 không đạt" auth.txt
+      - name: Kiểm thử sao lưu, khôi phục (xuất rồi khôi phục vào Durable Object mới phải trùng khớp; PITR với ctx giả lập)
+        run: |
+          set -o pipefail
+          node test/backup-test.js | tee backup.txt
+          grep -q "0 không đạt" backup.txt

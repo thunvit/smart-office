@@ -148,9 +148,23 @@ Quản trị viên thay đổi ngưỡng tiền, người duyệt tại **Quản
 
 ## VIII. SAO LƯU VÀ KHÔI PHỤC DỮ LIỆU
 
-- **Sao lưu:** Quản trị › Sao lưu dữ liệu › *Tải bản sao lưu*. Đề nghị thực hiện tối thiểu 01 lần/tuần và lưu bản sao ở thiết bị khác (ổ cứng ngoài, ổ mạng).
-- **Khôi phục:** dừng phần mềm; đổi tên tệp sao lưu thành `smartoffice.db`; chép đè vào thư mục `data`; khởi động lại.
-- **Tệp đính kèm** của phân hệ Tài liệu lưu riêng tại thư mục `data\files`; khi sao lưu cần chép kèm thư mục này.
+Vào **Quản trị › Sao lưu dữ liệu** (từ bản 1.10, áp dụng cho cả bản cài máy chủ và bản Cloudflare):
+
+1. **Tải bản sao lưu đầy đủ:**
+   - Tệp `.json.gz` gồm toàn bộ dữ liệu và tệp đính kèm, trừ phiên đăng nhập.
+   - Tải tối thiểu **hằng tuần**, vào lúc ít người dùng; lưu ở nơi khác có kiểm soát truy cập.
+   - Tệp chứa dữ liệu cá nhân và mã băm mật khẩu.
+   - Bản cài máy chủ có thêm nút tải tệp `.db`.
+2. **Khôi phục từ tệp sao lưu:**
+   - Chọn tệp, kiểm tra thông tin hiển thị (đơn vị, thời điểm, số bảng, số dòng, số tài khoản), gõ `KHÔI PHỤC`, bấm Khôi phục dữ liệu.
+   - Toàn bộ dữ liệu hiện có được thay bằng dữ liệu trong tệp. Mọi người dùng bị đăng xuất và đăng nhập lại bằng mật khẩu trong bản sao lưu.
+   - Nếu có lỗi, dữ liệu giữ nguyên.
+   - Trên Cloudflare, hệ thống hiện **mã hoàn tác**; hãy ghi lại.
+3. **Khôi phục theo thời điểm (chỉ Cloudflare, 30 ngày gần nhất):**
+   - Chọn thời điểm → Lấy mã → gõ `KHÔI PHỤC` → Khôi phục về mã này.
+   - Hệ thống khởi động lại sau vài giây và trả **mã hoàn tác** để quay lại trạng thái trước khi khôi phục.
+4. **Cảnh báo:** xóa Worker `smart-office` trên Cloudflare là **mất toàn bộ dữ liệu**; khôi phục theo thời điểm không cứu được. Khi đó chỉ còn cách khôi phục từ tệp sao lưu đã tải.
+5. **Bản cài máy chủ (cách cũ vẫn dùng được):** dừng phần mềm; đổi tên tệp `.db` thành `smartoffice.db`, chép đè vào thư mục `data` cùng thư mục `data\files`; khởi động lại.
 
 ---
 
