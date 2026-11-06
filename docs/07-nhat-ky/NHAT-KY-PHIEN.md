@@ -199,6 +199,11 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - `backup-ui` 18/0 trên bản Node (tệp trên đĩa), ba lần liên tiếp. Một lần trước đó dừng giữa chừng, nhiều khả năng do cổng máy chủ chưa giải phóng.
   - Trong lúc viết kiểm thử phát hiện 2 lỗi kịch bản: dữ liệu thử nén quá nhỏ, và phép đếm tài liệu so `undefined` với `undefined` nên đạt giả. Đã sửa.
 - **`work-ui` không ổn định:** trên mã mới lỗi 2/3 lần, bản `6ef65f4` đạt 3/3. Ảnh chụp lúc lỗi cho thấy số "15" bị gõ vào ô tiêu đề ("Báo cáo tuần15"), vì hộp thoại tự đặt tiêu điểm sau 30 ms trong lúc kịch bản đang gõ. Đây là lỗi thời gian của kịch bản. Đã thêm chờ 150 ms sau khi mở hộp thoại (5 vị trí) và chụp màn hình khi có ngoại lệ; sau đó đạt 4/4.
+- **Lỗi chỉ xuất hiện trên Cloudflare thật (sau khi triển khai `316828f`):**
+  - Hiện tượng: `/api/admin/export/manifest` trả 500.
+  - Chẩn đoán: thay vì bật `SO_DEBUG` toàn hệ thống, tôi triển khai `1ef3e6d`, cho các API sao lưu (chỉ quản trị) trả nội dung lỗi dạng 400. Nội dung lỗi: "too many terms in compound SELECT". Durable Object giới hạn số vế của câu `UNION ALL`; bản đầu ghép 70 bảng trong một câu.
+  - Cách sửa: mỗi bảng một truy vấn đếm. `test/fake-do.js` bổ sung giới hạn 5 vế; kiểm thử Cloudflare mô phỏng báo lỗi trên mã cũ và đạt trên mã mới.
+  - Bổ sung `GET /api/admin/restore/check`: kiểm tra Durable Object có cho hoãn kiểm tra khóa ngoại trong giao dịch hay không. Kiểm tra này không ghi dữ liệu (giao dịch luôn hoàn tác).
 - **Chưa làm:** xuất định kỳ ra R2 (cần chủ sở hữu tạo bucket); diễn tập PITR và khôi phục từ tệp trên Cloudflare thật.
 
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)

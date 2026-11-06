@@ -31,7 +31,9 @@
    - Phản hồi trả mã hoàn tác.
    - `worker/do-core.js` cập nhật `ctx` ở mỗi yêu cầu qua hàm `globalThis.__SO_CTX()`, không giữ cố định (CLAUDE.md 3.3).
 5. **Ghi nhật ký an ninh:** `backup_export`, `backup_restore`, `pitr_restore`.
-6. **Giao diện:** Quản trị › Sao lưu dữ liệu. Mục PITR chỉ hiện trên Cloudflare (`bootstrap.runtime`). Có cảnh báo xóa Worker là mất toàn bộ dữ liệu.
+6. **Ràng buộc Durable Object đã gặp:** không dùng câu `SELECT` ghép nhiều vế (`UNION ALL`), vì Cloudflare thật từ chối khi vượt giới hạn. `test/fake-do.js` mô phỏng giới hạn 5 vế.
+7. **Kiểm tra khả năng khôi phục** (`GET /api/admin/restore/check`): bật `defer_foreign_keys` trong giao dịch, đọc lại, rồi hoàn tác; không ghi dữ liệu.
+8. **Giao diện:** Quản trị › Sao lưu dữ liệu. Mục PITR chỉ hiện trên Cloudflare (`bootstrap.runtime`). Có cảnh báo xóa Worker là mất toàn bộ dữ liệu.
 
 ## Chưa làm, hạn chế
 

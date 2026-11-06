@@ -47,6 +47,10 @@ async function stageA() { // Durable Object A: dữ liệu mẫu, tạo thêm d�
   for (const p of ['/api/admin/export/manifest', '/api/admin/export/rows?table=users&max=999', '/api/admin/export/file?name=0&seq=0']) ok((await u('GET', p)).s === 403, 'A: người dùng thường bị từ chối ' + p);
   ok((await u('POST', '/api/admin/restore', { confirm: 'KHÔI PHỤC' })).s === 403, 'A: người dùng thường không khôi phục được');
   ok((await adm('GET', '/api/admin/pitr')).s === 400, 'A: PITR báo không hỗ trợ khi không chạy trên Cloudflare');
+  { const before = (await adm('GET', '/api/admin/users')).b.length; r = await adm('GET', '/api/admin/restore/check');
+    ok(r.s === 200 && r.b.ok === true && r.b.defer_foreign_keys === true, 'A: kiểm tra khả năng khôi phục (hoãn khóa ngoại trong giao dịch)', r.b);
+    ok((await adm('GET', '/api/admin/users')).b.length === before && (await adm('GET', '/api/bootstrap')).s === 200, 'A: kiểm tra khả năng khôi phục không làm thay đổi dữ liệu'); }
+  ok((await u('GET', '/api/admin/restore/check')).s === 403, 'A: người dùng thường không gọi được kiểm tra khôi phục');
   ok((await adm('GET', '/api/admin/export/rows?table=sessions&max=999')).s === 400, 'A: không xuất được bảng phiên đăng nhập');
   ok((await adm('GET', '/api/admin/export/rows?table=' + encodeURIComponent('users; DROP TABLE users') + '&max=9')).s === 400, 'A: tên bảng lạ bị từ chối');
   // xuất: danh mục → từng bảng theo trang nhỏ (limit=7 để buộc nhiều trang) → từng khối tệp

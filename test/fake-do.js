@@ -12,6 +12,8 @@ function fakeStorage(file) {
       if (st0.dead) throw new Error('Cannot perform I/O on behalf of a different Durable Object (mô phỏng)');
       if (/^\s*(BEGIN|COMMIT|ROLLBACK|SAVEPOINT)/i.test(q)) throw new Error('DO: transaction statements not allowed');
       if (/^\s*PRAGMA\s+(journal_mode|busy_timeout)/i.test(q)) throw new Error('DO: pragma not allowed ' + q);
+      // Durable Object giới hạn số vế của câu SELECT ghép (đã gặp trên Cloudflare thật 06/11/2026: "too many terms in compound SELECT"); mô phỏng mức thận trọng 5 vế
+      if ((q.match(/\bUNION\b|\bINTERSECT\b|\bEXCEPT\b/gi) || []).length > 4) throw new Error('too many terms in compound SELECT: SQLITE_ERROR (mô phỏng)');
       const stmts = q.split(/;\s*(?:\n|$)/).map(s => s.trim()).filter(Boolean);
       if (stmts.length > 1) { db.exec(stmts.slice(0, -1).join(';\n')); q = stmts.at(-1); }
       const st = db.prepare(q);

@@ -36,8 +36,8 @@ function register({ route: route0, bad, str, int, secLog, clientIp, cookieAttrs 
   /* 1. Danh mục bản sao lưu: bảng, số dòng, rowid lớn nhất tại thời điểm lập (chặn dòng thêm sau khi bắt đầu xuất), danh sách tệp */
   route('GET', '/api/admin/export/manifest', ({ user, req }) => {
     const ts = tables();
-    const meta = all(ts.map(t => `SELECT '${t.replace(/'/g, "''")}' name, COUNT(*) n, COALESCE(MAX(rowid),0) mx FROM ${qi(t)}`).join(' UNION ALL '));
-    const m = new Map(meta.map(r => [r.name, r]));
+    // Mỗi bảng một truy vấn: Durable Object giới hạn số vế của câu SELECT ghép (UNION ALL 70 bảng bị từ chối trên Cloudflare thật)
+    const m = new Map(ts.map(t => [t, get(`SELECT COUNT(*) n, COALESCE(MAX(rowid),0) mx FROM ${qi(t)}`)]));
     const files = FILES.list();
     secLog('backup_export', { user_id: user.id, username: user.username, ip: clientIp(req), detail: `${ts.length} bảng, ${files.length} tệp` });
     return {
@@ -108,6 +108,14 @@ function register({ route: route0, bad, str, int, secLog, clientIp, cookieAttrs 
     secLog('backup_restore', { user_id: user.id, username: user.username, ip: clientIp(req), detail: `từ bản ${str(m.created_at, 30)}: ${total} dòng${undo ? ', có mã hoàn tác' : ''}` });
     res.setHeader('Set-Cookie', `sid=; ${cookieAttrs(req)}; Max-Age=0`);
     return { ok: true, rows: total, tables: Object.keys(data).length - skipped.length, skipped, undo_bookmark: undo };
+  }, { admin: true });
+
+  /* 5b. Kiểm tra khả năng khôi phục mà KHÔNG ghi dữ liệu: bật hoãn kiểm tra khóa ngoại trong giao dịch, đọc lại, rồi hoàn tác */
+  route('GET', '/api/admin/restore/check', () => {
+    const ROLL = new Error('__rollback__'); let v = null;
+    try { tx(() => { run('PRAGMA defer_foreign_keys = ON'); const r = get('PRAGMA defer_foreign_keys'); v = r ? Number(Object.values(r)[0]) : null; throw ROLL; }); }
+    catch (e) { if (e !== ROLL) return { ok: false, defer_foreign_keys: false, error: String(e.message || e).slice(0, 200) }; }
+    return { ok: v === 1, defer_foreign_keys: v === 1, runtime: D.IS_WORKER ? 'cloudflare' : 'node' };
   }, { admin: true });
 
   /* 6. PITR – chỉ Cloudflare */
