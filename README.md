@@ -56,7 +56,9 @@ Hướng dẫn nghiệp vụ cho người dùng nằm tại [docs/04-huong-dan/H
 
 ## Tài liệu dự án và quy tắc cho trợ lý AI
 
+- **Người mới tham gia dự án (lập trình viên, AI): bắt đầu tại [docs/00-bat-dau/HUONG-DAN-THAM-GIA-DU-AN.md](docs/00-bat-dau/HUONG-DAN-THAM-GIA-DU-AN.md).**
 - Mục lục tài liệu (kế hoạch, thiết kế, triển khai, rà soát, quyết định kiến trúc, nhật ký, căn cứ pháp lý): [docs/README.md](docs/README.md).
+- Tiêu chuẩn chất lượng bắt buộc (ATTT, hiệu năng, UI/UX) và danh mục kiểm tra hoàn thành: [docs/09-tieu-chuan/](docs/09-tieu-chuan/).
 - Quy tắc bắt buộc cho trợ lý AI trước khi làm việc: [CLAUDE.md](CLAUDE.md).
 
 ## Cấu trúc mã nguồn

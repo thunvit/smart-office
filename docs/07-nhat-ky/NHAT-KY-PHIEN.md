@@ -34,6 +34,15 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Trên Cloudflare thật, các yêu cầu sau khi triển khai trả kết quả đúng. Chưa xác nhận được trường hợp Durable Object khởi tạo lại trên Cloudflare thật.
   - Chưa xác nhận chủ sở hữu đã đổi mật khẩu thành công.
 
+## 06/11/2026 (sáng, tiếp). Bộ tiêu chuẩn chất lượng và hướng dẫn tham gia dự án
+- **Kết quả:**
+  - Bộ tiêu chuẩn `docs/09-tieu-chuan/`: ATTT (27 yêu cầu), Hiệu năng (7 chỉ tiêu, 10 quy tắc), UI/UX, Danh mục kiểm tra hoàn thành.
+  - Mẫu yêu cầu hợp nhất `.github/pull_request_template.md`.
+  - Hướng dẫn người mới `docs/00-bat-dau/HUONG-DAN-THAM-GIA-DU-AN.md`.
+  - `CLAUDE.md` bổ sung Mục 3A.
+- **Căn cứ mới phát hiện:** Nghị định 331/2026/NĐ-CP về bảo vệ an ninh mạng đối với hệ thống thông tin (chưa đọc toàn văn).
+- **Kiểm chứng:** các tiêu chuẩn mới ở mức tài liệu, chờ chủ sở hữu phê duyệt. Hiện trạng ghi trong từng tiêu chuẩn căn cứ báo cáo rà soát; các chỉ tiêu hiệu năng chưa đo trên môi trường thật.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
 2. **Các việc P0 theo báo cáo rà soát:**

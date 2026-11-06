@@ -13,6 +13,10 @@ Cập nhật: 06/11/2026. Mục đích là ghi các văn bản đã dùng làm c
 | 7 | Luật An ninh mạng số 116/2025/QH15 (hiệu lực từ 01/7/2026) | Yêu cầu về lưu trữ dữ liệu, an ninh hệ thống | **Chưa kiểm chứng** yêu cầu lưu trữ dữ liệu tại Việt Nam áp dụng cho dịch vụ này |
 | 8 | Luật Giao dịch điện tử số 20/2023/QH15 | Giá trị pháp lý của phê duyệt điện tử, ký số | Đã tra cứu khi lập kế hoạch |
 | 9 | Luật Lưu trữ số 33/2024/QH15 | Lưu trữ tài liệu điện tử (phân hệ Văn thư) | Đã tra cứu khi lập kế hoạch |
+| 10a | Nghị định số 331/2026/NĐ-CP ngày 19/8/2026 về bảo vệ an ninh mạng đối với hệ thống thông tin | Xác định cấp độ, phương án bảo vệ (Tiêu chuẩn ATTT) | Mới biết qua tin của Bộ Công an; **chưa đọc toàn văn**, chưa rõ ngày hiệu lực và việc bãi bỏ Nghị định 85/2016/NĐ-CP |
+| 10b | Nghị định số 85/2016/NĐ-CP; Thông tư số 12/2022/TT-BTTTT | Tham khảo yêu cầu kỹ thuật theo cấp độ | Có thể đã bị thay thế bởi 10a; **chưa kiểm chứng** |
+| 10c | OWASP ASVS 4.0.3 (mức 2), OWASP Top 10 2021; WCAG 2.1 mức AA; Core Web Vitals | Chuẩn kỹ thuật cho Tiêu chuẩn ATTT, UI/UX, Hiệu năng | Chuẩn quốc tế công khai |
+| 10d | Thông tư số 26/2020/TT-BTTTT (tiêu chuẩn hỗ trợ người khuyết tật tiếp cận sản phẩm, dịch vụ thông tin và truyền thông) | Tham khảo cho Tiêu chuẩn UI/UX | **Chưa kiểm chứng** phạm vi bắt buộc với doanh nghiệp |
 | 10 | Nghị định số 30/2020/NĐ-CP về công tác văn thư | Thể thức văn bản (dự kiến Phiên 11) | **Chưa kiểm chứng** hiệu lực hiện hành |
 
 Nguồn tra cứu chi tiết được dẫn tại `docs/01-ke-hoach/KE-HOACH-PHAT-TRIEN.md` (Mục I.1 và phần Nguồn).

@@ -5,11 +5,13 @@ Tệp này là quy tắc bắt buộc với mọi trợ lý AI (Claude và các 
 ## 1. Đọc trước khi làm
 
 Theo thứ tự:
+0. Người mới (lập trình viên hoặc AI): `docs/00-bat-dau/HUONG-DAN-THAM-GIA-DU-AN.md`, gồm cài đặt, bản đồ mã nguồn, quy trình, danh sách tự kiểm tra.
 1. `docs/README.md`: mục lục tài liệu và quy ước lưu trữ.
 2. `docs/07-nhat-ky/NHAT-KY-PHIEN.md`: phiên gần nhất đã làm gì, việc còn dở, sự cố đang mở.
 3. Báo cáo rà soát mới nhất trong `docs/05-ra-soat/`: các lỗi đã biết và kế hoạch P0/P1/P2.
 4. `docs/06-quyet-dinh/`: các quyết định kiến trúc đã chốt (ADR). Không đi ngược một ADR khi chưa có ADR mới thay thế được chủ sở hữu đồng ý.
-5. Tài liệu liên quan trực tiếp đến nhiệm vụ: kế hoạch, thiết kế, triển khai, hướng dẫn.
+5. Bộ tiêu chuẩn chất lượng trong `docs/09-tieu-chuan/`: ATTT, hiệu năng, UI/UX, danh mục kiểm tra hoàn thành.
+6. Tài liệu liên quan trực tiếp đến nhiệm vụ: kế hoạch, thiết kế, triển khai, hướng dẫn.
 
 ## 2. Ngôn ngữ, văn phong, trung thực
 
@@ -59,6 +61,23 @@ Tóm tắt; chi tiết tại `docs/06-quyet-dinh/`.
 5. **Giao diện** là SPA JavaScript thuần trong `public/`, có PWA (`sw.js`, `pwa.js`, `manifest.webmanifest`).
    - Mỗi lần phát hành phải tăng `VERSION` trong `public/sw.js`.
    - Service worker không được lưu đệm `/api/`.
+
+## 3A. Tiêu chuẩn chất lượng bắt buộc
+
+Mọi thay đổi phải đáp ứng ba tiêu chuẩn và danh mục kiểm tra trong `docs/09-tieu-chuan/`. Khi báo cáo hoặc duyệt mã, dẫn đúng mã yêu cầu (ví dụ ATTT-05, HN-06).
+
+1. **An toàn thông tin** (`TIEU-CHUAN-ATTT.md`):
+   - Thiết kế theo yêu cầu cấp độ 3; căn cứ Luật An ninh mạng 2025, Nghị định 331/2026/NĐ-CP, Luật Bảo vệ dữ liệu cá nhân 2025, OWASP ASVS 4.0.3 mức 2.
+   - Bắt buộc: mặc định từ chối; kiểm tra quyền trên từng đối tượng tại máy chủ; SQL tham số; `esc()` cho HTML; không bí mật trong kho; ghi nhật ký an ninh; thu hồi phiên khi đổi mật khẩu.
+2. **Hiệu năng** (`TIEU-CHUAN-HIEU-NANG.md`):
+   - Chỉ tiêu: API p95 ≤ 300 ms; CPU ≤ 50 ms mỗi yêu cầu; LCP ≤ 2,5 s; INP ≤ 200 ms.
+   - Bắt buộc: chỉ mục cho truy vấn mới; phân trang tối đa 200 bản ghi; không truy vấn trong vòng lặp; gọi định kỳ trung bình không dày hơn 15 giây.
+3. **UI/UX** (`TIEU-CHUAN-UI-UX.md`):
+   - Chỉ dùng biến màu và thành phần dùng chung; đủ chế độ sáng và tối.
+   - Dùng được ở chiều rộng 360 px; đạt WCAG 2.1 AA.
+   - Tiếng Việt thống nhất thuật ngữ; định dạng ngày `dd/mm/yyyy` và tiền `1.234.567 ₫`.
+4. **Hoàn thành** khi đạt `DANH-MUC-KIEM-TRA-HOAN-THANH.md`; yêu cầu hợp nhất dùng mẫu `.github/pull_request_template.md`.
+5. **Hiện trạng chưa đạt** đã ghi trong từng tiêu chuẩn. Không được làm tình trạng xấu thêm; khắc phục theo lộ trình P0, P1, P2.
 
 ## 4. Bảo mật
 
