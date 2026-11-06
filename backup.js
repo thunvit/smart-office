@@ -28,7 +28,9 @@ const enc = v => (v instanceof Uint8Array || v instanceof ArrayBuffer || Buffer.
 const dec = v => (v && typeof v === 'object' && typeof v.$b === 'string') ? Buffer.from(v.$b, 'base64') : v;
 const ctx = () => (typeof globalThis.__SO_CTX === 'function' ? globalThis.__SO_CTX() : null);
 
-function register({ route, bad, str, int, secLog, clientIp, cookieAttrs }) {
+function register({ route: route0, bad, str, int, secLog, clientIp, cookieAttrs }) {
+  /* API sao lưu chỉ dành cho quản trị: lỗi kỹ thuật trả về dạng thông báo 400 có nội dung để quản trị chẩn đoán (không bật SO_DEBUG toàn hệ thống) */
+  const route = (m, p, h, o) => route0(m, p, async a => { try { return await h(a); } catch (e) { if (e && e.status) throw e; console.error('backup', p, e && e.stack); bad('Lỗi khi thực hiện sao lưu/khôi phục: ' + String((e && e.message) || e).slice(0, 300)); } }, o);
   const known = () => new Set(tables());
 
   /* 1. Danh mục bản sao lưu: bảng, số dòng, rowid lớn nhất tại thời điểm lập (chặn dòng thêm sau khi bắt đầu xuất), danh sách tệp */
