@@ -177,6 +177,13 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Nhập thử tệp 91 tài khoản qua giao diện trên máy chủ cục bộ có CSDL trống: 91 tài khoản, 7 phòng ban, 5 lãnh đạo phòng; đăng nhập tài khoản mới bị buộc đổi mật khẩu, API nghiệp vụ trả 403.
 - **Chưa làm:** P0-9 sao lưu trên Cloudflare; P0-10 gói Paid, đo CPU; P0-11 workerd trong CI; P0-12 pháp chế.
 - **Nhập 91 tài khoản trên hệ thống thật:** chủ sở hữu tự thực hiện. Trợ lý AI không tạo tài khoản và không nhập mật khẩu (CLAUDE.md 4.3).
+- **Triển khai:** hợp nhất fast-forward vào `main` (`45929b5..92b1aa3`). Workers Builds, `deploy`, `kiem-tra` (có `auth-test`) đều `success`.
+- **Kiểm tra trên Cloudflare thật** (chỉ đọc, phiên quản trị sẵn có):
+  - Máy chủ trả `sw.js` = `so-1.9.0`; `app.js` mới có màn hình chặn khi chưa đổi mật khẩu và nhập tệp .xlsx.
+  - `/api/admin/security-log` trả 200 (bảng mới đã được tạo trên Durable Object), trả 401 khi chưa đăng nhập.
+  - Phiên quản trị cũ vẫn dùng được, vì admin đã đổi mật khẩu nên không bị chặn.
+  - Hộp thoại "Nhập danh sách người dùng" hiển thị 7 cột, nhận .xlsx.
+- **Chưa kiểm chứng trên Cloudflare thật:** khóa đăng nhập, thu hồi phiên, ép đổi mật khẩu. Không thử bằng đăng nhập sai trên hệ thống thật; các chức năng này mới kiểm thử cục bộ/mô phỏng.
 
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
