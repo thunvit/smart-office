@@ -25,3 +25,7 @@ jobs:
           node test/worker-smoke.js | tee out.txt
           grep -q "download 200 true" out.txt
           grep -q "re-instantiate 200" out.txt
+      - name: Kiểm thử phân hệ Công việc – Dự án (phân quyền, luồng trạng thái)
+        run: |
+          node test/work-test.js | tee work.txt
+          grep -q "0 không đạt" work.txt

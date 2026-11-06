@@ -23,6 +23,7 @@ const D = require('./db');
 const HR2 = require('./hr2');
 const BIZ = require('./biz');
 const EXT = require('./ext');
+const WORK = require('./work');
 const { all, get, run, tx, today, now, addDays } = D;
 
 const PORT = Number(process.env.PORT || 3000);
@@ -52,7 +53,6 @@ const isAdmin = u => u.role === 'admin';
 const isHR = u => isAdmin(u) || u.dept_id === D.getSettings().hr_dept_id;
 const isDirector = u => u.id === D.getSettings().director_id;
 const headOf = uid => { const r = get('SELECT d.head_id h FROM users u JOIN departments d ON d.id=u.dept_id WHERE u.id=?', uid); return r ? r.h : null; };
-const canEditTask = (u, t) => isAdmin(u) || isDirector(u) || t.creator_id === u.id || t.assignee_id === u.id || headOf(t.assignee_id) === u.id;
 
 /* ================= Định tuyến ================= */
 const routes = [];
@@ -75,6 +75,7 @@ function userFromReq(req) {
 }
 let HR2API = { isPayroll: () => false };
 let EXTAPI = { canRecruit: () => false, isLead: () => false, badges: () => ({}) };
+let WORKAPI = null;
 let BIZAPI = { isFinance: () => false, canPost: () => false, canManageAssets: () => false, badges: () => ({}) };
 const publicUser = u => u && ({ id: u.id, username: u.username, full_name: u.full_name, title: u.title, dept_id: u.dept_id, role: u.role, email: u.email, phone: u.phone, color: u.color, must_change_pw: !!u.must_change_pw, is_hr: isHR(u), is_director: isDirector(u), is_payroll: HR2API.isPayroll(u), is_finance: BIZAPI.isFinance(u), can_post: BIZAPI.canPost(u), can_assets: BIZAPI.canManageAssets(u), can_recruit: EXTAPI.canRecruit(u), is_lead: EXTAPI.isLead(u) });
 
@@ -121,7 +122,8 @@ route('GET', '/api/bootstrap', ({ user }) => {
     settings: s,
     users: all('SELECT id, full_name, title, dept_id, color, role, active FROM users ORDER BY full_name'),
     departments: all('SELECT id, name, head_id FROM departments ORDER BY sort, id'),
-    projects: all('SELECT id, name, color, owner_id, archived FROM projects ORDER BY archived, id'),
+    projects: (isAdmin(user) || isDirector(user)) ? all('SELECT id, name, color, owner_id, kind, status FROM projects ORDER BY status=\'closed\', name')
+      : all('SELECT p.id, p.name, p.color, p.owner_id, p.kind, p.status FROM projects p JOIN project_members m ON m.project_id=p.id AND m.user_id=? ORDER BY p.status=\'closed\', p.name', user.id),
     counts: counts(user)
   };
 });
@@ -129,7 +131,7 @@ function counts(user) {
   return {
     inbox: get(`SELECT COUNT(*) n FROM request_steps s JOIN requests r ON r.id=s.request_id WHERE s.approver_id=? AND s.status='pending' AND r.status='pending'`, user.id).n,
     wf: get(`SELECT COUNT(*) n FROM wf_run_steps s JOIN wf_runs r ON r.id=s.run_id WHERE s.assignee_id=? AND s.status='active' AND r.status='running'`, user.id).n,
-    tasks: get(`SELECT COUNT(*) n FROM tasks WHERE assignee_id=? AND status<>'done'`, user.id).n,
+    tasks: get(`SELECT COUNT(*) n FROM tasks WHERE assignee_id=? AND status NOT IN ('done','failed')`, user.id).n,
     ...BIZAPI.badges(user),
     ...EXTAPI.badges(user)
   };
@@ -141,13 +143,13 @@ route('GET', '/api/dashboard', ({ user }) => {
   const scopeAll = isAdmin(user) || isDirector(user);
   const scopeSql = scopeAll ? '' : ' AND u.dept_id = ' + int(user.dept_id);
   const loads = all(`SELECT u.id, u.full_name, u.color,
-      SUM(CASE WHEN t.status<>'done' THEN 1 ELSE 0 END) open,
-      SUM(CASE WHEN t.status<>'done' AND t.due_date < ? THEN 1 ELSE 0 END) late
+      SUM(CASE WHEN t.status NOT IN ('done','failed') THEN 1 ELSE 0 END) open,
+      SUM(CASE WHEN t.status NOT IN ('done','failed') AND t.due_date < ? THEN 1 ELSE 0 END) late
     FROM users u JOIN tasks t ON t.assignee_id=u.id WHERE u.active=1 ${scopeSql}
     GROUP BY u.id HAVING open > 0 ORDER BY open DESC, late DESC LIMIT 15`, T);
-  const tot = get(`SELECT COUNT(*) n, SUM(status='done') done, SUM(status<>'done') open, SUM(status<>'done' AND due_date < ?) late FROM tasks`, T);
+  const tot = get(`SELECT COUNT(*) n, SUM(status='done') done, SUM(status NOT IN ('done','failed')) open, SUM(status NOT IN ('done','failed') AND due_date < ?) late FROM tasks`, T);
   const mine = all(`SELECT t.*, p.name project_name FROM tasks t LEFT JOIN projects p ON p.id=t.project_id
-    WHERE t.assignee_id=? AND t.status<>'done' ORDER BY t.due_date LIMIT 10`, user.id);
+    WHERE t.assignee_id=? AND t.status NOT IN ('done','failed') ORDER BY t.due_date LIMIT 10`, user.id);
   const inbox = listRequests(user, 'inbox').slice(0, 6);
   const wf = all(`SELECT r.id, r.code, r.title, s.name step_name, s.due_date FROM wf_run_steps s JOIN wf_runs r ON r.id=s.run_id
     WHERE s.assignee_id=? AND s.status='active' AND r.status='running' ORDER BY s.due_date LIMIT 6`, user.id);
@@ -158,121 +160,7 @@ route('GET', '/api/dashboard', ({ user }) => {
   return { loads, totals: tot, mine, inbox, wf, activity, contracts, scope: scopeAll ? 'all' : 'dept', counts: counts(user) };
 });
 
-/* ================= Dự án ================= */
-route('POST', '/api/projects', ({ user, body }) => {
-  const name = str(body.name, 120); if (!name) bad('Vui lòng nhập tên dự án.');
-  const id = Number(run('INSERT INTO projects(name,color,owner_id,created_at) VALUES(?,?,?,?)', name, str(body.color, 9) || '#0e6f68', user.id, now()).lastInsertRowid);
-  log(user.id, `tạo dự án <b>${esc(name)}</b>`);
-  return { id };
-});
-route('PUT', '/api/projects/:id', ({ user, params, body }) => {
-  const p = get('SELECT * FROM projects WHERE id=?', params.id) || notFound();
-  if (!isAdmin(user) && p.owner_id !== user.id) forbid();
-  run('UPDATE projects SET name=?, color=?, archived=? WHERE id=?', str(body.name, 120) || p.name, str(body.color, 9) || p.color, body.archived ? 1 : 0, p.id);
-  return { ok: true };
-});
-route('DELETE', '/api/projects/:id', ({ user, params }) => {
-  const p = get('SELECT * FROM projects WHERE id=?', params.id) || notFound();
-  if (!isAdmin(user) && p.owner_id !== user.id) forbid();
-  run('DELETE FROM projects WHERE id=?', p.id);
-  log(user.id, `xóa dự án <b>${esc(p.name)}</b>`);
-  return { ok: true };
-});
-
-/* ================= Công việc ================= */
-const TSTATUS = ['todo', 'doing', 'review', 'done'], PRIO = ['cao', 'tb', 'thap'];
-route('GET', '/api/tasks', ({ user, query }) => {
-  const w = [], p = [];
-  if (query.project && query.project !== 'all') { w.push('t.project_id=?'); p.push(int(query.project)); }
-  if (query.mine === '1') { w.push('t.assignee_id=?'); p.push(user.id); }
-  if (query.dept) { w.push('u.dept_id=?'); p.push(int(query.dept)); }
-  if (query.status) { w.push('t.status=?'); p.push(query.status); }
-  if (query.q) { w.push('t.title LIKE ?'); p.push('%' + str(query.q, 100) + '%'); }
-  return all(`SELECT t.*, p.name project_name, p.color project_color,
-      (SELECT COUNT(*) FROM task_checklist c WHERE c.task_id=t.id) cl_total,
-      (SELECT COUNT(*) FROM task_checklist c WHERE c.task_id=t.id AND c.done=1) cl_done,
-      (SELECT COUNT(*) FROM task_comments c WHERE c.task_id=t.id) cm_count
-    FROM tasks t LEFT JOIN projects p ON p.id=t.project_id LEFT JOIN users u ON u.id=t.assignee_id
-    ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY (t.status='done'), t.due_date LIMIT 1000`, ...p);
-});
-function taskFull(id, user) {
-  const t = get('SELECT t.*, p.name project_name FROM tasks t LEFT JOIN projects p ON p.id=t.project_id WHERE t.id=?', id) || notFound('Công việc không tồn tại hoặc đã bị xóa.');
-  t.checklist = all('SELECT * FROM task_checklist WHERE task_id=? ORDER BY id', id);
-  t.comments = all('SELECT c.*, u.full_name, u.color FROM task_comments c LEFT JOIN users u ON u.id=c.user_id WHERE task_id=? ORDER BY c.id', id);
-  t.can_edit = canEditTask(user, t);
-  return t;
-}
-function taskInput(body, old = {}) {
-  const t = {
-    title: str(body.title ?? old.title, 300), description: str(body.description ?? old.description, 5000),
-    project_id: int(body.project_id ?? old.project_id), assignee_id: int(body.assignee_id ?? old.assignee_id),
-    status: body.status ?? old.status ?? 'todo', priority: body.priority ?? old.priority ?? 'tb',
-    start_date: body.start_date ?? old.start_date, due_date: body.due_date ?? old.due_date
-  };
-  if (!t.title) bad('Vui lòng nhập tên công việc.');
-  if (!get('SELECT 1 FROM projects WHERE id=?', t.project_id)) bad('Dự án không hợp lệ.');
-  if (!get('SELECT 1 FROM users WHERE id=? AND active=1', t.assignee_id)) bad('Người thực hiện không hợp lệ.');
-  if (!TSTATUS.includes(t.status)) bad('Trạng thái không hợp lệ.');
-  if (!PRIO.includes(t.priority)) bad('Mức ưu tiên không hợp lệ.');
-  if (!isDate(t.start_date) || !isDate(t.due_date)) bad('Ngày bắt đầu và hạn hoàn thành không hợp lệ.');
-  if (t.due_date < t.start_date) bad('Hạn hoàn thành phải sau hoặc trùng ngày bắt đầu.');
-  return t;
-}
-route('POST', '/api/tasks', ({ user, body }) => {
-  const t = taskInput(body);
-  const id = Number(run(`INSERT INTO tasks(project_id,title,description,assignee_id,creator_id,status,priority,start_date,due_date,done_at,created_at,updated_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, t.project_id, t.title, t.description, t.assignee_id, user.id, t.status, t.priority, t.start_date, t.due_date, t.status === 'done' ? now() : null, now(), now()).lastInsertRowid);
-  for (const c of (Array.isArray(body.checklist) ? body.checklist : [])) if (str(c)) run('INSERT INTO task_checklist(task_id,text) VALUES(?,?)', id, str(c, 300));
-  const a = get('SELECT full_name FROM users WHERE id=?', t.assignee_id);
-  log(user.id, `giao việc <b>${esc(t.title)}</b> cho ${esc(a.full_name)}`);
-  return taskFull(id, user);
-});
-route('GET', '/api/tasks/:id', ({ user, params }) => taskFull(int(params.id), user));
-route('PUT', '/api/tasks/:id', ({ user, params, body }) => {
-  const old = get('SELECT * FROM tasks WHERE id=?', params.id) || notFound();
-  if (!canEditTask(user, old)) forbid('Chỉ người giao, người thực hiện hoặc lãnh đạo phòng mới được cập nhật công việc này.');
-  const t = taskInput(body, old);
-  const doneAt = t.status === 'done' ? (old.done_at || now()) : null;
-  run(`UPDATE tasks SET project_id=?,title=?,description=?,assignee_id=?,status=?,priority=?,start_date=?,due_date=?,done_at=?,updated_at=? WHERE id=?`,
-    t.project_id, t.title, t.description, t.assignee_id, t.status, t.priority, t.start_date, t.due_date, doneAt, now(), old.id);
-  if (t.status !== old.status) log(user.id, `${t.status === 'done' ? 'hoàn thành' : 'chuyển trạng thái'} <b>${esc(t.title)}</b>`);
-  return taskFull(old.id, user);
-});
-route('DELETE', '/api/tasks/:id', ({ user, params }) => {
-  const t = get('SELECT * FROM tasks WHERE id=?', params.id) || notFound();
-  if (!(isAdmin(user) || t.creator_id === user.id || headOf(t.assignee_id) === user.id)) forbid('Chỉ người giao việc hoặc lãnh đạo phòng mới được xóa công việc.');
-  run('DELETE FROM tasks WHERE id=?', t.id);
-  log(user.id, `xóa công việc <b>${esc(t.title)}</b>`);
-  return { ok: true };
-});
-route('POST', '/api/tasks/:id/checklist', ({ user, params, body }) => {
-  const t = get('SELECT * FROM tasks WHERE id=?', params.id) || notFound();
-  if (!canEditTask(user, t)) forbid();
-  const text = str(body.text, 300); if (!text) bad('Vui lòng nhập nội dung đầu việc.');
-  run('INSERT INTO task_checklist(task_id,text) VALUES(?,?)', t.id, text);
-  return taskFull(t.id, user);
-});
-route('PUT', '/api/checklist/:id', ({ user, params, body }) => {
-  const c = get('SELECT * FROM task_checklist WHERE id=?', params.id) || notFound();
-  const t = get('SELECT * FROM tasks WHERE id=?', c.task_id);
-  if (!canEditTask(user, t)) forbid();
-  run('UPDATE task_checklist SET done=? WHERE id=?', body.done ? 1 : 0, c.id);
-  return taskFull(t.id, user);
-});
-route('DELETE', '/api/checklist/:id', ({ user, params }) => {
-  const c = get('SELECT * FROM task_checklist WHERE id=?', params.id) || notFound();
-  const t = get('SELECT * FROM tasks WHERE id=?', c.task_id);
-  if (!canEditTask(user, t)) forbid();
-  run('DELETE FROM task_checklist WHERE id=?', c.id);
-  return taskFull(t.id, user);
-});
-route('POST', '/api/tasks/:id/comments', ({ user, params, body }) => {
-  const t = get('SELECT * FROM tasks WHERE id=?', params.id) || notFound();
-  const b = str(body.body, 3000); if (!b) bad('Vui lòng nhập nội dung trao đổi.');
-  run('INSERT INTO task_comments(task_id,user_id,body,created_at) VALUES(?,?,?,?)', t.id, user.id, b, now());
-  log(user.id, `bình luận trong <b>${esc(t.title)}</b>`);
-  return taskFull(t.id, user);
-});
+/* ================= Dự án, công việc: xem work.js (phân hệ Công việc – Dự án v2) ================= */
 
 /* ================= Phê duyệt đề xuất ================= */
 const RTYPES = { thanhtoan: 'Đề nghị thanh toán', mua: 'Đề xuất mua sắm', tamung: 'Đề nghị tạm ứng', nghiphep: 'Đơn xin nghỉ phép', tangca: 'Đăng ký làm thêm giờ', congtac: 'Đề nghị đi công tác', giaitrinh: 'Giải trình chấm công', khac: 'Tờ trình khác' };
@@ -498,8 +386,8 @@ route('GET', '/api/hr/employees', ({ user, query }) => {
   if (query.dept) { w.push('u.dept_id=?'); p.push(int(query.dept)); }
   if (query.q) { w.push('(u.full_name LIKE ? OR u.email LIKE ? OR u.phone LIKE ?)'); const q = '%' + str(query.q, 80) + '%'; p.push(q, q, q); }
   const rows = all(`SELECT u.id, u.username, u.full_name, u.title, u.dept_id, u.email, u.phone, u.color, u.role, u.active, u.join_date, u.dob, u.gender, u.leave_quota,
-      (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id=u.id AND t.status<>'done') open_tasks,
-      (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id=u.id AND t.status<>'done' AND t.due_date < ?) late_tasks,
+      (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id=u.id AND t.status NOT IN ('done','failed')) open_tasks,
+      (SELECT COUNT(*) FROM tasks t WHERE t.assignee_id=u.id AND t.status NOT IN ('done','failed') AND t.due_date < ?) late_tasks,
       (SELECT c.end_date FROM contracts c WHERE c.user_id=u.id ORDER BY c.start_date DESC LIMIT 1) contract_end,
       (SELECT c.type FROM contracts c WHERE c.user_id=u.id ORDER BY c.start_date DESC LIMIT 1) contract_type
     FROM users u WHERE ${w.join(' AND ')} ORDER BY u.full_name`, today(), ...p);
@@ -707,9 +595,10 @@ route('GET', '/api/admin/backup', ({ res }) => {
 const csv = rows => '﻿' + rows.map(r => r.map(v => { const s = String(v == null ? '' : v); return /[",\n;]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\r\n');
 const fmtD = s => s ? String(s).slice(0, 10).split('-').reverse().join('/') : '';
 const LBL = { ...RTYPES, todo: 'Cần làm', doing: 'Đang làm', review: 'Chờ kiểm tra', done: 'Hoàn thành', cao: 'Cao', tb: 'Trung bình', thap: 'Thấp', pending: 'Đang chờ duyệt', approved: 'Đã duyệt', rejected: 'Từ chối', withdrawn: 'Đã thu hồi' };
-route('GET', '/api/export/tasks.csv', ({ res }) => {
+route('GET', '/api/export/tasks.csv', ({ user, res }) => {
   const T = today();
-  const rows = all(`SELECT t.*, p.name pn, u.full_name an, d.name dn FROM tasks t LEFT JOIN projects p ON p.id=t.project_id LEFT JOIN users u ON u.id=t.assignee_id LEFT JOIN departments d ON d.id=u.dept_id ORDER BY p.name, t.due_date`);
+  const own = isAdmin(user) || isDirector(user);
+  const rows = all(`SELECT t.*, p.name pn, u.full_name an, d.name dn FROM tasks t LEFT JOIN projects p ON p.id=t.project_id LEFT JOIN users u ON u.id=t.assignee_id LEFT JOIN departments d ON d.id=u.dept_id ${own ? '' : 'WHERE t.assignee_id=? OR t.creator_id=?'} ORDER BY p.name, t.due_date`, ...(own ? [] : [user.id, user.id]));
   const out = [['STT', 'Dự án', 'Công việc', 'Người thực hiện', 'Phòng ban', 'Ngày bắt đầu', 'Hạn hoàn thành', 'Ngày hoàn thành', 'Mức ưu tiên', 'Trạng thái', 'Quá hạn (ngày)']]
     .concat(rows.map((t, i) => [i + 1, t.pn, t.title, t.an, t.dn, fmtD(t.start_date), fmtD(t.due_date), fmtD(t.done_at), LBL[t.priority], LBL[t.status],
       t.status !== 'done' && t.due_date < T ? Math.round((Date.parse(T) - Date.parse(t.due_date)) / 864e5) : '']));
@@ -728,6 +617,7 @@ route('GET', '/api/export/requests.csv', ({ user, res }) => {
 HR2API = HR2.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate, HttpError });
 
 EXTAPI = EXT.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate });
+WORKAPI = WORK.register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc, str, int, isDate });
 BIZAPI = BIZ.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate });
 
 /* ================= Máy chủ HTTP ================= */
@@ -806,6 +696,7 @@ const created = D.init();
 HR2.seedExtras();
 BIZ.seedBiz();
 EXT.seedExt();
+WORK.migrate();
 
 /* Cloudflare: đặt lại mật khẩu quản trị ban đầu theo bí mật ADMIN_PASSWORD (chỉ khi tài khoản admin chưa đổi mật khẩu). */
 function applyAdminSecret() {

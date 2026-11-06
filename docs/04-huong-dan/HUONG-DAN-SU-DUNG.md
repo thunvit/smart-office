@@ -11,7 +11,7 @@ SmartOffice là phần mềm văn phòng số nội bộ, gồm 19 phân hệ, b
 
 | STT | Phân hệ | Chức năng chính |
 |---|---|---|
-| 1 | Công việc – Dự án | Giao việc, theo dõi tiến độ theo dự án và phòng ban; xem dạng Danh sách, Kanban, Gantt; danh mục đầu việc con; trao đổi trên từng công việc; xuất báo cáo ra Excel. |
+| 1 | Công việc – Dự án | Không gian Dự án và Phòng ban có thành viên theo vai trò; nhóm công việc; việc con 3 cấp; người theo dõi; cập nhật kết quả và % hoàn thành; đánh giá trước khi hoàn thành; đánh dấu thất bại; xem dạng Danh sách, Kanban, Gantt, Báo cáo; xuất CSV. Chi tiết tại Mục XI. |
 | 2 | Phê duyệt đề xuất | Đề nghị thanh toán, mua sắm, tạm ứng, nghỉ phép, đăng ký làm thêm giờ, đề nghị đi công tác, giải trình chấm công, tờ trình khác. Luồng duyệt nhiều cấp tự động xác định theo loại và giá trị đề xuất. Lưu ý kiến từng cấp; xuất sổ theo dõi. |
 | 3 | Quy trình liên phòng ban | Mẫu quy trình nhiều bước (ví dụ: xử lý văn bản đến, mua sắm tài sản, tiếp nhận nhân sự mới). Mỗi bước có người phụ trách và hạn xử lý; cho phép hoàn thành, trả lại bước trước, hủy hồ sơ; ghi nhật ký đầy đủ. |
 | 4 | Nhân sự | Danh bạ theo phòng ban; hồ sơ nhân sự; hợp đồng lao động và cảnh báo hợp đồng sắp hết hạn (60 ngày); theo dõi ngày phép năm. |
@@ -172,3 +172,49 @@ Quản trị viên thay đổi ngưỡng tiền, người duyệt tại **Quản
 | Nhắn tin | Cập nhật theo chu kỳ 4 giây, chưa gửi tệp | Chuyển sang kết nối thời gian thực; gửi tệp, hình ảnh |
 | Tích hợp | Chưa có | Gửi thông báo qua email/Zalo OA; đăng nhập một lần (SSO); ứng dụng di động |
 | Ký số | Chưa có | Tích hợp chữ ký số khi phát hành văn bản |
+
+## XI. PHÂN HỆ CÔNG VIỆC – DỰ ÁN (PHIÊN BẢN 2)
+
+Căn cứ thiết kế: `docs/02-thiet-ke/YEU-CAU-CONG-VIEC-DU-AN.md`, `docs/06-quyet-dinh/ADR-005-cong-viec-du-an-v2.md`.
+
+### 1. Màn hình chính (menu Công việc → Công việc – Dự án)
+
+| Thẻ | Nội dung |
+|---|---|
+| Việc của tôi | Lọc theo: Được giao cho tôi, Tôi giao, Tôi theo dõi, Chờ tôi đánh giá; lọc trạng thái (mặc định "Chưa kết thúc"), tìm theo tên. |
+| Dự án & phòng ban | Danh sách không gian mình tham gia, chia nhóm Dự án và Phòng ban; tiến độ, số việc quá hạn, tình trạng. |
+| Nhân viên của tôi | Chỉ hiển thị với trưởng phòng: số việc theo trạng thái của từng nhân viên; bấm vào một người để xem việc chưa kết thúc. |
+
+### 2. Vai trò và quyền
+
+| Vai trò | Quyền chính |
+|---|---|
+| Quản trị hệ thống, Giám đốc | Xem và quản lý mọi dự án, phòng ban. |
+| Quản lý (của dự án) | Sửa thông tin, thành viên, nhóm, quy tắc làm việc; đóng/mở lại, xóa; sửa, xóa mọi công việc; đánh giá. |
+| Thành viên | Xem công việc (nếu bật "Thành viên xem được công việc của người khác"); tạo việc (nếu bật). |
+| Người theo dõi | Chỉ xem công việc mình được gắn theo dõi hoặc được giao. |
+| Người giao, người nhận việc | Sửa công việc; người nhận bị giới hạn theo thiết lập "sửa thời gian", "sửa thông tin". |
+
+Người nhận việc ngoài dự án được tự động thêm vào dự án với vai trò Người theo dõi. Mọi quyền được kiểm tra tại máy chủ.
+
+### 3. Luồng trạng thái
+
+Cần làm → Đang làm → (Chờ đánh giá, nếu dự án bật "Yêu cầu đánh giá") → Hoàn thành. Ngoài ra:
+- **Thất bại:** khi dự án cho phép; bắt buộc chọn lý do trong danh mục; việc đang chờ đánh giá không chuyển thẳng sang thất bại.
+- **Đánh giá:** người giao việc (hoặc danh sách chỉ định) và quản lý duyệt hoặc trả lại kèm ý kiến bắt buộc. Việc của quản lý hoàn thành ngay.
+- **Đúng hạn** tính theo thời điểm người làm bấm hoàn thành.
+- Việc cha còn việc con chưa xong: hệ thống cảnh báo, bấm lần nữa để vẫn hoàn thành.
+
+### 4. Thao tác thường dùng
+
+1. Tạo dự án/phòng ban: nút "+ Dự án / phòng ban"; chọn loại, quản lý cùng, thành viên.
+2. Thiết lập (chỉ Quản lý): thẻ "Thiết lập" trong dự án; quản lý thành viên, nhóm công việc (định mức giờ, sắp xếp, tạm đóng) và quy tắc làm việc.
+3. Giao việc: nút "+ Công việc", hoặc gõ vào ô "Thêm nhanh" dưới từng nhóm rồi nhấn Enter (giao cho chính mình, hạn 3 ngày). Chọn "Giao cho nhiều người" để tạo mỗi người một việc.
+4. Trong chi tiết công việc: cập nhật kết quả và % hoàn thành, thêm việc con (tối đa 3 cấp), đầu việc, người theo dõi, trao đổi; xem lịch sử hoạt động; nhân bản.
+5. Chế độ xem: Danh sách (theo nhóm, việc con thụt lề), Kanban (kéo thẻ giữa Cần làm, Đang làm, Hoàn thành), Gantt (chỉ dự án), Báo cáo (theo người thực hiện, theo nhóm, tỷ lệ đúng hạn).
+6. Xuất dữ liệu: nút "Xuất Excel (CSV)" trong dự án; chỉ gồm công việc người dùng được xem.
+
+### 5. Chưa có trong phiên bản này (Giai đoạn 2)
+
+Công việc phụ thuộc, việc lặp lại, mốc (milestone), lịch, kéo thả Gantt, trường tùy chỉnh, mẫu dự án, nhân bản dự án, nhập Excel, bàn giao hàng loạt, ủy quyền giao việc, thông báo email.
+

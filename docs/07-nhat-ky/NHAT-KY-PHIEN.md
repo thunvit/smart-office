@@ -43,6 +43,21 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Căn cứ mới phát hiện:** Nghị định 331/2026/NĐ-CP về bảo vệ an ninh mạng đối với hệ thống thông tin (chưa đọc toàn văn).
 - **Kiểm chứng:** các tiêu chuẩn mới ở mức tài liệu, chờ chủ sở hữu phê duyệt. Hiện trạng ghi trong từng tiêu chuẩn căn cứ báo cáo rà soát; các chỉ tiêu hiệu năng chưa đo trên môi trường thật.
 
+## 06/11/2026 (chiều). Phân hệ Công việc – Dự án phiên bản 2 (Giai đoạn 1)
+- **Mục tiêu:** xây dựng phân hệ Công việc – Dự án theo nghiệp vụ Base Wework (yêu cầu của chủ sở hữu).
+- **Việc đã làm** (nhánh `tinh-nang/cong-viec-du-an-v2`, chưa hợp nhất vào `main`):
+  - Nghiên cứu 48/68 bài hướng dẫn Base Wework; lập `docs/02-thiet-ke/YEU-CAU-CONG-VIEC-DU-AN.md` và `ADR-005`.
+  - Máy chủ `work.js`: dự án/phòng ban, thành viên theo vai trò, thiết lập theo dự án, nhóm công việc, việc con 3 cấp, người theo dõi, kết quả và %, đánh giá, thất bại, nhân bản, nhật ký, báo cáo, xuất CSV; chuyển dữ liệu 1.x một lần.
+  - Sửa lỗi lộ dữ liệu của 1.x: mọi người dùng xem được toàn bộ công việc (ATTT-13). Danh sách phân trang tối đa 200 bản ghi (HN-07).
+  - Giao diện `public/work.js`: Việc của tôi, Dự án & phòng ban, Nhân viên của tôi; Danh sách, Kanban, Gantt, Báo cáo, Thiết lập; hộp thoại chi tiết công việc. `sw.js` lên `so-1.6.0`.
+  - Sửa lỗi phát hiện khi kiểm thử giao diện: hộp thoại công việc vẽ lại làm mất tiêu điểm và cuộn về đầu sau mỗi thao tác; nay vẽ lại tại chỗ.
+- **Kiểm thử, mức độ kiểm chứng:**
+  - `node test/work-test.js`: 64 đạt, 0 không đạt (đã kiểm thử cục bộ: bản Node và mô phỏng Durable Object).
+  - `node test/worker-smoke.js`: có `download 200 true`, `re-instantiate 200` (mô phỏng).
+  - `test/work-ui.js` (Playwright, 1440 px sáng/tối, 390 px tối): 30/30 đạt, 5 lần chạy liên tiếp; không có lỗi JavaScript (bỏ qua lỗi tải phông Google do môi trường không có Internet, 401 trước đăng nhập, 403 chủ đích).
+  - **Chưa chạy trên Cloudflare thật.** Chưa đo hiệu năng thật.
+- **Còn dở:** Giai đoạn 2 theo Mục III tài liệu yêu cầu; chờ chủ sở hữu duyệt hợp nhất vào `main` (hợp nhất là triển khai thật).
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
 2. **Các việc P0 theo báo cáo rà soát:**
@@ -57,3 +72,4 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
    - xuất và sao lưu dữ liệu trên Cloudflare.
 3. **Pháp chế** xác định nơi lưu dữ liệu và hồ sơ pháp lý khi kinh doanh dịch vụ.
 4. **Tên miền** `smartoffice.vnptninhbinh.com.vn` chưa gắn; chờ chọn phương án DNS.
+5. **Phân hệ Công việc – Dự án v2** nằm trên nhánh `tinh-nang/cong-viec-du-an-v2`, chờ duyệt hợp nhất; sau khi hợp nhất phải kiểm tra lại trên địa chỉ thật (việc chuyển dữ liệu `work_v2_migrated` chạy một lần trên Durable Object).

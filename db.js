@@ -357,4 +357,4 @@ function init() {
   return false;
 }
 
-module.exports = { db, all, get, run, tx, hashPw, verifyPw, today, now, nowHM, vnMonth, addDays, isoDate, getSettings, setSetting, init, DB_FILE, COLORS, IS_WORKER };
+module.exports = { db, all, get, run, tx, addCol, hashPw, verifyPw, today, now, nowHM, vnMonth, addDays, isoDate, getSettings, setSetting, init, DB_FILE, COLORS, IS_WORKER };

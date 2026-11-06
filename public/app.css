@@ -502,3 +502,33 @@ tr.voided td{opacity:.5;text-decoration:line-through}
   .topbar{padding-left:env(titlebar-area-x,0);-webkit-app-region:drag;app-region:drag}
   .topbar a,.topbar button,.topbar input,.topbar .dd-menu{-webkit-app-region:no-drag;app-region:no-drag}
 }
+
+/* ===== Phân hệ Công việc – Dự án v2 (public/work.js); chỉ dùng biến màu dùng chung ===== */
+.s-failed{background:var(--bad-weak);color:var(--bad)}
+.field .lbl{font-size:12px;font-weight:600;color:var(--muted)}
+.w-title{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.w-branch{color:var(--faint)}
+.w-closed .t-title{color:var(--muted)}
+.tag.w-urgent{color:var(--bad);border-color:var(--bad)}
+.tag.w-imp{color:var(--warn);border-color:var(--warn)}
+.prog.w-mini{width:72px;margin-top:5px}
+.w-pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:16px}
+.w-pcard{display:flex;flex-direction:column;gap:8px;padding:14px;color:inherit;text-decoration:none}
+.w-pcard:hover,.w-pcard:focus-visible{border-color:var(--accent)}
+.w-pc-h{display:flex;align-items:center;gap:8px}
+.w-pc-h i,.w-ph i{width:10px;height:10px;border-radius:3px;flex:none;display:inline-block}
+.w-ph{display:flex;align-items:center;gap:10px}
+.w-group{margin-bottom:12px}
+.w-qadd{padding:10px 14px;border-top:1px solid var(--line)}
+.w-board{overflow-x:auto}
+.w-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}
+.w-sets{display:flex;flex-direction:column;gap:10px}
+.w-set{align-items:flex-start}
+.w-set small{display:block}
+.w-sub{padding:8px 0 4px 24px;display:flex;flex-direction:column;gap:8px;border-left:2px solid var(--line);margin-left:6px}
+.w-link{color:var(--accent);cursor:pointer;text-decoration:underline}
+@media (max-width:600px){.w-pgrid{grid-template-columns:1fr}.w-sub{padding-left:12px}}
+.w-flags{display:flex;gap:16px;flex-wrap:wrap;padding-top:6px}
+.w-flags .check{white-space:nowrap}
+/* Điện thoại: bảng công việc gọn trong 1 màn hình, ẩn cột Người thực hiện (đã có trong chi tiết) */
+@media (max-width:600px){.w-tbl{min-width:0!important}.w-tbl th:nth-child(2),.w-tbl td:nth-child(2){display:none}.w-tbl td,.w-tbl th{padding-left:10px;padding-right:10px}}

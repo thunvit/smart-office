@@ -8,11 +8,11 @@ Mục lục và quy ước lưu trữ tài liệu. Quy tắc dành cho trợ lý
 |---|---|---|
 | `00-bat-dau/` | Hướng dẫn cho người mới tham gia (lập trình viên, AI) | [HUONG-DAN-THAM-GIA-DU-AN.md](00-bat-dau/HUONG-DAN-THAM-GIA-DU-AN.md) |
 | `01-ke-hoach/` | Kế hoạch phát triển, lộ trình, phân chia phiên làm việc | [KE-HOACH-PHAT-TRIEN.md](01-ke-hoach/KE-HOACH-PHAT-TRIEN.md) (bản sao từ Claude Docs) |
-| `02-thiet-ke/` | Thiết kế kiến trúc, dữ liệu, đa đơn vị | [THIET-KE-DA-DON-VI.md](02-thiet-ke/THIET-KE-DA-DON-VI.md) (bản sao từ Claude Docs) |
+| `02-thiet-ke/` | Thiết kế kiến trúc, dữ liệu, đa đơn vị | [THIET-KE-DA-DON-VI.md](02-thiet-ke/THIET-KE-DA-DON-VI.md) (bản sao từ Claude Docs), [YEU-CAU-CONG-VIEC-DU-AN.md](02-thiet-ke/YEU-CAU-CONG-VIEC-DU-AN.md) |
 | `03-trien-khai/` | Hướng dẫn triển khai, vận hành, cấu hình hạ tầng | [TRIEN-KHAI-CLOUDFLARE.md](03-trien-khai/TRIEN-KHAI-CLOUDFLARE.md) |
 | `04-huong-dan/` | Hướng dẫn sử dụng cho người dùng cuối, quản trị viên | [HUONG-DAN-SU-DUNG.md](04-huong-dan/HUONG-DAN-SU-DUNG.md) |
 | `05-ra-soat/` | Báo cáo rà soát mã nguồn, kiểm thử, kiểm tra bảo mật; kèm kịch bản kiểm thử | [2026-11-06-RA-SOAT-XAC-THUC-LUU-TRU.md](05-ra-soat/2026-11-06-RA-SOAT-XAC-THUC-LUU-TRU.md), [kịch bản](05-ra-soat/2026-11-06-kich-ban-kiem-thu/) |
-| `06-quyet-dinh/` | Hồ sơ quyết định kiến trúc (ADR) | [ADR-001](06-quyet-dinh/ADR-001-node-sqlite-khong-phu-thuoc.md), [ADR-002](06-quyet-dinh/ADR-002-cloudflare-workers-durable-objects.md), [ADR-003](06-quyet-dinh/ADR-003-pwa.md), [ADR-004](06-quyet-dinh/ADR-004-mat-khau-quan-tri-ban-dau.md) |
+| `06-quyet-dinh/` | Hồ sơ quyết định kiến trúc (ADR) | [ADR-001](06-quyet-dinh/ADR-001-node-sqlite-khong-phu-thuoc.md), [ADR-002](06-quyet-dinh/ADR-002-cloudflare-workers-durable-objects.md), [ADR-003](06-quyet-dinh/ADR-003-pwa.md), [ADR-004](06-quyet-dinh/ADR-004-mat-khau-quan-tri-ban-dau.md), [ADR-005](06-quyet-dinh/ADR-005-cong-viec-du-an-v2.md) |
 | `07-nhat-ky/` | Nhật ký các phiên làm việc | [NHAT-KY-PHIEN.md](07-nhat-ky/NHAT-KY-PHIEN.md) |
 | `08-phap-ly/` | Danh mục căn cứ pháp lý và tình trạng kiểm chứng | [CAN-CU-PHAP-LY.md](08-phap-ly/CAN-CU-PHAP-LY.md) |
 | `09-tieu-chuan/` | Tiêu chuẩn chất lượng bắt buộc và danh mục kiểm tra hoàn thành | [ATTT](09-tieu-chuan/TIEU-CHUAN-ATTT.md), [Hiệu năng](09-tieu-chuan/TIEU-CHUAN-HIEU-NANG.md), [UI/UX](09-tieu-chuan/TIEU-CHUAN-UI-UX.md), [Danh mục kiểm tra](09-tieu-chuan/DANH-MUC-KIEM-TRA-HOAN-THANH.md) |
