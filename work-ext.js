@@ -146,6 +146,19 @@ function register(H) {
     }
     return out;
   }
+  /* Lấy giá trị cho nhiều công việc bằng truy vấn gộp theo khối 500 mã (HN: không truy vấn trong vòng lặp từng công việc) */
+  function valuesMany(ids, fields) {
+    const raw = {}, files = {}, out = {}, hasFile = fields.some(f => f.type === 'file');
+    for (let i = 0; i < ids.length; i += 500) {
+      const part = ids.slice(i, i + 500), ph = part.map(() => '?').join(',');
+      for (const r of all(`SELECT task_id, field_id, value FROM task_field_values WHERE task_id IN (${ph})`, ...part)) (raw[r.task_id] = raw[r.task_id] || {})[r.field_id] = parseJSON(r.value, null);
+      if (hasFile) for (const r of all(`SELECT id, task_id, field_id, file_name, file_size FROM task_files WHERE field_id IS NOT NULL AND task_id IN (${ph}) ORDER BY id`, ...part)) ((files[r.task_id] = files[r.task_id] || {})[r.field_id] = (files[r.task_id] || {})[r.field_id] || []).push({ id: r.id, file_name: r.file_name, file_size: r.file_size });
+    }
+    for (const id of ids) { const o = {}, rv = raw[id] || {};
+      for (const f of fields) { if (f.type === 'file') o[f.id] = (files[id] || {})[f.id] || []; else if (f.type === 'table') { const rows = rv[f.id] || []; o[f.id] = { rows, sums: tableSums(f, rows) }; } else if (f.type !== 'heading') o[f.id] = rv[f.id] ?? null; }
+      out[id] = o; }
+    return out;
+  }
   /* Ghi giá trị; requireAll: kiểm tra trường bắt buộc (khi tạo công việc) */
   function saveValues(taskId, pid, input, requireAll) {
     const fields = fieldsOf(pid); if (!fields.length) return;
@@ -252,7 +265,7 @@ function register(H) {
     t.calendar = { title: t.title, start: t.start_date, due: t.due_date, due_time: t.due_time };
   });
   HOOKS.project.push((u, out) => { out.fields = fieldsOf(out.id); out.tags_preset = settingsOf(out).tags_preset || []; out.tags = [...new Set(out.tags.concat(out.tags_preset))]; });
-  HOOKS.create.push((u, id, p, body) => { if (body.fields || fieldsOf(p.id).some(f => f.required)) saveValues(id, p.id, body.fields || {}, !body._import); });
+  HOOKS.create.push((u, id, p, body) => { if (body.fields || fieldsOf(p.id).some(f => f.required)) saveValues(id, p.id, body.fields || {}, !body._import && !(body.quick && body.parent_id)); }); // tạo nhanh việc con: bổ sung trường bắt buộc sau
   HOOKS.clone.push((srcId, newId, keep) => {
     if (keep.fields === false) return;
     run("INSERT INTO task_field_values(task_id,field_id,value) SELECT ?, v.field_id, v.value FROM task_field_values v JOIN task_fields f ON f.id=v.field_id AND f.type<>'file' WHERE v.task_id=?", newId, srcId);
@@ -597,25 +610,29 @@ function register(H) {
       WHERE ${w.join(' AND ')} ORDER BY p.id, t.group_id, COALESCE(t.parent_id,t.id), t.id LIMIT ?`, ...a, maxTasks + maxSubs + 1);
     const tops = rows.filter(r => !r.parent_id).length, subs = rows.length - tops;
     if (tops > maxTasks || subs > maxSubs) bad(`Vượt giới hạn xuất (${maxTasks.toLocaleString('vi-VN')} công việc, ${maxSubs.toLocaleString('vi-VN')} công việc con). Vui lòng thu hẹp khoảng thời gian.`);
-    return rows.map(r => ({ ...r, tags: tagList(r.tags), followers: all('SELECT user_id FROM task_followers WHERE task_id=?', r.id).map(x => x.user_id) }));
+    const fol = {}; if (rows.length) for (const f of all(`SELECT task_id, user_id FROM task_followers WHERE task_id IN (${rows.map(() => '?').join(',')})`, ...rows.map(r => r.id))) (fol[f.task_id] = fol[f.task_id] || []).push(f.user_id);
+    return rows.map(r => ({ ...r, tags: tagList(r.tags), followers: fol[r.id] || [] }));
   }
+  /* Bảng tên đăng nhập để tệp xuất nhập lại được (Base nhập theo username) */
+  const userMap = rows => { const ids = new Set(); for (const r of rows) { if (r.assignee_id) ids.add(r.assignee_id); if (r.creator_id) ids.add(r.creator_id); for (const f of r.followers || []) ids.add(f); }
+    const out = {}; if (ids.size) for (const u of all(`SELECT id, username, full_name FROM users WHERE id IN (${[...ids].map(() => '?').join(',')})`, ...ids)) out[u.id] = { username: u.username, full_name: u.full_name }; return out; };
   route('GET', '/api/projects/:id/export', ({ user, params, query }) => {
     const p = projectOf(int(params.id)), role = roleIn(user, p.id); need(role, 'Bạn không phải thành viên.');
     const v = canManage(role) || permOf(settingsOf(p)).account.view_others[role] ? { sql: '1=1', args: [] } : visibleFilter(user);
     const rows = exportRows([`t.project_id=?`, v.sql], [p.id, ...v.args], query, 3000, 5000);
     const fids = String(query.fields || '').split(',').map(Number).filter(Boolean), fields = fieldsOf(p.id).filter(f => fids.includes(f.id) || query.fields === 'all');
-    if (fields.length) for (const r of rows) r.fields = valuesOf(r.id, fields);
-    return { project: { id: p.id, name: p.name, kind: p.kind }, fields, rows };
+    if (fields.length) { const vm = valuesMany(rows.map(r => r.id), fields); for (const r of rows) r.fields = vm[r.id]; }
+    return { project: { id: p.id, name: p.name, kind: p.kind, color: p.color }, fields, rows, users: userMap(rows), milestones: all('SELECT id, title FROM project_milestones WHERE project_id=?', p.id) };
   });
   /* Xuất công việc của tôi */
-  route('GET', '/api/work/export-mine', ({ user, query }) => ({ rows: exportRows(['t.assignee_id=?'], [user.id], query, 3000, 5000) }));
+  route('GET', '/api/work/export-mine', ({ user, query }) => { const rows = exportRows(['t.assignee_id=?'], [user.id], query, 3000, 5000); return { rows, users: userMap(rows) }; });
   /* Owner: xuất nhiều dự án cùng lúc (tối đa 500 dự án, 3.000 công việc, 5.000 công việc con) */
   route('GET', '/api/work/export', ({ user, query }) => {
     need(isAppAdmin(user), 'Chỉ quản trị hệ thống mới xuất được công việc của nhiều dự án/phòng ban.');
     let ids = String(query.projects || '').split(',').map(Number).filter(Boolean);
     if (query.dept) ids = ids.concat(all('SELECT id FROM projects WHERE dept_id=?', int(query.dept)).map(r => r.id));
     ids = [...new Set(ids)]; if (!ids.length) bad('Vui lòng chọn dự án/phòng ban.'); if (ids.length > 500) bad('Tối đa 500 dự án/phòng ban mỗi lần xuất.');
-    return { rows: exportRows([`t.project_id IN (${ids.map(() => '?').join(',')})`], ids, query, 3000, 5000) };
+    const rows = exportRows([`t.project_id IN (${ids.map(() => '?').join(',')})`], ids, query, 3000, 5000); return { rows, users: userMap(rows) };
   });
 
   /* =================== Báo cáo thành viên (Base bài 63000271837, 63000252592) =================== */

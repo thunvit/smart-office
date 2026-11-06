@@ -100,6 +100,10 @@ const login = async u => { sessions[u] = ''; const r = await call(u, 'POST', '/a
   ok((await call('long.hd', 'POST', '/api/tasks', { project_id: 1, title: 'Thiếu trường bắt buộc' })).s === 400, 'thiếu trường bắt buộc khi tạo công việc bị từ chối');
   r = await call('long.hd', 'POST', '/api/tasks', { project_id: 1, title: 'Mua thiết bị', fields: { ma_hd: 'HĐ-01', so_luong: 3, don_gia: 2.5, hang_muc: 'Phần cứng', vat_tu: [{ ten: 'Máy chủ', sl: 2, gia: 10 }, { ten: 'Ổ cứng', sl: 4, gia: 1.5 }] } });
   if (r.s !== 200) console.log('DBG tạo việc có trường:', r.s, JSON.stringify(r.b));
+  { const q1 = await call('long.hd', 'POST', '/api/tasks', { project_id: 1, parent_id: r.b.id, title: 'Việc con tạo nhanh', quick: true });
+    const q2 = await call('long.hd', 'POST', '/api/tasks', { project_id: 1, parent_id: r.b.id, title: 'Việc con dạng đầy đủ thiếu trường' });
+    const q3 = await call('long.hd', 'POST', '/api/tasks', { project_id: 1, title: 'Việc cha gửi cờ quick', quick: true });
+    ok(q1.s === 200 && q2.s === 400 && q3.s === 400, `tạo nhanh việc con được bỏ qua trường bắt buộc; dạng đầy đủ và việc cha vẫn kiểm tra (${q1.s}, ${q2.s}, ${q3.s})`); }
   const FD = r.b.fields || [], fv = r.b.field_values, fdef = k => FD.find(f => f.input_key === k) || {};
   ok(r.s === 200 && fv[fdef('thanh_tien').id] === 7.5 && fv[fdef('vat_tu').id].sums.tien === 26 && fv[fdef('vat_tu').id].sums.sl === 6, 'công thức và tổng cột của bảng được tính tại máy chủ', fv);
   const tF = r.b;

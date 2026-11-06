@@ -95,3 +95,17 @@
 ## 7. Kế hoạch thực hiện
 
 Làm trên nhánh `tinh-nang/day-du-base-wework`, theo các giai đoạn A–H. Kết quả và mức độ kiểm chứng từng giai đoạn ghi trong nhật ký phiên.
+
+## 8. Kết quả thực hiện (cập nhật 06/11/2026, nhánh `tinh-nang/day-du-base-wework`)
+
+Mức độ kiểm chứng của mọi mục dưới đây là **đã kiểm thử cục bộ**, gồm `test/work-test.js`, `test/work-ext-test.js`, `test/work-plan-test.js`, `test/worker-smoke.js` (mô phỏng Durable Object), `test/work-ui.js` và `test/work-ui-full.js` (Playwright). Các mục **chưa chạy trên Cloudflare thật**.
+
+| Nhóm | Đã làm | Chưa làm hoặc khác Base |
+|---|---|---|
+| 1. Phân quyền, Department | Quyền tạo dự án/phòng ban (mọi người, trưởng Department, danh sách); gắn Department; lọc và xuất theo Department; báo cáo hệ thống | — |
+| 2. Dự án, phòng ban | Stream, Period, Board theo nhóm (kéo thả); tạo có Department, phân loại, mẫu, trạng thái; mẫu dựng sẵn và mẫu của người dùng (chia sẻ người/Department); bảng phân quyền đầy đủ; thêm thành viên theo Department, vai trò Khách; "Thêm tôi làm quản lý"; lọc giai đoạn; nhân bản với các tùy chọn; xóa đếm ngược 6 giây; Owner giới hạn quyền xóa; chuyển loại; ưu tiên (★); thẻ Thảo luận, Tài liệu, Hoạt động; thanh thông tin bên phải | Webhook, tùy chỉnh hình nền |
+| 3. Nhóm công việc | Mô tả, sửa trong Danh sách, kéo thả sắp xếp, người đánh giá theo nhóm, bật/tắt thời lượng định mức | Công việc lặp lại kế thừa định mức: chưa kiểm chứng riêng |
+| 4. Công việc | Tạo nhanh việc con; giao nhiều người theo Department; ủy quyền giao việc (10 người); kết quả kèm tệp, kéo % ; đổi thời hạn trên danh sách; checklist có tên, todo có người thực hiện; Google Calendar và `.ics`; thêm người theo dõi theo Department; nhân bản 14 tùy chọn; nhân bản sang dự án khác; tùy chọn hiển thị việc con, sắp xếp; hoàn thành nhanh, đánh dấu ★; 13 loại trường tùy chỉnh | — |
+| 5. Nhập, xuất | Nhập Excel (nhóm, "#" cấp con, người, cờ, nhãn, ngày, mốc, trường tùy chỉnh; xem trước); nhập kèm phụ thuộc; cập nhật thời gian và trường tùy chỉnh theo mã; nhập định nghĩa trường; xuất .xlsx/CSV có tùy chọn; Owner xuất nhiều dự án; xuất Gantt; xuất dữ liệu bảng | Phụ thuộc tính theo ngày |
+| 6. Báo cáo, quản trị | Báo cáo thành viên (lọc, biểu đồ, theo dự án, mục tiêu, mốc, in, Excel); báo cáo hệ thống (tổng quan, trạng thái, ma trận ưu tiên, xu hướng, theo thành viên/dự án/Department, mốc, thẻ, Excel); tác vụ hàng loạt trên công việc và dự án | — |
+| Thông báo email | — | Hoãn theo chỉ đạo của chủ sở hữu |

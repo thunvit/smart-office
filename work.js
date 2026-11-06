@@ -501,7 +501,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     if (!role) { /* người ngoài dự án chỉ thấy việc mình liên quan */ }
     const w = ['t.project_id=?', v.sql], a = [p.id, ...v.args];
     statusFilter(query, w, a);
-    if (query.assignee) { w.push('t.assignee_id=?'); a.push(int(query.assignee)); }
+    if (query.assignee === 'none') w.push('t.assignee_id IS NULL'); else if (query.assignee) { w.push('t.assignee_id=?'); a.push(int(query.assignee)); }
     if (query.group) { w.push(query.group === 'none' ? 't.group_id IS NULL' : 't.group_id=?'); if (query.group !== 'none') a.push(int(query.group)); }
     if (query.q) { w.push('t.title LIKE ?'); a.push('%' + str(query.q, 100) + '%'); }
     if (query.tag) { w.push("t.tags LIKE ?"); a.push('%,' + str(query.tag, MAX_TAG_LEN) + ',%'); }

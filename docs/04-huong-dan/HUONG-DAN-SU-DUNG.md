@@ -230,7 +230,34 @@ Cần làm → Đang làm → (Chờ đánh giá, nếu dự án bật "Yêu c�
    - Bấm "Xem trước 10 lần gần nhất" để kiểm tra lịch trước khi tạo.
    - Hệ thống sinh ngay lần gần nhất; lần kế tiếp được sinh lúc 7:00 ngày của lần trước.
 
-### 6. Chưa có trong phiên bản này
+### 6. Chức năng bổ sung (phiên bản 1.8)
 
-Trường dữ liệu tùy chỉnh, mẫu dự án, nhân bản dự án, nhập Excel, bàn giao hàng loạt, ủy quyền giao việc, thông báo email.
+1. **Trường dữ liệu tùy chỉnh** (Tùy chỉnh → Trường dữ liệu tùy chỉnh; chỉ quản lý):
+   - 13 loại: số nguyên, số thập phân, văn bản ngắn, văn bản đoạn, ngày, ngày giờ, một lựa chọn, nhiều lựa chọn, checkbox, tập tin, tiêu đề, bảng, công thức.
+   - Công thức dùng `$mã_trường` của các trường số hoặc lựa chọn và các hàm SUM, AVERAGE, MIN, MAX, COUNT, ABS, ROUND, IF. Ví dụ: `ROUND($don_gia * $so_luong, 0)`. Hệ thống báo lỗi ngay khi nhập sai.
+   - Trường Bảng: khai báo cột (loại, độ rộng, bắt buộc); cột công thức tính theo cột số trong cùng dòng; có thể bật dòng tổng.
+   - Có thể nhập định nghĩa trường từ Excel (Nhập & Xuất → Nhập định nghĩa trường).
+2. **Phân quyền sử dụng** (Tùy chỉnh → Phân quyền sử dụng): quyền của Thành viên và Khách; quyền chỉnh sửa của Người theo dõi và Thành viên khác; 3 hạn chế đối với người được giao việc.
+3. **Thảo luận, Tài liệu, Hoạt động:** các thẻ ngay dưới tên dự án. Thanh bên phải hiển thị tiến độ, thành viên, "Công việc của tôi", việc cần lưu ý, mốc và hoạt động gần đây.
+4. **Nhập & Xuất** (nút ở đầu trang dự án):
+   - Nhập công việc: tải tệp mẫu → điền → chọn tệp → xem trước → Thực hiện. Việc con: thêm `#` trước tên (`#`, `##`, `###`). Người: nhập tên đăng nhập. Ngày: `dd/mm/yyyy`.
+   - Phụ thuộc: bật trong Thiết lập, dùng cột Key và Phụ thuộc, ví dụ `1FS1d`.
+   - Cập nhật thời gian, cập nhật trường tùy chỉnh: tải danh sách có Mã (ID), sửa rồi tải lên (tối đa 300 công việc).
+   - Xuất: chọn lọc theo ngày tạo, thời hạn hoặc thời gian thực hiện; xuất .xlsx, CSV, dữ liệu bảng, Gantt.
+5. **Tùy chọn khác:** nhân bản dự án (giữ hoặc bỏ thành viên, thiết lập, trường, công việc; giữ, bỏ hoặc dời thời hạn), lưu thành mẫu, chuyển loại, đóng/mở lại, xóa.
+6. **Tạo từ mẫu** (trang chính): 4 mẫu dựng sẵn và các mẫu được chia sẻ.
+7. **Chi tiết công việc:**
+   - đánh dấu ★ (xem lại ở bộ lọc "Đã đánh dấu");
+   - thêm vào Google Calendar; tải tệp `.ics`;
+   - nhân bản sang dự án khác;
+   - tạo nhanh việc con (tên, thời hạn, người thực hiện).
+8. **Thành viên** (trang chính):
+   - Mỗi người xem báo cáo của mình; trưởng Department xem báo cáo của nhân viên.
+   - Lọc theo kỳ, trạng thái, dự án; có biểu đồ tiến độ; in báo cáo; xuất Excel.
+   - Tại báo cáo của mình có mục Ủy quyền giao việc (tối đa 10 người).
+9. **Báo cáo hệ thống, Quản trị** (chỉ quản trị hệ thống, Giám đốc): báo cáo toàn đơn vị; quyền tạo dự án/phòng ban; quản lý mẫu; tác vụ hàng loạt (thay người nhận, người giao, thêm người theo dõi; thay vai trò, hạ quyền, xóa khỏi dự án); xuất nhiều dự án.
+
+### 7. Chưa có trong phiên bản này
+
+Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hình nền dự án.
 

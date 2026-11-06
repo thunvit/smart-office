@@ -33,15 +33,16 @@ const SP = process.argv[2], BASE = 'http://localhost:3999';
   await pg.click('[data-act="np-save"]'); await pg.waitForSelector('.w-ph:has-text("Dự án kiểm thử giao diện")');
   ok(/p=\d+/.test(pg.url()), 'Tạo dự án và mở chi tiết: ' + pg.url().split('#')[1]);
   // Thêm nhóm
-  await pg.click('[data-wv="settings"]'); await pg.waitForSelector('#pg-n');
+  await pg.click('[data-wv="settings"]'); await pg.waitForSelector('.w-setnav'); await pg.click('.w-setnav a:has-text("Nhóm công việc")'); await pg.waitForSelector('#pg-n');
   await pg.fill('#pg-n', 'Khảo sát'); await pg.fill('#pg-h', '4'); await pg.click('[data-act="w-gadd"]');
   await pg.waitForSelector('td b:has-text("Khảo sát")'); ok(true, 'Thêm nhóm công việc');
   // Bật đánh giá
+  await pg.click('.w-setnav a:has-text("Chỉnh sửa")'); await pg.waitForSelector('[data-wset="review"]');
   await pg.check('[data-wset="review"]'); await pg.click('[data-act="w-pr-save"]'); await pg.waitForTimeout(500);
   ok(await pg.locator('[data-wset="review"]').isChecked(), 'Lưu thiết lập Yêu cầu đánh giá');
   await pg.screenshot({ path: SP + '/ui-3-settings.png', fullPage: true });
   // Quick add
-  await pg.click('[data-wv="list"]'); await pg.waitForSelector('[data-wqadd]');
+  await pg.click('.w-tabs [data-wv]:has-text("Công việc")'); await pg.waitForTimeout(300); await pg.click('[data-wv="list"]'); await pg.waitForSelector('[data-wqadd]');
   const qa = pg.locator('[data-wqadd]').first(); await qa.fill('Khảo sát hiện trạng hạ tầng'); await qa.press('Enter');
   await pg.waitForSelector('.t-title:has-text("Khảo sát hiện trạng hạ tầng")'); ok(true, 'Thêm nhanh công việc bằng Enter');
   // Tạo việc giao cho Huy
@@ -76,7 +77,7 @@ const SP = process.argv[2], BASE = 'http://localhost:3999';
   await pg.click('[data-wv="settings"]'); await pg.waitForSelector('[data-wset="deps"]');
   await pg.check('[data-wset="deps"]'); await pg.selectOption('#ps-dm', 'keep'); await pg.click('[data-act="w-pr-save"]'); await pg.waitForTimeout(600);
   ok(await pg.locator('[data-wset="deps"]').isChecked(), 'Bật công việc phụ thuộc trong Thiết lập');
-  await pg.click('[data-wv="list"]'); await pg.waitForSelector('.w-ms');
+  await pg.click('.w-tabs [data-wv]:has-text("Công việc")'); await pg.waitForTimeout(300); await pg.click('[data-wv="list"]'); await pg.waitForSelector('.w-ms');
   await pg.click('[data-act="w-msnew"]'); await pg.fill('#ms-t', 'Nghiệm thu thiết kế'); await pg.fill('#ms-d', await pg.evaluate(() => window.SO.addDays(window.SO.TODAY(), 10)));
   await pg.click('[data-act="ms-save"]'); await pg.waitForSelector('.w-ms-item:has-text("Nghiệm thu thiết kế")'); ok(true, 'Tạo mốc dự án');
   // Phụ thuộc: "Lập hồ sơ thiết kế hạ tầng" chặn "Lập báo cáo khảo sát" (FS)
@@ -108,7 +109,7 @@ const SP = process.argv[2], BASE = 'http://localhost:3999';
   await pg.fill('#rc-md', '15'); await pg.check('#rc-last'); await pg.click('[data-act="rc-prev"]'); await pg.waitForFunction(() => document.querySelector('#rc-out').textContent.length > 5);
   ok((await pg.textContent('#rc-out')).split('·').length === 10, 'Xem trước 10 lần lặp: ' + (await pg.textContent('#rc-out')).slice(0, 40) + '…');
   await pg.click('[data-act="rc-save"]'); await pg.waitForSelector('td:has-text("Hằng tháng: ngày 15, cuối tháng")'); ok(true, 'Tạo công việc lặp lại hằng tháng');
-  await pg.click('[data-wv="list"]'); await pg.waitForSelector('.w-row');
+  await pg.click('.w-tabs [data-wv]:has-text("Công việc")'); await pg.waitForTimeout(300); await pg.click('[data-wv="list"]'); await pg.waitForSelector('.w-row');
 
   // Mở chi tiết, thêm việc con, checklist, bình luận
     await pg.click('.t-title:has-text("Khảo sát hiện trạng hạ tầng")'); await pg.waitForSelector('#modal .w-status'); await pg.waitForFunction(() => document.activeElement && document.activeElement.id === 'tk-t');

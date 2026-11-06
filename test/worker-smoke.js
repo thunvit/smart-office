@@ -41,6 +41,11 @@ const core = require(REPO + '/worker/do-core.js');
   r = await call('GET', '/api/bootstrap'); console.log('csv/tasks');
   const c = await call('GET', '/api/export/tasks.csv'); console.log('csv', c.status, c.headers.get('content-type'), String(c.body).length);
   r = await call('POST', '/api/attendance/check', {}); console.log('check-in', r.status, JSON.stringify(r.body).slice(0, 140));
+  /* Phân hệ Công việc – Dự án bản đầy đủ (ADR-007): bảng mới tạo được trên ctx.storage.sql, tạo dự án từ mẫu dựng sẵn */
+  r = await call('POST', '/api/projects', { name: 'Kiểm thử Workers', kind: 'project', template_id: 'b2' });
+  const wp = r.body && r.body.id; r = wp ? await call('GET', `/api/projects/${wp}/fields`) : r;
+  console.log('work-template', r.status, r.body && r.body.fields ? r.body.fields.length : -1);
+  r = wp ? await call('POST', `/api/projects/${wp}/posts`, { title: 'Thảo luận', body: 'Nội dung' }) : r; console.log('work-post', r.status);
   // Durable Object được khởi tạo lại trong cùng isolate: storage cũ không còn dùng được
   st1.kill();
   app = core.createApp(fakeStorage(DBF), demo ? { SO_DEMO: '1' } : { ADMIN_PASSWORD: 'Thu-Nghiem#2026' });

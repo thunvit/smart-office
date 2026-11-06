@@ -120,6 +120,22 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Chưa kiểm chứng trên Cloudflare thật:** các thao tác ghi (tạo phụ thuộc, lặp lại, mốc, kéo thả Gantt); việc sinh công việc lặp lại trên Durable Object.
 - **Theo chỉ đạo của chủ sở hữu:** email thông báo để sau.
 
+## 06/11/2026 (12:44–13:35). Đầy đủ chức năng theo tài liệu Base Wework (so-1.8.0, nhánh `tinh-nang/day-du-base-wework`)
+- **Mục tiêu:** theo yêu cầu của chủ sở hữu lúc 12:44: "căn cứ hình ảnh và mô tả trong tài liệu bạn xây dựng đầy đủ tính năng". Email thông báo để sau.
+- **Việc đã làm:**
+  - Máy chủ `work-ext.js` (commit `a583b4c`).
+  - Giao diện `public/work-report.js`; thư viện tự viết `public/xlsx-lite.js` và `public/work-formula.js`.
+  - Sửa `public/work.js`: tạo nhanh việc con, các điểm mở rộng.
+  - ADR-007; mục 8 bảng đối chiếu; bổ sung YEU-CAU mục VII, HUONG-DAN mục XI.6.
+- **Sửa trong phiên:** xuất kèm trường tùy chỉnh trước đây truy vấn theo từng công việc; nay lấy theo khối 500 mã (HN-05).
+- **Kiểm thử:**
+  - `work-test` 124/0; `work-ext-test` 91/0 (thêm điều kiện tạo nhanh việc con); `work-plan-test` 21/0.
+  - `worker-smoke`: `download 200 true`, `work-template 200 3`, `work-post 200`, `re-instantiate 200`.
+  - `work-ui` tất cả đạt (đã sửa kịch bản theo màn hình Tùy chỉnh mới).
+  - `work-ui-full` 44/0, chạy ổn định 3 lần liên tiếp; gồm nhập tệp .xlsx nén deflate do openpyxl tạo, xuất tệp đọc lại được bằng openpyxl và XLSX_LITE, kiểm tra 390 px chế độ tối không cuộn ngang.
+- **Mức độ kiểm chứng:** đã kiểm thử cục bộ và mô phỏng. **Chưa chạy trên Cloudflare thật**, chưa hợp nhất vào `main`.
+- **Chưa làm:** webhook dự án, tùy chỉnh hình nền, email thông báo (hoãn).
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
 2. **Các việc P0 theo báo cáo rà soát:**

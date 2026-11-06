@@ -123,5 +123,14 @@ Căn cứ: các bài Base Wework 63000283721, 63000283724, 63000268543, 63000267
 | Mốc dự án (milestone): tên, hạn, người phụ trách; gắn công việc; tiến độ | Có | Kiểm thử cục bộ |
 | Lịch (Calendar) | Có: lịch tháng; điện thoại hiển thị dạng danh sách theo ngày | Kiểm thử cục bộ |
 | Gantt: kéo thả dời lịch, đổi thời hạn; mũi tên phụ thuộc; mốc | Có | Kiểm thử cục bộ |
-| Thêm công việc vào Google Calendar | Chưa | Cần kết nối Google, để sau |
+| Thêm công việc vào Google Calendar | Có (bản 1.8): liên kết mở trang thêm sự kiện và tệp `.ics` | Kiểm thử cục bộ |
 
+
+## VII. Đợt 2–3 Giai đoạn 2 (06/11/2026): đầy đủ chức năng theo tài liệu Base Wework
+
+- Căn cứ: yêu cầu của chủ sở hữu lúc 12:44 ngày 06/11/2026; 68 bài Base Wework.
+- Bảng đối chiếu từng bài và kết quả: `docs/05-ra-soat/2026-11-06-DOI-CHIEU-BASE-WEWORK.md`, mục 8.
+- Quyết định kỹ thuật: ADR-007.
+- Phạm vi: bảng phân quyền sử dụng; trường dữ liệu tùy chỉnh (13 loại, gồm Bảng và Công thức); Thảo luận, Tài liệu, Hoạt động, thanh thông tin; mẫu dự án; nhân bản dự án và nhân bản công việc sang dự án khác; nhập/xuất Excel; báo cáo thành viên, báo cáo hệ thống; tác vụ hàng loạt; ủy quyền giao việc; tạo nhanh việc con.
+- Mức độ kiểm chứng: đã kiểm thử cục bộ; chưa chạy trên Cloudflare thật.
+- Ngoài phạm vi: email thông báo (hoãn), webhook, tùy chỉnh hình nền.

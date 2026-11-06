@@ -98,6 +98,8 @@ Chạy và xác nhận đạt toàn bộ:
 3. Khởi động bản Node với `DATA_DIR` tạm và gọi `/healthz`, `/api/login`.
 3a. `node test/work-test.js`: phải in `0 không đạt` (phân quyền và luồng trạng thái phân hệ Công việc – Dự án).
 3b. `node test/work-plan-test.js`: phải in `0 không đạt` (quy tắc công việc lặp lại theo các ví dụ của Base Wework).
+3c. `node test/work-ext-test.js`: phải in `0 không đạt` (trường tùy chỉnh, mẫu, nhân bản, nhập/xuất, báo cáo, tác vụ hàng loạt; ADR-007). `node test/worker-smoke.js` phải có thêm `work-template 200 3` và `work-post 200`.
+3d. Thay đổi giao diện phân hệ Công việc: chạy cục bộ `node test/work-ui.js` và `node test/work-ui-full.js` (Playwright, cần máy chủ Node cổng 3999 với `DATA_DIR` tạm).
 4. **Sửa lỗi:** mỗi lỗi phải kèm kiểm thử tái hiện. Kiểm thử đó phải báo lỗi trên mã cũ và đạt trên mã mới.
 5. **Giới hạn của bản mô phỏng:** `test/fake-do.js` chỉ mô phỏng Durable Object, không thay được Cloudflare thật. Sau khi triển khai, kiểm tra lại trên địa chỉ thật và ghi rõ kết quả.
 

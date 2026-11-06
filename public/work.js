@@ -10,7 +10,7 @@ const B = () => SO.B;
 
 const ST = { todo: 'Cần làm', doing: 'Đang làm', review: 'Chờ đánh giá', done: 'Hoàn thành', failed: 'Thất bại' };
 const KIND = { project: 'Dự án', team: 'Phòng ban' };
-const ROLE = { owner: 'Quản trị hệ thống', manager: 'Quản lý', member: 'Thành viên', follower: 'Người theo dõi' };
+const ROLE = { owner: 'Quản trị hệ thống', manager: 'Quản lý', member: 'Thành viên', guest: 'Khách', follower: 'Người theo dõi' };
 const CLOSE_RES = { success: 'Thành công', failed: 'Thất bại', cancelled: 'Hủy' };
 const HEALTH = { on_track: 'Đúng tiến độ', late: 'Chậm tiến độ', risk: 'Rủi ro cao' };
 const LOG = { shift: 'tự động dời lịch', dep: 'thiết lập phụ thuộc', dep_del: 'gỡ phụ thuộc', file: 'đính kèm', file_del: 'gỡ tệp', create: 'tạo công việc', update: 'cập nhật', start: 'bắt đầu thực hiện', todo: 'chuyển về Cần làm', reopen: 'mở lại', done: 'hoàn thành', submit_review: 'gửi đánh giá hoàn thành', approve: 'duyệt hoàn thành', return: 'trả lại', failed: 'đánh dấu thất bại', result: 'cập nhật kết quả', followers: 'thêm người theo dõi', clone: 'nhân bản' };
@@ -25,6 +25,9 @@ const flags = t => (t.urgent ? '<span class="tag w-urgent">Khẩn cấp</span>' 
 const multiVals = sel => Array.from(sel.selectedOptions).map(o => Number(o.value));
 const isHead = () => B().departments.some(d => d.head_id === B().me.id);
 let clToggle = null;
+/* Điểm mở rộng cho public/work-report.js (Base Wework đầy đủ): thẻ trang chủ, thẻ dự án, chế độ xem, mục trong chi tiết công việc, trường khi tạo việc, mục Tùy chỉnh */
+const W = SO.W = Object.assign(SO.W || {}, { HOME: [], PTABS: [], VIEWS: {}, TSECT: [], THEAD: [], THAND: {}, NTF: [], NTC: [], SET: [], CFG: null, PHEAD: [] });
+const ROLE_ALL = { owner: 'Quản trị hệ thống', manager: 'Quản lý', member: 'Thành viên', guest: 'Khách', follower: 'Người theo dõi' };
 /* ---- Nhãn, mục tiêu, tệp đính kèm (bổ sung theo bài "Cách tạo công việc mới" của Base Wework) ---- */
 const FILE_MAX = 10 * 1024 * 1024;
 const tagChips = tags => (tags || []).map(x => `<span class="tag w-tagc">#${esc(x)}</span>`).join('');
@@ -58,15 +61,18 @@ let listTag = '', listMs = '', calMonth = null;
 const DEP = { FS: 'Kết thúc → Bắt đầu (FS)', FF: 'Kết thúc → Kết thúc (FF)', SS: 'Bắt đầu → Bắt đầu (SS)', SF: 'Bắt đầu → Kết thúc (SF)' };
 const DEP_HINT = { FS: 'A kết thúc thì B mới bắt đầu', FF: 'A kết thúc thì B mới kết thúc', SS: 'A bắt đầu thì B mới bắt đầu', SF: 'A bắt đầu thì B mới kết thúc' };
 const WD = ['', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy', 'Chủ nhật'];
-let homeQ = '', homeScope = 'assigned', homeStatus = 'open', projStatus = 'open', projQ = '', listStatus = '', listAssignee = '', listQ = '';
+let homeQ = '', homeScope = 'assigned', homeStatus = 'open', projStatus = 'open', projQ = '', listStatus = '', listAssignee = '', listQ = '', projScope = 'mine', projHealth = '';
+const pref = (k, d) => { try { return localStorage.getItem('so.w.' + k) || d; } catch (e) { return d; } };
+const setPref = (k, v) => { try { localStorage.setItem('so.w.' + k, v); } catch (e) {} };
 
 /* ================= Hàng công việc dùng chung ================= */
 function taskRow(t, opt = {}) {
   const prog = t.progress ? `<div class="prog w-mini ${t.status === 'done' ? 'ok' : ''}" title="${t.progress}%"><i style="width:${t.progress}%"></i></div>` : '';
   const meta = [opt.project && t.project_name ? `<span class="tag" style="border-color:${esc(t.project_color)};color:${esc(t.project_color)}">${esc(t.project_name)}</span>` : '',
     t.sub_total ? `<span>${t.sub_done}/${t.sub_total} việc con</span>` : '', t.cl_total ? `<span>${t.cl_done}/${t.cl_total} đầu việc</span>` : '', t.cm_count ? `<span>${t.cm_count} trao đổi</span>` : '', t.file_count ? `<span>${t.file_count} tệp</span>` : '', t.dep_in || t.dep_out ? `<span title="Bị chặn bởi ${t.dep_in} · Chặn ${t.dep_out}">⛓ ${t.dep_in + t.dep_out} phụ thuộc</span>` : '', t.recurrence_id ? '<span>↻ lặp lại</span>' : '', (t.tags || []).length ? tagChips(t.tags) : ''].filter(Boolean).join(' · ');
-  return `<tr class="click w-row ${isDone(t) ? 'w-closed' : ''}" data-task="${t.id}"><td><div class="w-title" style="padding-left:${(opt.depth || 0) * 22}px">${opt.depth ? '<span class="w-branch" aria-hidden="true">└</span>' : ''}<span class="t-title">${esc(t.title)}</span>${flags(t)}</div>${meta ? `<div class="t-sub" style="padding-left:${(opt.depth || 0) * 22}px">${meta}</div>` : ''}</td>
-    <td>${who(t.assignee_id)}</td><td class="num ${late(t) ? 'late' : ''}">${dueTxt(t)}${late(t) ? `<div class="t-sub late">Quá ${dayNum(TODAY()) - dayNum(t.due_date) || 'hạn'}${dayNum(TODAY()) - dayNum(t.due_date) ? ' ngày' : ''}</div>` : ''}</td>
+  const ctl = opt.ctl && t.status !== 'review';
+  return `<tr class="click w-row ${isDone(t) ? 'w-closed' : ''}" data-task="${t.id}" ${opt.drag ? `draggable="true" data-wdrag="${t.id}"` : ''}><td><div class="w-title" style="padding-left:${(opt.depth || 0) * 22}px">${opt.depth ? '<span class="w-branch" aria-hidden="true">└</span>' : ''}${ctl ? `<button class="w-done ${t.status === 'done' ? 'on' : ''}" data-act="w-done" data-id="${t.id}" aria-label="${t.status === 'done' ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'}: ${esc(t.title)}" title="${t.status === 'done' ? 'Bỏ đánh dấu hoàn thành' : 'Đánh dấu hoàn thành'}"></button>` : ''}<span class="t-title">${esc(t.title)}</span>${flags(t)}</div>${meta ? `<div class="t-sub" style="padding-left:${(opt.depth || 0) * 22}px">${meta}</div>` : ''}</td>
+    <td>${t.assignee_id ? who(t.assignee_id) : '<span class="tag">Chưa giao</span>'}</td><td class="num ${late(t) ? 'late' : ''}">${dueTxt(t)}${opt.ctl && !isDone(t) ? ` <button class="btn ghost sm w-due" data-act="w-due" data-id="${t.id}" aria-label="Đổi thời hạn: ${esc(t.title)}" title="Đổi thời hạn">📅</button>` : ''}${late(t) ? `<div class="t-sub late">Quá ${dayNum(TODAY()) - dayNum(t.due_date) || 'hạn'}${dayNum(TODAY()) - dayNum(t.due_date) ? ' ngày' : ''}</div>` : ''}</td>
     <td>${pill(t.status)}${prog}</td></tr>`;
 }
 const tableHead = '<thead><tr><th>Công việc</th><th>Người thực hiện</th><th>Thời hạn</th><th>Trạng thái</th></tr></thead>';
@@ -76,21 +82,24 @@ VIEWS['cong-viec'] = async main => {
   const q = qp();
   if (q.get('p')) return projectView(main, Number(q.get('p')), q.get('v') || 'list');
   const tab = q.get('tab') || 'mine';
-  const tabs = [['mine', 'Việc của tôi'], ['projects', 'Dự án & phòng ban']].concat(isHead() ? [['staff', 'Nhân viên của tôi']] : []);
+  if (!W.CFG) { try { W.CFG = await GET('/api/work/config'); } catch (e) { W.CFG = { can_create_project: true, can_create_team: true, delegators: [], delegates: [] }; } }
+  const tabs = [['mine', 'Việc của tôi'], ['projects', 'Dự án & phòng ban']].concat(isHead() ? [['staff', 'Nhân viên của tôi']] : []).concat(W.HOME.filter(h => h.show()).map(h => [h.key, h.label]));
+  const canP = W.CFG.can_create_project || W.CFG.can_create_team;
   const head = `<div class="page-head"><div><h1>Công việc – Dự án</h1><p>Giao việc, theo dõi tiến độ theo dự án và phòng ban</p></div>
-    <div class="actions"><button class="btn" data-act="w-new-project">+ Dự án / phòng ban</button><button class="btn primary" data-act="w-new-task">+ Công việc</button></div></div>
+    <div class="actions">${canP ? '<button class="btn" data-act="w-from-tpl">Tạo từ mẫu</button><button class="btn" data-act="w-new-project">+ Dự án / phòng ban</button>' : ''}<button class="btn primary" data-act="w-new-task">+ Công việc</button></div></div>
     <div class="toolbar"><div class="seg" role="tablist">${tabs.map(([k, l]) => `<button data-wtab="${k}" aria-pressed="${k === tab}">${l}</button>`).join('')}</div></div>`;
   if (tab === 'projects') return projectsHome(main, head);
   if (tab === 'staff') return staffHome(main, head);
+  const ext = W.HOME.find(h => h.key === tab && h.show()); if (ext) return ext.render(main, head);
   return mineHome(main, head);
 };
 async function mineHome(main, head) {
-  const SC = [['assigned', 'Được giao cho tôi'], ['created', 'Tôi giao'], ['following', 'Tôi theo dõi'], ['review', 'Chờ tôi đánh giá']];
-  const qs = new URLSearchParams({ scope: homeScope, status: homeScope === 'review' ? '' : homeStatus, q: homeQ });
+  const SC = [['assigned', 'Được giao cho tôi'], ['created', 'Tôi giao'], ['following', 'Tôi theo dõi'], ['review', 'Chờ tôi đánh giá'], ['marked', 'Đã đánh dấu']];
+  const qs = new URLSearchParams({ scope: homeScope, status: homeScope === 'review' || homeScope === 'marked' ? '' : homeStatus, q: homeQ });
   const d = await GET('/api/tasks?' + qs);
   main.innerHTML = `${head}
   <div class="toolbar"><div class="chips">${SC.map(([k, l]) => `<button class="chip" data-wscope="${k}" aria-pressed="${k === homeScope}">${l}</button>`).join('')}</div><span class="spacer"></span>
-    ${homeScope === 'review' ? '' : `<select class="sel" id="w-hst" aria-label="Lọc trạng thái"><option value="open">Chưa kết thúc</option><option value="late">Quá hạn</option><option value="">Tất cả</option>${Object.entries(ST).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>`}
+    <button class="btn sm" data-act="w-export-mine">Xuất Excel</button>${homeScope === 'review' ? '' : `<select class="sel" id="w-hst" aria-label="Lọc trạng thái"><option value="open">Chưa kết thúc</option><option value="late">Quá hạn</option><option value="">Tất cả</option>${Object.entries(ST).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>`}
     <input class="search" id="w-hq" type="search" placeholder="Tìm công việc…" value="${esc(homeQ)}" aria-label="Tìm công việc"></div>
   <section class="card">${d.rows.length ? `<div class="tbl-wrap"><table class="tbl w-tbl">${tableHead}<tbody>${d.rows.map(t => taskRow(t, { project: true })).join('')}</tbody></table></div>
     ${d.total > d.rows.length ? `<p class="hint" style="padding:10px 14px">Hiển thị ${d.rows.length}/${d.total} công việc. Thu hẹp bộ lọc để xem đầy đủ.</p>` : ''}`
@@ -99,20 +108,27 @@ async function mineHome(main, head) {
   $('#w-hq').addEventListener('input', debounce(e => { homeQ = e.target.value; render(); setTimeout(() => { const i = $('#w-hq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 50); }, 350));
 }
 async function projectsHome(main, head) {
-  const list = await GET('/api/projects?' + new URLSearchParams({ status: projStatus, q: projQ }));
+  const owner = W.CFG && W.CFG.is_owner, deptHead = isHead();
+  if (projScope === 'all' && !owner) projScope = 'mine';
+  const list = await GET('/api/projects?' + new URLSearchParams({ status: projStatus, q: projQ, scope: projScope, health: projHealth }));
   const card = p => {
     const pct = p.total ? Math.round(p.done / p.total * 100) : 0;
-    return `<a class="card w-pcard" href="#cong-viec?p=${p.id}"><div class="w-pc-h"><i style="background:${esc(p.color)}"></i><b>${esc(p.name)}</b></div>
+    const go2 = p.joined || !owner ? `href="#cong-viec?p=${p.id}"` : '';
+    return `<div class="card w-pcard ${p.joined ? '' : 'w-notjoined'}"><div class="w-pc-h"><i style="background:${esc(p.color)}"></i><a class="w-pc-name" ${go2}><b>${esc(p.name)}</b></a><span class="spacer"></span>
+      ${p.joined ? `<button class="btn ghost sm w-star ${p.fav ? 'on' : ''}" data-act="w-fav" data-id="${p.id}" data-on="${p.fav ? 0 : 1}" aria-pressed="${p.fav}" aria-label="${p.fav ? 'Bỏ ưu tiên' : 'Thêm ưu tiên'}: ${esc(p.name)}" title="${p.fav ? 'Bỏ ưu tiên' : 'Thêm ưu tiên'}">${p.fav ? '★' : '☆'}</button>` : owner ? `<button class="btn sm" data-act="w-joinmgr" data-id="${p.id}">Thêm tôi làm quản lý</button>` : ''}</div>
       <div class="t-sub">${KIND[p.kind]} · ${ROLE[p.my_role] || ''} · ${p.member_count} thành viên${p.kind === 'project' && p.end_date ? ' · đến ' + fmtD(p.end_date) : ''}</div>
       <div class="prog ${pct >= 70 ? 'ok' : ''}"><i style="width:${pct}%"></i></div>
-      <div class="t-sub">${p.done}/${p.total} việc hoàn thành${p.late ? ` · <span class="late">${p.late} quá hạn</span>` : ''}${p.status === 'closed' ? ` · Đã đóng (${CLOSE_RES[p.close_result] || ''})` : p.health && p.health !== 'on_track' ? ` · <span class="late">${HEALTH[p.health]}</span>` : ''}</div></a>`;
+      <div class="t-sub">${p.done}/${p.total} việc hoàn thành${p.late ? ` · <span class="late">${p.late} quá hạn</span>` : ''}${p.status === 'closed' ? ` · Đã đóng (${CLOSE_RES[p.close_result] || ''})` : p.health && p.health !== 'on_track' ? ` · <span class="late">${HEALTH[p.health]}</span>` : ''}${p.classification === 'customer' ? ' · Khách hàng' : ''}</div></div>`;
   };
   const grp = k => list.filter(p => p.kind === k);
   main.innerHTML = `${head}
-  <div class="toolbar"><div class="chips">${[['open', 'Đang hoạt động'], ['closed', 'Đã đóng'], ['all', 'Tất cả']].map(([k, l]) => `<button class="chip" data-wpst="${k}" aria-pressed="${k === projStatus}">${l}</button>`).join('')}</div><span class="spacer"></span>
+  <div class="toolbar"><div class="chips">${[['mine', 'Tôi tham gia'], ['fav', 'Ưu tiên']].concat(deptHead ? [['dept', 'Department tôi quản lý']] : []).concat(owner ? [['all', 'Tất cả (cho quản trị)']] : []).map(([k, l]) => `<button class="chip" data-wpsc="${k}" aria-pressed="${k === projScope}">${l}</button>`).join('')}</div></div>
+  <div class="toolbar"><div class="chips">${[['open', 'Đang thực hiện'], ['closed', 'Đã đóng'], ['all', 'Tất cả']].map(([k, l]) => `<button class="chip" data-wpst="${k}" aria-pressed="${k === projStatus}">${l}</button>`).join('')}</div>
+    <select class="sel" id="w-ph" aria-label="Lọc giai đoạn"><option value="">Mọi giai đoạn</option>${Object.entries(HEALTH).map(([k, l]) => `<option value="${k}" ${k === projHealth ? 'selected' : ''}>${l}</option>`).join('')}</select><span class="spacer"></span>
     <input class="search" id="w-pq" type="search" placeholder="Tìm dự án, phòng ban…" value="${esc(projQ)}" aria-label="Tìm dự án"></div>
   ${list.length ? ['project', 'team'].filter(k => grp(k).length).map(k => `<h2 class="sec-t">${k === 'project' ? 'Dự án' : 'Phòng ban'} (${grp(k).length})</h2><div class="w-pgrid">${grp(k).map(card).join('')}</div>`).join('')
     : '<section class="card"><div class="empty">Chưa có dự án, phòng ban nào. Tạo mới bằng nút “+ Dự án / phòng ban”.</div></section>'}`;
+  $('#w-ph').onchange = e => { projHealth = e.target.value; render(); };
   $('#w-pq').addEventListener('input', debounce(e => { projQ = e.target.value; render(); setTimeout(() => { const i = $('#w-pq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 50); }, 350));
 }
 async function staffHome(main, head) {
@@ -125,44 +141,133 @@ async function staffHome(main, head) {
 
 /* ================= Chi tiết dự án ================= */
 let PJ = null, PT = { rows: [], total: 0 };
+const WORK_VIEWS = p => p.kind === 'project'
+  ? [['list', 'Danh sách'], ['board', 'Board'], ['kanban', 'Kanban'], ['gantt', 'Gantt'], ['calendar', 'Lịch']]
+  : [['stream', 'Stream'], ['period', 'Period'], ['board', 'Board'], ['kanban', 'Kanban'], ['calendar', 'Lịch']];
+let periodMode = 'week', periodOff = 0;
 async function projectView(main, id, v) {
   PJ = await GET('/api/projects/' + id);
-  const tabs = [['list', 'Danh sách'], ['kanban', 'Kanban']].concat(PJ.kind === 'project' ? [['gantt', 'Gantt']] : []).concat([['calendar', 'Lịch'], ['report', 'Báo cáo']])
-    .concat(PJ.my_role !== 'follower' ? [['recur', 'Lặp lại']] : []).concat(PJ.can_manage ? [['settings', 'Thiết lập']] : []);
-  if (!tabs.some(t => t[0] === v)) v = 'list';
+  const views = WORK_VIEWS(PJ);
+  const mains = [['work', 'Công việc']].concat(W.PTABS.filter(t => t.show(PJ)).map(t => [t.key, t.label]))
+    .concat(PJ.can_report !== false ? [['report', 'Báo cáo']] : []).concat(PJ.my_role !== 'follower' ? [['recur', 'Lặp lại']] : []).concat(PJ.can_manage ? [['settings', 'Tùy chỉnh']] : []);
+  if (!v || v === 'list' && PJ.kind === 'team') v = pref('view.' + PJ.id, views[0][0]);
+  if (!views.some(x => x[0] === v) && !mains.some(x => x[0] === v)) v = views[0][0];
+  const isWork = views.some(x => x[0] === v); if (isWork) setPref('view.' + PJ.id, v);
+  const mainKey = isWork ? 'work' : v;
   const s = PJ.stats, pct = s.total ? Math.round((s.done || 0) / s.total * 100) : 0;
   const closed = PJ.status === 'closed';
+  const filt = ['list', 'board', 'kanban', 'gantt', 'stream', 'period'].includes(v);
+  const subOpt = ['list', 'gantt', 'stream', 'period'].includes(v), sortOpt = ['list', 'stream', 'period'].includes(v);
   main.innerHTML = `
-  <div class="page-head"><div><p class="t-sub"><a href="#cong-viec?tab=projects">Dự án & phòng ban</a> › ${KIND[PJ.kind]}</p>
-    <h1 class="w-ph"><i style="background:${esc(PJ.color)}"></i>${esc(PJ.name)}</h1>
+  <div class="page-head"><div><p class="t-sub"><a href="#cong-viec?tab=projects">Dự án & phòng ban</a> › ${KIND[PJ.kind]}${PJ.dept_name ? ' › ' + esc(PJ.dept_name) : ''}</p>
+    <h1 class="w-ph"><i style="background:${esc(PJ.color)}"></i>${esc(PJ.name)}<button class="btn ghost sm w-star ${PJ.fav ? 'on' : ''}" data-act="w-fav" data-id="${PJ.id}" data-on="${PJ.fav ? 0 : 1}" aria-pressed="${!!PJ.fav}" aria-label="${PJ.fav ? 'Bỏ ưu tiên' : 'Thêm ưu tiên'}" title="${PJ.fav ? 'Bỏ ưu tiên' : 'Thêm ưu tiên'}">${PJ.fav ? '★' : '☆'}</button></h1>
     <p>${ROLE[PJ.my_role]} · ${PJ.members.filter(m => m.role !== 'follower').length} thành viên${PJ.kind === 'project' && PJ.start_date ? ` · ${fmtD(PJ.start_date)} – ${fmtD(PJ.end_date)}` : ''} · ${s.done || 0}/${s.total || 0} việc hoàn thành (${pct}%)${s.late ? ` · <span class="late">${s.late} quá hạn</span>` : ''}
       ${closed ? ` · <span class="pill s-todo">Đã đóng: ${CLOSE_RES[PJ.close_result] || ''}</span>` : PJ.health !== 'on_track' ? ` · <span class="pill s-review">${HEALTH[PJ.health]}</span>` : ''}</p></div>
-    <div class="actions"><a class="btn" href="/api/projects/${PJ.id}/export.csv">Xuất Excel (CSV)</a>${PJ.can_create ? '<button class="btn primary" data-act="w-new-task">+ Công việc</button>' : ''}</div></div>
-  ${closed ? '<p class="notice">Dự án/phòng ban đã đóng: không thể thêm hoặc sửa công việc. Quản lý có thể mở lại tại tab Thiết lập.</p>' : ''}
-  <div class="toolbar"><div class="seg">${tabs.map(([k, l]) => `<button data-wv="${k}" aria-pressed="${k === v}">${l}</button>`).join('')}</div><span class="spacer"></span>
-    ${['list', 'kanban', 'gantt'].includes(v) ? `<select class="sel" id="w-ls" aria-label="Lọc trạng thái"><option value="">Mọi trạng thái</option><option value="open">Chưa kết thúc</option><option value="late">Quá hạn</option>${Object.entries(ST).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
-    <select class="sel" id="w-la" aria-label="Lọc người thực hiện"><option value="">Mọi người thực hiện</option>${PJ.members.map(m => `<option value="${m.user_id}">${esc(U(m.user_id).full_name)}</option>`).join('')}</select>
+    <div class="actions"><button class="btn" data-act="w-io">Nhập & Xuất</button>${PJ.can_manage || PJ.is_owner ? '<button class="btn" data-act="w-pmenu">Tùy chọn khác</button>' : ''}${PJ.can_create ? '<button class="btn primary" data-act="w-new-task">+ Công việc</button>' : ''}</div></div>
+  ${closed ? '<p class="notice">Dự án/phòng ban đã đóng: không thể thêm hoặc sửa công việc. Quản lý có thể mở lại tại Tùy chọn khác.</p>' : ''}
+  <div class="toolbar w-tabs"><div class="seg w-scroll" role="tablist" aria-label="Mục của dự án">${mains.map(([k, l]) => `<button data-wv="${k === 'work' ? (isWork ? v : pref('view.' + PJ.id, views[0][0])) : k}" aria-pressed="${k === mainKey}">${l}</button>`).join('')}</div></div>
+  ${isWork ? `<div class="toolbar"><div class="seg w-scroll" aria-label="Chế độ xem">${views.map(([k, l]) => `<button data-wv="${k}" aria-pressed="${k === v}">${l}</button>`).join('')}</div><span class="spacer"></span>
+    ${subOpt ? `<select class="sel" id="w-sub" aria-label="Hiển thị công việc con"><option value="multi">Việc con: nhiều cấp</option><option value="one">Việc con: một cấp</option><option value="none">Ẩn việc con</option></select>` : ''}
+    ${sortOpt && v === 'list' ? `<select class="sel" id="w-sort" aria-label="Sắp xếp"><option value="">Thứ tự tự nhiên</option><option value="updated">Mới cập nhật</option><option value="due">Theo thời hạn</option></select>` : ''}
+    ${v === 'period' ? `<select class="sel" id="w-pm" aria-label="Chu kỳ"><option value="week">Theo tuần</option><option value="month">Theo tháng</option></select><button class="btn sm" data-act="w-poff" data-d="-1" aria-label="Kỳ trước">‹</button><button class="btn sm" data-act="w-poff" data-d="0">Kỳ này</button><button class="btn sm" data-act="w-poff" data-d="1" aria-label="Kỳ sau">›</button>` : ''}</div>` : ''}
+  ${filt ? `<div class="toolbar"><select class="sel" id="w-ls" aria-label="Lọc trạng thái"><option value="">Mọi trạng thái</option><option value="open">Chưa kết thúc</option><option value="late">Quá hạn</option>${Object.entries(ST).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
+    <select class="sel" id="w-la" aria-label="Lọc người thực hiện"><option value="">Mọi người thực hiện</option><option value="none">Chưa giao</option>${PJ.members.map(m => `<option value="${m.user_id}">${esc(U(m.user_id).full_name)}</option>`).join('')}</select>
     ${(PJ.milestones || []).length ? `<select class="sel" id="w-lm" aria-label="Lọc theo mốc dự án"><option value="">Mọi mốc</option>${PJ.milestones.map(m => `<option value="${m.id}">◆ ${esc(m.title)}</option>`).join('')}</select>` : ''}
     ${(PJ.tags || []).length ? `<select class="sel" id="w-lt" aria-label="Lọc theo nhãn"><option value="">Mọi nhãn</option>${PJ.tags.map(x => `<option value="${esc(x)}">#${esc(x)}</option>`).join('')}</select>` : ''}
-    <input class="search" id="w-lq" type="search" placeholder="Tìm công việc…" value="${esc(listQ)}" aria-label="Tìm công việc">` : ''}</div>
-  <div id="w-body"><div class="loading">Đang tải…</div></div>`;
-  const ls = $('#w-ls'); if (ls) { ls.value = listStatus; ls.onchange = e => { listStatus = e.target.value; render(); }; }
-  const la = $('#w-la'); if (la) { la.value = listAssignee; la.onchange = e => { listAssignee = e.target.value; render(); }; }
+    <input class="search" id="w-lq" type="search" placeholder="Tìm công việc…" value="${esc(listQ)}" aria-label="Tìm công việc"></div>` : ''}
+  <div class="${isWork ? 'w-layout' : ''}"><div id="w-body"><div class="loading">Đang tải…</div></div>${isWork ? '<aside id="w-side" class="w-side" aria-label="Thông tin dự án"></aside>' : ''}</div>`;
+  const sel = (id, val, fn) => { const el = $(id); if (el) { el.value = val; el.onchange = e => fn(e.target.value); } };
+  sel('#w-ls', listStatus, x => { listStatus = x; render(); });
+  sel('#w-la', listAssignee, x => { listAssignee = x; render(); });
   if (listTag && !(PJ.tags || []).includes(listTag)) listTag = '';
-  const lt = $('#w-lt'); if (lt) { lt.value = listTag; lt.onchange = e => { listTag = e.target.value; render(); }; }
+  sel('#w-lt', listTag, x => { listTag = x; render(); });
   if (listMs && !(PJ.milestones || []).some(m => String(m.id) === listMs)) listMs = '';
-  const lm = $('#w-lm'); if (lm) { lm.value = listMs; lm.onchange = e => { listMs = e.target.value; render(); }; }
+  sel('#w-lm', listMs, x => { listMs = x; render(); });
+  const subPref = pref('sub.' + PJ.id, PJ.settings.subtask_display || 'multi');
+  sel('#w-sub', subPref, x => { setPref('sub.' + PJ.id, x); render(); });
+  sel('#w-sort', pref('sort.' + PJ.id, ''), x => { setPref('sort.' + PJ.id, x); render(); });
+  sel('#w-pm', periodMode, x => { periodMode = x; periodOff = 0; render(); });
   const lq = $('#w-lq'); if (lq) lq.addEventListener('input', debounce(e => { listQ = e.target.value; render(); setTimeout(() => { const i = $('#w-lq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 50); }, 350));
   const body = $('#w-body');
+  if (isWork && W.sidebar) W.sidebar(PJ, $('#w-side'));
+  const ext = W.PTABS.find(t => t.key === v); if (ext) return ext.render(body, PJ);
   if (v === 'report') return reportTab(body);
   if (v === 'settings') return settingsTab(body);
   if (v === 'calendar') return calendarTab(body);
   if (v === 'recur') return recurTab(body);
-  PT = await GET(`/api/projects/${PJ.id}/tasks?` + new URLSearchParams({ status: listStatus, assignee: listAssignee, q: listQ, tag: listTag, milestone: listMs, limit: 200, deps: v === 'gantt' ? 1 : '' }));
+  const q = { status: listStatus, assignee: listAssignee, q: listQ, tag: listTag, milestone: listMs, limit: 200, deps: v === 'gantt' ? 1 : '', sort: v === 'stream' ? 'updated' : v === 'list' ? pref('sort.' + PJ.id, '') : '' };
+  if (v === 'period') { const r0 = periodRange(); q.from = r0.from; q.to = r0.to; }
+  PT = await GET(`/api/projects/${PJ.id}/tasks?` + new URLSearchParams(q));
+  const subFilter = rows => subPref === 'none' ? rows.filter(t => !t.parent_id) : subPref === 'one' ? rows.filter(t => !t.parent_id || rows.some(x => x.id === t.parent_id && !x.parent_id)) : rows;
+  const rows = subOpt ? subFilter(PT.rows) : PT.rows;
   const more = PT.total > PT.rows.length ? `<p class="hint">Hiển thị ${PT.rows.length}/${PT.total} công việc (tối đa 200 mỗi lần). <button class="btn sm" data-act="w-more">Tải thêm</button></p>` : '';
-  if (v === 'kanban') body.innerHTML = kanban(PT.rows) + more, wireKanban();
-  else if (v === 'gantt') { body.innerHTML = ganttView(PT.rows) + more; wireGantt(); }
-  else body.innerHTML = milestoneStrip() + listView(PT.rows) + more;
+  if (v === 'kanban') { body.innerHTML = kanban(rows) + more; wireKanban(); }
+  else if (v === 'gantt') { body.innerHTML = ganttView(rows) + more; wireGantt(); }
+  else if (v === 'board') { body.innerHTML = boardView(rows) + more; wireBoard(); }
+  else if (v === 'stream') body.innerHTML = streamView(rows) + more;
+  else if (v === 'period') body.innerHTML = periodView(rows) + more;
+  else { body.innerHTML = milestoneStrip() + listView(rows) + more; wireListDnD(); }
+}
+/* Period: chu kỳ tuần (thứ Hai – Chủ nhật) hoặc tháng */
+function periodRange() {
+  const T = TODAY();
+  if (periodMode === 'month') { const d = new Date(T + 'T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() + periodOff, 1); const y = d.getUTCFullYear(), m = d.getUTCMonth() + 1; const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { from: `${y}-${pad(m)}-01`, to: `${y}-${pad(m)}-${pad(last)}`, label: `Tháng ${m}/${y}` }; }
+  const wd = (new Date(T + 'T00:00:00Z').getUTCDay() + 6) % 7, from = addDays(T, -wd + periodOff * 7), to = addDays(from, 6);
+  return { from, to, label: `Tuần ${fmtD(from)} – ${fmtD(to)}` };
+}
+function periodView(rows) {
+  const r = periodRange();
+  const vis = rows.filter(t => !(isDone(t) && t.done_at && (t.done_at.slice(0, 10) < r.from || t.done_at.slice(0, 10) > r.to)));
+  const groups = PJ.groups.filter(g => !g.closed).concat([{ id: null, name: 'Chưa phân loại' }]);
+  return `<section class="card"><div class="card-h"><h2>${r.label}</h2><span class="t-sub">${vis.filter(isDone).length}/${vis.length} hoàn thành trong kỳ</span></div>
+    ${groups.map(g => { const list = vis.filter(t => (t.group_id || null) === g.id); return list.length ? `<div class="w-per-g"><h3 class="sec-t">${esc(g.name)} <span class="muted num">${list.length}</span></h3><div class="tbl-wrap"><table class="tbl w-tbl">${tableHead}<tbody>${list.map(t => taskRow(t, { ctl: true, depth: t.parent_id ? 1 : 0 })).join('')}</tbody></table></div></div>` : ''; }).join('') || '<div class="empty">Không có công việc trong kỳ này. Công việc đã hoàn thành ở kỳ khác được ẩn.</div>'}</section>`;
+}
+/* Stream: theo dòng chảy thời gian, công việc mới cập nhật ở trên, nhóm theo tuần */
+function streamView(rows) {
+  const wk = d => { const s = (d || '').slice(0, 10) || TODAY(), wd = (new Date(s + 'T00:00:00Z').getUTCDay() + 6) % 7, f = addDays(s, -wd); return f; };
+  const by = {}; for (const t of rows) (by[wk(t.updated_at)] = by[wk(t.updated_at)] || []).push(t);
+  const keys = Object.keys(by).sort().reverse();
+  return keys.length ? keys.map(k => `<section class="card w-group"><div class="card-h"><h2>Tuần ${fmtD(k)} – ${fmtD(addDays(k, 6))}</h2><span class="muted num">${by[k].length}</span></div>
+    <div class="tbl-wrap"><table class="tbl w-tbl">${tableHead}<tbody>${by[k].map(t => taskRow(t, { ctl: true, depth: t.parent_id ? 1 : 0 })).join('')}</tbody></table></div></section>`).join('')
+    : '<section class="card"><div class="empty">Chưa có công việc.</div></section>';
+}
+/* Board: cột theo nhóm công việc; kéo thẻ để chuyển nhóm; quản lý kéo tiêu đề cột để sắp xếp nhóm (Base bài 63000252603, 63000278274) */
+function boardView(rows) {
+  const groups = PJ.groups.filter(g => !g.closed).concat([{ id: null, name: 'Chưa phân loại' }]);
+  return `<div class="board w-board w-gboard" style="grid-template-columns:repeat(${groups.length},minmax(240px,1fr))">${groups.map(g => { const col = rows.filter(t => (t.group_id || null) === g.id && !t.parent_id);
+    return `<div class="col" data-wgcol="${g.id || ''}"><div class="col-h" ${g.id && PJ.can_manage ? `draggable="true" data-wgh="${g.id}" title="Kéo để sắp xếp nhóm"` : ''}><b>${esc(g.name)}</b><span class="muted num">${col.length}</span></div>
+      ${col.map(t => `<div class="kcard" draggable="true" data-task="${t.id}" data-wcard="${t.id}"><div class="t-title">${esc(t.title)}</div>${pill(t.status)} ${flags(t)}${(t.tags || []).length ? `<div>${tagChips(t.tags)}</div>` : ''}
+        <div class="row">${t.assignee_id ? who(t.assignee_id) : '<span class="tag">Chưa giao</span>'}<span class="num ${late(t) ? 'late' : 'muted'}">${t.due_date ? fmtD(t.due_date).slice(0, 5) : ''}</span></div></div>`).join('')}
+      ${PJ.can_create ? `<button class="btn ghost sm" data-act="w-gnew" data-g="${g.id || ''}">+ Thêm công việc</button>` : ''}</div>`; }).join('')}</div>
+    <p class="hint">Kéo thẻ sang cột khác để chuyển nhóm công việc${PJ.can_manage ? '; kéo tiêu đề cột để sắp xếp vị trí nhóm' : ''}.</p>`;
+}
+function wireBoard() {
+  let card = null, gh = null;
+  $$('.w-gboard [data-wcard]').forEach(c => { c.addEventListener('dragstart', e => { card = c.dataset.wcard; gh = null; c.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; }); c.addEventListener('dragend', () => c.classList.remove('dragging')); });
+  $$('.w-gboard [data-wgh]').forEach(h => h.addEventListener('dragstart', e => { gh = h.dataset.wgh; card = null; e.dataTransfer.effectAllowed = 'move'; }));
+  $$('.w-gboard .col').forEach(col => {
+    col.addEventListener('dragover', e => { e.preventDefault(); col.classList.add('over'); });
+    col.addEventListener('dragleave', () => col.classList.remove('over'));
+    col.addEventListener('drop', async e => { e.preventDefault(); col.classList.remove('over'); const target = col.dataset.wgcol;
+      if (card) { const t = PT.rows.find(x => String(x.id) === card); if (!t || String(t.group_id || '') === target) return;
+        try { await PUT('/api/tasks/' + t.id, { group_id: target ? Number(target) : null }); toast('Đã chuyển nhóm công việc'); render(); } catch (err) { toast(err.message, true); } }
+      else if (gh && target && gh !== target) { const ids = PJ.groups.map(g => g.id), a = ids.indexOf(Number(gh)), b = ids.indexOf(Number(target)); ids.splice(b, 0, ids.splice(a, 1)[0]);
+        try { PJ = await PUT(`/api/projects/${PJ.id}/groups-order`, { ids }); toast('Đã sắp xếp nhóm công việc'); render(); } catch (err) { toast(err.message, true); } }
+    });
+  });
+}
+/* Danh sách: kéo hàng sang nhóm khác (Base bài 63000252603, cần thứ tự tự nhiên) */
+function wireListDnD() {
+  let drag = null;
+  $$('[data-wdrag]').forEach(r => { r.addEventListener('dragstart', e => { drag = r.dataset.wdrag; e.dataTransfer.effectAllowed = 'move'; r.classList.add('dragging'); }); r.addEventListener('dragend', () => r.classList.remove('dragging')); });
+  $$('[data-wgsec]').forEach(sec => {
+    sec.addEventListener('dragover', e => { if (drag) { e.preventDefault(); sec.classList.add('over'); } });
+    sec.addEventListener('dragleave', () => sec.classList.remove('over'));
+    sec.addEventListener('drop', async e => { e.preventDefault(); sec.classList.remove('over'); const t = PT.rows.find(x => String(x.id) === drag); drag = null; const g = sec.dataset.wgsec;
+      if (!t || String(t.group_id || '') === g) return;
+      try { await PUT('/api/tasks/' + t.id, { group_id: g ? Number(g) : null }); toast('Đã chuyển nhóm công việc'); render(); } catch (err) { toast(err.message, true); } });
+  });
 }
 function tree(rows) {
   const by = new Map(rows.map(t => [t.id, { ...t, kids: [] }])), roots = [];
@@ -176,11 +281,13 @@ function listView(rows) {
     const mine = roots.filter(t => (t.group_id || null) === g.id);
     if (!mine.length && g.id === null && !PJ.can_create) return '';
     const flat = []; const walk = (t, d) => { flat.push([t, d]); t.kids.forEach(k => walk(k, d + 1)); }; mine.forEach(t => walk(t, 0));
-    return `<section class="card w-group"><div class="card-h"><h2>${esc(g.name)} <span class="muted num">${mine.length}</span></h2>${g.std_hours ? `<span class="t-sub">Định mức ${g.std_hours} giờ/việc</span>` : ''}</div>
-      ${flat.length ? `<div class="tbl-wrap"><table class="tbl w-tbl">${tableHead}<tbody>${flat.map(([t, d]) => taskRow(t, { depth: d })).join('')}</tbody></table></div>` : '<div class="empty">Chưa có công việc trong nhóm.</div>'}
+    const natural = !pref('sort.' + PJ.id, '');
+    return `<section class="card w-group" data-wgsec="${g.id || ''}"><div class="card-h"><h2>${esc(g.name)} <span class="muted num">${mine.length}</span></h2>${g.std_hours ? `<span class="t-sub">Định mức ${g.std_hours} giờ/việc</span>` : ''}${g.id && PJ.can_manage ? `<button class="btn ghost sm" data-act="w-gedit" data-g="${g.id}" aria-label="Sửa nhóm ${esc(g.name)}">Sửa nhóm</button>` : ''}</div>
+      ${g.description ? `<p class="t-sub" style="padding:0 14px">${esc(g.description)}</p>` : ''}
+      ${flat.length ? `<div class="tbl-wrap"><table class="tbl w-tbl">${tableHead}<tbody>${flat.map(([t, d]) => taskRow(t, { depth: d, ctl: true, drag: natural && !t.parent_id })).join('')}</tbody></table></div>` : '<div class="empty">Chưa có công việc trong nhóm. Kéo thả công việc vào đây để chuyển nhóm.</div>'}
       ${PJ.can_create ? `<div class="inline-add w-qadd"><input data-wqadd="${g.id || ''}" placeholder="+ Thêm nhanh công việc vào “${esc(g.name)}” (Enter để lưu, giao cho tôi)" aria-label="Thêm nhanh công việc"><button class="btn sm" data-act="w-qadd" data-g="${g.id || ''}">Thêm</button></div>` : ''}</section>`;
   };
-  return groups.map(section).join('') || '<section class="card"><div class="empty">Chưa có công việc.</div></section>';
+  return groups.map(section).join('') + (PJ.can_group && PJ.status !== 'closed' ? '<button class="btn sm" data-act="w-gnewgroup">+ Thêm nhóm công việc mới</button>' : '') || '<section class="card"><div class="empty">Chưa có công việc.</div></section>';
 }
 function kanban(rows) {
   const cols = Object.keys(ST).filter(s => s !== 'failed' || PJ.settings.allow_failed).filter(s => s !== 'review' || PJ.settings.review);
@@ -240,21 +347,28 @@ async function reportTab(body) {
 function settingsTab(body) {
   const S = PJ.settings, chk = (k, l, hint) => `<label class="check w-set"><input type="checkbox" data-wset="${k}" ${S[k] ? 'checked' : ''}> <span>${l}${hint ? `<small class="t-sub">${hint}</small>` : ''}</span></label>`;
   const closed = PJ.status === 'closed';
-  body.innerHTML = `<div class="grid2">
+  const secs = [['edit', 'Chỉnh sửa ' + KIND[PJ.kind].toLowerCase()], ['members', 'Quản lý thành viên'], ['groups', 'Nhóm công việc']].concat(W.SET.filter(x => x.show(PJ)).map(x => [x.key, x.label])).concat([['status', 'Trạng thái, xóa']]);
+  let sec = qp().get('s') || 'edit'; if (!secs.some(x => x[0] === sec)) sec = 'edit';
+  const nav = `<nav class="w-setnav" aria-label="Tùy chỉnh">${secs.map(([k, l]) => `<a href="#cong-viec?p=${PJ.id}&v=settings&s=${k}" ${k === sec ? 'aria-current="page"' : ''}>${l}</a>`).join('')}</nav>`;
+  const ext = W.SET.find(x => x.key === sec);
+  if (ext) { body.innerHTML = `<div class="w-setwrap">${nav}<div class="w-setbody" id="w-setbody"></div></div>`; return ext.render($('#w-setbody'), PJ); }
+  const parts = {};
+  parts.edit = `<div class="grid2">
   <section class="card"><div class="card-h"><h2>Thông tin</h2></div><div class="card-b"><div class="form">
     <div class="field full"><label for="ps-n">Tên</label><input id="ps-n" value="${esc(PJ.name)}" maxlength="120"></div>
     <div class="field"><label for="ps-k">Loại</label><select id="ps-k">${Object.entries(KIND).map(([k, l]) => `<option value="${k}" ${k === PJ.kind ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     <div class="field"><label for="ps-c">Màu nhận diện</label><select id="ps-c">${(COLORS.includes(PJ.color) ? COLORS : [PJ.color, ...COLORS]).map((c, i) => `<option value="${c}" ${c === PJ.color ? 'selected' : ''}>Màu ${i + 1}</option>`).join('')}</select></div>
     <div class="field"><label for="ps-s">Ngày bắt đầu (dự án)</label><input type="date" id="ps-s" value="${PJ.start_date || ''}"></div>
     <div class="field"><label for="ps-e">Ngày kết thúc (dự án)</label><input type="date" id="ps-e" value="${PJ.end_date || ''}"></div>
+    <div class="field"><label for="ps-dept">Department</label><select id="ps-dept"><option value="">Không thuộc Department</option>${B().departments.map(d => `<option value="${d.id}" ${d.id === PJ.dept_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></div>
+    <div class="field"><label for="ps-cls">Phân loại</label><select id="ps-cls"><option value="internal">Nội bộ</option><option value="customer" ${PJ.classification === 'customer' ? 'selected' : ''}>Làm việc với khách hàng</option></select></div>
     <div class="field full"><label for="ps-d">Mô tả</label><textarea id="ps-d">${esc(PJ.description || '')}</textarea></div>
   </div><p class="err" id="ps-err" hidden></p><div class="actions" style="margin-top:10px"><button class="btn primary" data-act="w-ps-save">Lưu thông tin</button></div></div></section>
   <section class="card"><div class="card-h"><h2>Quy tắc làm việc</h2></div><div class="card-b w-sets">
-    ${chk('member_create', 'Thành viên được tạo công việc')}
-    ${chk('member_view_all', 'Thành viên xem được công việc của người khác', 'Nếu tắt, thành viên chỉ xem việc mình giao, được giao hoặc theo dõi')}
-    ${chk('assignee_edit_info', 'Người nhận việc được sửa thông tin công việc')}
-    ${chk('assignee_edit_deadline', 'Người nhận việc được sửa thời gian (bắt đầu, thời hạn)')}
+    <p class="hint">Quyền xem, tạo, sửa công việc theo vai trò: mục <a href="#cong-viec?p=${PJ.id}&v=settings&s=perm">Phân quyền sử dụng</a>.</p>
     ${chk('creator_delete', 'Người tạo được xóa công việc mình tạo')}
+    ${chk('est_enabled', 'Cho phép thời lượng công việc dự kiến', 'Định mức theo nhóm công việc; báo cáo tổng giờ theo dự án và thành viên')}
+    <div class="field"><label for="ps-sd">Hiển thị việc con mặc định</label><select id="ps-sd">${[['multi', 'Nhiều cấp'], ['one', 'Một cấp'], ['none', 'Không hiển thị']].map(([k, l]) => `<option value="${k}" ${(S.subtask_display || 'multi') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
     ${chk('deadline_time', 'Thời hạn theo giờ (ngày và giờ cụ thể)')}
     ${PJ.kind === 'project' ? chk('deps', 'Cho phép công việc phụ thuộc', 'Ràng buộc ngày bắt đầu, thời hạn giữa các công việc trong dự án (FS, FF, SS, SF)') + `<div class="w-sub" id="ps-deps" ${S.deps ? '' : 'hidden'}><div class="field"><label for="ps-dm">Khi dời lịch công việc phụ thuộc</label><select id="ps-dm"><option value="keep" ${S.deps_mode === 'keep' ? 'selected' : ''}>Giữ nguyên thời gian phụ thuộc (tự động dời các việc bị phụ thuộc)</option><option value="none" ${S.deps_mode === 'none' ? 'selected' : ''}>Không (các việc bị phụ thuộc không thay đổi)</option></select></div></div>` : ''}
     ${chk('allow_percent', 'Cập nhật % hoàn thành')}
@@ -266,22 +380,25 @@ function settingsTab(body) {
     <div class="w-sub" ${S.allow_failed ? '' : 'hidden'} id="ps-fail"><div class="t-sub">Ngoài quản lý, cho phép đánh dấu thất bại:</div>
       ${[['creator', 'Người giao việc'], ['assignee', 'Người nhận việc'], ['follower', 'Người theo dõi']].map(([k, l]) => `<label class="check"><input type="checkbox" data-wfr="${k}" ${S.fail_roles.includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}
       <div class="field"><label for="ps-fr">Danh mục lý do thất bại (mỗi dòng một lý do)</label><textarea id="ps-fr" rows="4">${esc(S.fail_reasons.join('\n'))}</textarea></div></div>
-    <p class="err" id="pr-err" hidden></p><div class="actions"><button class="btn primary" data-act="w-pr-save">Lưu quy tắc</button></div></div></section></div>
-  <div class="grid2">
-  <section class="card"><div class="card-h"><h2>Thành viên (${PJ.members.length})</h2></div><div class="tbl-wrap"><table class="tbl"><tbody>
-    ${PJ.members.map(m => `<tr><td>${who(m.user_id)}</td><td><select class="sel" data-wrole="${m.user_id}" aria-label="Vai trò">${['manager', 'member', 'follower'].map(r => `<option value="${r}" ${r === m.role ? 'selected' : ''}>${ROLE[r]}</option>`).join('')}</select></td>
+    <p class="err" id="pr-err" hidden></p><div class="actions"><button class="btn primary" data-act="w-pr-save">Lưu quy tắc</button></div></div></section></div>`;
+  parts.members = `<section class="card"><div class="card-h"><h2>Thành viên (${PJ.members.length})</h2></div><div class="tbl-wrap"><table class="tbl"><tbody>
+    ${PJ.members.map(m => `<tr><td>${who(m.user_id)}</td><td><select class="sel" data-wrole="${m.user_id}" aria-label="Vai trò">${['manager', 'member', 'guest', 'follower'].map(r => `<option value="${r}" ${r === m.role ? 'selected' : ''}>${ROLE[r]}</option>`).join('')}</select></td>
       <td class="r"><button class="btn ghost sm" data-act="w-mdel" data-u="${m.user_id}" aria-label="Xóa khỏi dự án">Xóa</button></td></tr>`).join('')}</tbody></table></div>
     <div class="card-b"><div class="form"><div class="field"><label for="pm-u">Thêm người (giữ Ctrl để chọn nhiều)</label><select id="pm-u" multiple size="5">${B().users.filter(u => u.active && !PJ.members.some(m => m.user_id === u.id)).map(u => `<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
-      <div class="field"><label for="pm-r">Vai trò</label><select id="pm-r"><option value="member">Thành viên</option><option value="manager">Quản lý</option><option value="follower">Người theo dõi</option></select><button class="btn" data-act="w-madd" style="margin-top:8px">Thêm vào dự án</button></div></div>
-    <p class="err" id="pm-err" hidden></p></div></section>
-  <section class="card"><div class="card-h"><h2>Nhóm công việc (${PJ.groups.length})</h2></div><div class="tbl-wrap"><table class="tbl"><tbody>
+      <div class="field"><label for="pm-dept">Hoặc thêm cả phòng (theo cơ cấu tổ chức)</label><select id="pm-dept"><option value="">Không chọn</option>${B().departments.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></div>
+      <div class="field"><label for="pm-r">Vai trò</label><select id="pm-r"><option value="member">Thành viên</option><option value="manager">Quản lý</option><option value="guest">Khách</option><option value="follower">Người theo dõi</option></select><button class="btn" data-act="w-madd" style="margin-top:8px">Thêm vào dự án</button></div></div>
+    <p class="hint">Vai trò Khách dùng cho đối tác bên ngoài; quyền của Khách thiết lập tại Phân quyền sử dụng.</p><p class="err" id="pm-err" hidden></p></div></section>`;
+  parts.groups = `<section class="card"><div class="card-h"><h2>Nhóm công việc (${PJ.groups.length})</h2></div><div class="tbl-wrap"><table class="tbl"><tbody>
     ${PJ.groups.map((g, i) => `<tr><td><b>${esc(g.name)}</b>${g.closed ? ' <span class="tag">Tạm đóng</span>' : ''}<div class="t-sub">${g.std_hours ? `Định mức ${g.std_hours} giờ` : 'Không định mức'}</div></td>
       <td class="r" style="white-space:nowrap"><button class="btn ghost sm" data-act="w-gmove" data-g="${g.id}" data-d="-1" ${i === 0 ? 'disabled' : ''} aria-label="Đưa lên">↑</button><button class="btn ghost sm" data-act="w-gmove" data-g="${g.id}" data-d="1" ${i === PJ.groups.length - 1 ? 'disabled' : ''} aria-label="Đưa xuống">↓</button>
       <button class="btn ghost sm" data-act="w-gedit" data-g="${g.id}">Sửa</button><button class="btn ghost sm" data-act="w-gclose" data-g="${g.id}">${g.closed ? 'Mở' : 'Tạm đóng'}</button><button class="btn ghost sm" data-act="w-gdel" data-g="${g.id}">Xóa</button></td></tr>`).join('') || '<tr><td class="muted">Chưa có nhóm công việc.</td></tr>'}</tbody></table></div>
-    <div class="card-b"><div class="inline-add"><input id="pg-n" placeholder="Tên nhóm công việc mới" aria-label="Tên nhóm công việc mới"><input id="pg-h" type="number" min="0" step="0.5" placeholder="Định mức (giờ)" aria-label="Định mức giờ" style="max-width:130px"><button class="btn" data-act="w-gadd">Thêm nhóm</button></div><p class="err" id="pg-err" hidden></p></div></section></div>
-  <section class="card"><div class="card-h"><h2>Trạng thái dự án/phòng ban</h2></div><div class="card-b"><div class="actions">
+    <div class="card-b"><div class="inline-add"><input id="pg-n" placeholder="Tên nhóm công việc mới" aria-label="Tên nhóm công việc mới"><input id="pg-h" type="number" min="0" step="0.5" placeholder="Định mức (giờ)" aria-label="Định mức giờ" style="max-width:130px"><button class="btn" data-act="w-gadd">Thêm nhóm</button></div><p class="err" id="pg-err" hidden></p></div></section>`;
+  parts.status = `<section class="card"><div class="card-h"><h2>Trạng thái dự án/phòng ban</h2></div><div class="card-b"><div class="actions">
     ${closed ? '<button class="btn primary" data-act="w-reopen">Mở lại</button>' : '<button class="btn" data-act="w-close">Đóng dự án/phòng ban</button>'}
-    <button class="btn danger" data-act="w-pdel">Xóa dự án/phòng ban</button></div><p class="hint">Xóa sẽ xóa toàn bộ công việc bên trong và không khôi phục được.</p></div></section>`;
+    <button class="btn" data-act="w-pkind">Chuyển sang ${PJ.kind === 'project' ? 'phòng ban' : 'dự án'}</button>
+    ${PJ.can_delete ? '<button class="btn danger" data-act="w-pdel">Xóa dự án/phòng ban</button>' : ''}</div>
+    <p class="hint">${PJ.can_delete ? 'Xóa sẽ xóa toàn bộ công việc bên trong và không khôi phục được.' : 'Quản trị hệ thống đã giới hạn quyền xóa của quản lý đối với dự án/phòng ban này.'}</p></div></section>`;
+  body.innerHTML = `<div class="w-setwrap">${nav}<div class="w-setbody">${parts[sec]}</div></div>`;
   $$('[data-wset="review"]').forEach(el => el.onchange = () => { $('#ps-review').hidden = !el.checked; });
   $$('[data-wset="allow_failed"]').forEach(el => el.onchange = () => { $('#ps-fail').hidden = !el.checked; });
   $$('[data-wset="deps"]').forEach(el => el.onchange = () => { $('#ps-deps').hidden = !el.checked; });
@@ -290,28 +407,41 @@ function settingsTab(body) {
 }
 
 /* ================= Hộp thoại: dự án ================= */
-function newProject() {
+async function newProject(ctx = {}) {
   const others = B().users.filter(u => u.active && u.id !== B().me.id);
-  openModal(`${mh('Tạo dự án / phòng ban')}<div class="modal-b"><div class="form">
+  const cfg = W.CFG || {}; let tpl = { builtin: [], mine: [] }; try { tpl = await GET('/api/work/templates'); } catch (e) {}
+  const kinds = [['project', 'Dự án (có ngày bắt đầu, kết thúc)', cfg.can_create_project !== false], ['team', 'Phòng ban (công việc thường xuyên)', cfg.can_create_team !== false]].filter(k => k[2]);
+  if (!kinds.length) return toast('Bạn chưa được phân quyền tạo dự án/phòng ban mới.', true);
+  const tplOpts = `<option value="">Không dùng mẫu</option>${tpl.mine.length ? `<optgroup label="Mẫu của đơn vị">${tpl.mine.map(t => `<option value="${t.id}" data-kind="${t.kind}" ${String(ctx.template_id) === String(t.id) ? 'selected' : ''}>${esc(t.name)} (${KIND[t.kind]})</option>`).join('')}</optgroup>` : ''}<optgroup label="Mẫu dựng sẵn">${tpl.builtin.map(t => `<option value="${t.id}" data-kind="${t.kind}" ${String(ctx.template_id) === t.id ? 'selected' : ''}>${esc(t.name)} (${KIND[t.kind]})</option>`).join('')}</optgroup>`;
+  openModal(`${mh(ctx.template_id ? 'Tạo từ mẫu' : 'Tạo dự án / phòng ban')}<div class="modal-b"><div class="form">
     <div class="field full"><label for="np-n">Tên</label><input id="np-n" maxlength="120" placeholder="Ví dụ: Triển khai văn phòng số giai đoạn 2"></div>
-    <div class="field"><label for="np-k">Loại</label><select id="np-k"><option value="project">Dự án (có ngày bắt đầu, kết thúc)</option><option value="team">Phòng ban (công việc thường xuyên)</option></select></div>
+    <div class="field"><label for="np-k">Loại</label><select id="np-k">${kinds.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
+    <div class="field"><label for="np-tpl">Mẫu</label><select id="np-tpl">${tplOpts}</select><span class="t-sub">Mẫu gồm nhóm công việc, trường tùy chỉnh, phân quyền, danh sách nhãn.</span></div>
+    <div class="field"><label for="np-dept">Department</label><select id="np-dept"><option value="">Không thuộc Department</option>${B().departments.map(d => `<option value="${d.id}" ${d.id === B().me.dept_id ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select></div>
+    <div class="field"><label for="np-cls">Phân loại</label><select id="np-cls"><option value="internal">Nội bộ</option><option value="customer">Làm việc với khách hàng</option></select></div>
+    <div class="field"><label for="np-h">Trạng thái</label><select id="np-h">${Object.entries(HEALTH).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div>
     <div class="field"><label for="np-c">Màu nhận diện</label><select id="np-c">${COLORS.map((c, i) => `<option value="${c}">Màu ${i + 1}</option>`).join('')}</select></div>
     <div class="field np-date"><label for="np-s">Ngày bắt đầu</label><input type="date" id="np-s" value="${TODAY()}"></div>
     <div class="field np-date"><label for="np-e">Ngày kết thúc</label><input type="date" id="np-e" value="${addDays(TODAY(), 30)}"></div>
     <div class="field"><label for="np-m">Quản lý cùng (ngoài bạn)</label><select id="np-m" multiple size="5">${others.map(u => `<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
     <div class="field"><label for="np-mb">Thành viên</label><select id="np-mb" multiple size="5">${others.map(u => `<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
+    <div class="field"><label for="np-md">Thêm thành viên theo phòng (giữ Ctrl)</label><select id="np-md" multiple size="4">${B().departments.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></div>
     <div class="field full"><label for="np-d">Mô tả</label><textarea id="np-d" placeholder="Mục tiêu, phạm vi, căn cứ"></textarea></div>
   </div><p class="hint">Giữ Ctrl (hoặc Cmd) để chọn nhiều người. Bạn là quản lý của dự án/phòng ban mới tạo.</p><p class="err" id="np-err" hidden></p></div>
   <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="np-save">Tạo</button></div>`, {
     'np-save': btn => busy(btn, async () => {
       try {
         const kind = $('#np-k').value;
-        const p = await POST('/api/projects', { name: $('#np-n').value, kind, color: $('#np-c').value, description: $('#np-d').value, start_date: kind === 'project' ? $('#np-s').value : null, end_date: kind === 'project' ? $('#np-e').value : null, managers: multiVals($('#np-m')), members: multiVals($('#np-mb')) });
+        const p = await POST('/api/projects', { name: $('#np-n').value, kind, color: $('#np-c').value, description: $('#np-d').value, start_date: kind === 'project' ? $('#np-s').value : null, end_date: kind === 'project' ? $('#np-e').value : null,
+          managers: multiVals($('#np-m')), members: multiVals($('#np-mb')), member_depts: multiVals($('#np-md')), template_id: $('#np-tpl').value || null, dept_id: $('#np-dept').value || null, classification: $('#np-cls').value, health: $('#np-h').value });
         closeModal(); await refreshBoot(); toast('Đã tạo ' + KIND[p.kind].toLowerCase()); go({ p: p.id });
       } catch (e) { showErr('#np-err', e); }
     })
   });
-  $('#np-k').onchange = e => $$('.np-date').forEach(f => { f.hidden = e.target.value !== 'project'; });
+  const syncK = () => $$('.np-date').forEach(f => { f.hidden = $('#np-k').value !== 'project'; }); $('#np-k').onchange = syncK;
+  $('#np-tpl').onchange = e => { const k = e.target.selectedOptions[0] && e.target.selectedOptions[0].dataset.kind; if (k && kinds.some(x => x[0] === k)) { $('#np-k').value = k; syncK(); } };
+  if (ctx.template_id) $('#np-tpl').onchange({ target: $('#np-tpl') });
+  syncK();
 }
 
 /* ================= Hộp thoại: tạo công việc ================= */
@@ -326,8 +456,10 @@ async function newTask(ctx = {}) {
     <div class="field full"><label for="nt-t">Tên công việc <span class="t-sub" id="nt-cnt">0/155</span></label><input id="nt-t" maxlength="155" placeholder="Ví dụ: Lập báo cáo doanh thu tháng 11"></div>
     <div class="field"><label for="nt-p">Dự án / phòng ban</label><select id="nt-p" ${ctx.parent_id ? 'disabled' : ''}>${projects.map(p => `<option value="${p.id}" ${p.id === P.id ? 'selected' : ''}>${esc(p.name)} (${KIND[p.kind]})</option>`).join('')}</select></div>
     <div class="field"><label for="nt-g">Nhóm công việc</label><select id="nt-g"><option value="">Chưa phân loại</option>${P.groups.filter(g => !g.closed).map(g => `<option value="${g.id}" ${g.id === ctx.group_id ? 'selected' : ''}>${esc(g.name)}${g.std_hours ? ` (${g.std_hours} giờ)` : ''}</option>`).join('')}</select></div>
-    <div class="field"><label for="nt-a">Người nhận việc</label><select id="nt-a">${userOpts(B().me.id)}</select><label class="check" style="margin-top:6px"><input type="checkbox" id="nt-multi"> Giao cho nhiều người (mỗi người một việc)</label></div>
-    <div class="field" id="nt-am-f" hidden><label for="nt-am">Chọn nhiều người nhận (giữ Ctrl)</label><select id="nt-am" multiple size="6">${B().users.filter(u => u.active).map(u => `<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
+    <div class="field"><label for="nt-a">Người nhận việc</label><select id="nt-a">${userOpts(B().me.id)}</select><label class="check" style="margin-top:6px"><input type="checkbox" id="nt-multi"> Giao cho nhiều người (mỗi người một việc)</label><label class="check"><input type="checkbox" id="nt-un"> Chưa giao (để thành viên tự nhận)</label></div>
+    <div class="field" id="nt-am-f" hidden><label for="nt-am">Chọn nhiều người nhận (giữ Ctrl)</label><select id="nt-am" multiple size="6">${B().users.filter(u => u.active).map(u => `<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select>
+      <label for="nt-amd" style="margin-top:6px">Hoặc chọn nhanh theo phòng</label><select id="nt-amd"><option value="">Không chọn</option>${B().departments.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select></div>
+    ${(W.CFG && W.CFG.delegators || []).length ? `<div class="field"><label for="nt-cr">Người giao việc (ủy quyền)</label><select id="nt-cr"><option value="">Tôi (${esc(B().me.full_name)})</option>${W.CFG.delegators.map(id => `<option value="${id}">${esc(U(id).full_name)}</option>`).join('')}</select></div>` : ''}
     <div class="field"><label for="nt-s">Ngày bắt đầu</label><input type="date" id="nt-s" value="${TODAY()}"></div>
     <div class="field"><label for="nt-d">Thời hạn</label><input type="date" id="nt-d" value="${addDays(TODAY(), 3)}">${P.settings.deadline_time ? '<input type="time" id="nt-dt" aria-label="Giờ hết hạn" style="margin-top:6px">' : ''}</div>
     <div class="field"><label for="nt-pr">Mức ưu tiên</label><select id="nt-pr">${Object.entries(PRIO).map(([k, l]) => `<option value="${k}" ${k === 'tb' ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
@@ -338,6 +470,7 @@ async function newTask(ctx = {}) {
     <div class="field"><label for="nt-goal">Liên kết mục tiêu${G.cycle ? ' (' + esc(G.cycle.name) + ')' : ''}</label><select id="nt-goal" ${G.list.length ? '' : 'disabled'}>${goalOpts(G, null)}</select>${G.list.length ? '' : '<span class="t-sub">Chưa có mục tiêu trong kỳ hiện hành.</span>'}</div>
     <div class="field"><span class="lbl">Tệp đính kèm (mỗi tệp tối đa 10 MB)</span><label class="btn sm w-filepick">Chọn tệp…<input type="file" id="nt-files" multiple aria-label="Chọn tệp đính kèm"></label><span class="t-sub" id="nt-fsum">Chưa chọn tệp.</span></div>
     <div class="field"><label for="nt-docs">Tài liệu từ kho Tài liệu (giữ Ctrl để chọn nhiều)</label><select id="nt-docs" multiple size="4" ${DOCL.length ? '' : 'disabled'}>${DOCL.length ? docOpts(DOCL) : '<option disabled>Chưa có tài liệu bạn được xem</option>'}</select></div>
+    ${W.NTF.map(f => f(P, ctx)).join('')}
   </div><p class="hint">Người nhận việc ngoài dự án sẽ được thêm với vai trò Người theo dõi để xem được việc của mình.</p><p class="err" id="nt-err" hidden></p></div>
   <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="nt-save">Giao việc</button></div>`, H);
   const H = {
@@ -348,7 +481,11 @@ async function newTask(ctx = {}) {
         followers: multiVals($('#nt-f')), description: $('#nt-desc').value, tags: $('#nt-tags').value, goal_id: $('#nt-goal').value || null };
       const files = Array.from($('#nt-files').files || []), docIds = $('#nt-docs').disabled ? [] : multiVals($('#nt-docs'));
       const big = files.find(f => f.size > FILE_MAX); if (big) return showErr('#nt-err', `Tệp “${big.name}” vượt quá 10 MB.`);
-      if (multi) { body.assignee_ids = multiVals($('#nt-am')); if (!body.assignee_ids.length) return showErr('#nt-err', 'Vui lòng chọn người nhận việc.'); } else body.assignee_id = Number($('#nt-a').value);
+      if ($('#nt-un').checked) body.unassigned = true;
+      else if (multi) { body.assignee_ids = multiVals($('#nt-am')); const dep = $('#nt-amd').value; if (dep) body.assignee_ids = [...new Set(body.assignee_ids.concat(B().users.filter(u => u.active && String(u.dept_id) === dep).map(u => u.id)))]; if (!body.assignee_ids.length) return showErr('#nt-err', 'Vui lòng chọn người nhận việc.'); }
+      else body.assignee_id = Number($('#nt-a').value);
+      if ($('#nt-cr') && $('#nt-cr').value) body.creator_id = Number($('#nt-cr').value);
+      for (const c of W.NTC) { const e2 = c(body, P); if (e2) return showErr('#nt-err', e2); }
       let r;
       try { r = await POST('/api/tasks', body); } catch (e) { return showErr('#nt-err', e); }
       const ids = r.ids || [r.id];
@@ -362,7 +499,8 @@ async function newTask(ctx = {}) {
   const wire = () => {
     $('#nt-t').oninput = e => { $('#nt-cnt').textContent = e.target.value.length + '/155'; };
     $('#nt-files').onchange = e => { const fs = Array.from(e.target.files || []); $('#nt-fsum').textContent = fs.length ? fs.map(f => `${f.name} (${fmtSize(f.size)})`).join('; ') : 'Chưa chọn tệp.'; };
-    $('#nt-multi').onchange = e => { $('#nt-am-f').hidden = !e.target.checked; $('#nt-a').disabled = e.target.checked; };
+    $('#nt-multi').onchange = e => { $('#nt-am-f').hidden = !e.target.checked; $('#nt-a').disabled = e.target.checked || $('#nt-un').checked; if (e.target.checked) $('#nt-un').checked = false; };
+    $('#nt-un').onchange = e => { $('#nt-a').disabled = e.target.checked; if (e.target.checked) { $('#nt-multi').checked = false; $('#nt-am-f').hidden = true; } };
     $('#nt-p').onchange = async e => { try { P = await GET('/api/projects/' + e.target.value); const t = $('#nt-t').value; draw(); wire(); $('#nt-t').value = t; } catch (er) { showErr('#nt-err', er); } };
   };
   draw(); wire();
@@ -378,6 +516,7 @@ async function openTask(id) {
   const draw = keep => {
     const c = t.can, S = t.project.settings, dis = f => f ? '' : 'disabled';
     const acts = [];
+    if (c.claim && !t.assignee_id) acts.push('<button class="btn primary" data-act="tk-claim">Nhận việc này</button>');
     if (c.progress && t.status === 'todo') acts.push('<button class="btn" data-act="tk-st" data-s="doing">Bắt đầu thực hiện</button>');
     if (c.progress && ['todo', 'doing'].includes(t.status)) acts.push(`<button class="btn ok" data-act="tk-st" data-s="done">${S.review ? 'Hoàn thành, gửi đánh giá' : 'Hoàn thành'}</button>`);
     if (c.review && t.status === 'review') acts.push('<button class="btn ok" data-act="tk-rv" data-ok="1">Duyệt hoàn thành</button><button class="btn" data-act="tk-rv" data-ok="0">Trả lại</button>');
@@ -386,24 +525,26 @@ async function openTask(id) {
     const html = (`${mh(esc(t.title), `<a href="#cong-viec?p=${t.project.id}" data-act="close">${esc(t.project.name)}</a>${t.group_name ? ' › ' + esc(t.group_name) : ''}${t.parent ? ` › việc con của <span class="w-link" role="button" tabindex="0" data-act="tk-open" data-id="${t.parent.id}">${esc(t.parent.title)}</span>` : ''} · #${t.id}`)}
     <div class="modal-b">
       <div class="w-status">${pill(t.status)}${flags(t)}${late(t) ? '<span class="late">Quá hạn</span>' : ''}${t.status === 'failed' ? `<span class="t-sub">Lý do: ${esc(t.fail_reason || '')}</span>` : ''}${t.completed_at ? `<span class="t-sub">Bấm hoàn thành lúc ${fmtDT(t.completed_at)}</span>` : ''}${t.recurrence ? `<span class="tag" title="Sinh tự động từ thiết lập lặp lại">↻ ${esc(t.recurrence.title)}</span>` : ''}<span class="spacer"></span>${acts.join('')}</div>
+      ${W.THEAD.length ? `<div class="w-tkbar">${W.THEAD.map(f => f(t)).join('')}</div>` : ''}
       ${!c.editInfo && !c.editDeadline ? '<p class="notice info">Bạn có quyền xem, trao đổi' + (c.progress ? ' và cập nhật tiến độ' : '') + ' trong công việc này.</p>' : ''}
       <div class="form">
         <div class="field full"><label for="tk-t">Tên công việc</label><input id="tk-t" maxlength="155" value="${esc(t.title)}" ${dis(c.editInfo)}></div>
-        <div class="field"><label for="tk-a">Người nhận việc</label><select id="tk-a" ${dis(c.edit)}>${userOpts(t.assignee_id)}</select><span class="t-sub">Người giao: ${esc(U(t.creator_id).full_name)} · ${fmtDT(t.created_at)}</span></div>
+        <div class="field"><label for="tk-a">Người nhận việc</label><select id="tk-a" ${dis(c.edit)}><option value="" ${t.assignee_id ? '' : 'selected'}>Chưa giao</option>${userOpts(t.assignee_id)}</select><span class="t-sub">Người giao: ${esc(U(t.creator_id).full_name)} · ${fmtDT(t.created_at)}</span></div>
         <div class="field"><label for="tk-g">Nhóm công việc</label><select id="tk-g" ${dis(c.editInfo)}><option value="">Chưa phân loại</option>${t.groups.map(g => `<option value="${g.id}" ${g.id === t.group_id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}</select></div>
         <div class="field"><label for="tk-s">Ngày bắt đầu</label><input type="date" id="tk-s" value="${t.start_date || ''}" ${dis(c.editDeadline)}></div>
         <div class="field"><label for="tk-d">Thời hạn</label><input type="date" id="tk-d" value="${t.due_date || ''}" ${dis(c.editDeadline)}>${S.deadline_time ? `<input type="time" id="tk-dt" value="${t.due_time || ''}" aria-label="Giờ hết hạn" style="margin-top:6px" ${dis(c.editDeadline)}>` : ''}</div>
         <div class="field"><label for="tk-pr">Mức ưu tiên</label><select id="tk-pr" ${dis(c.editInfo)}>${Object.entries(PRIO).map(([k, l]) => `<option value="${k}" ${k === t.priority ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
         <div class="field"><label for="tk-h">Thời lượng dự kiến (giờ)</label><input type="number" id="tk-h" min="0" step="0.5" value="${t.est_hours || ''}" ${dis(c.editInfo)}></div>
         <div class="field full"><span class="lbl">Gắn cờ</span><div class="w-flags"><label class="check"><input type="checkbox" id="tk-u" ${t.urgent ? 'checked' : ''} ${dis(c.editInfo)}> Khẩn cấp</label><label class="check"><input type="checkbox" id="tk-i" ${t.important ? 'checked' : ''} ${dis(c.editInfo)}> Quan trọng</label></div></div>
-        <div class="field full"><label for="tk-desc">Mô tả</label><textarea id="tk-desc" rows="4" ${dis(c.editInfo)}>${esc(t.description || '')}</textarea></div>
+        <div class="field full"><label for="tk-desc">Mô tả</label><textarea id="tk-desc" rows="4" ${dis(c.editDesc || c.editInfo)}>${esc(t.description || '')}</textarea></div>
         <div class="field"><label for="tk-tags">Nhãn (cách nhau bằng dấu phẩy)</label>${c.editInfo ? `<input id="tk-tags" maxlength="330" value="${esc(t.tags.join(', '))}">` : `<div class="w-tagrow">${tagChips(t.tags) || '<span class="hint">Chưa gắn nhãn.</span>'}</div>`}</div>
         <div class="field"><label for="tk-goal">Liên kết mục tiêu</label>${c.editInfo ? `<select id="tk-goal">${goalOpts(t.goal && !G.list.some(g => g.id === t.goal.id) ? { list: [{ id: t.goal.id, title: t.goal.title, depth: 0 }, ...G.list] } : G, t.goal ? t.goal.id : null)}</select>` : `<div>${t.goal ? `<a href="#muc-tieu" data-act="close">${esc(t.goal.title)}</a>` : '<span class="hint">Không liên kết.</span>'}</div>`}
           ${t.goal ? `<span class="t-sub">Tiến độ mục tiêu: ${Number(t.goal.current).toLocaleString('vi-VN')}/${Number(t.goal.target).toLocaleString('vi-VN')} ${esc(t.goal.unit || '')}</span>` : ''}</div>
         ${t.milestones.length || t.milestone ? `<div class="field"><label for="tk-ms">Mốc dự án</label>${c.editInfo ? `<select id="tk-ms"><option value="">Không gắn mốc</option>${t.milestones.map(m => `<option value="${m.id}" ${t.milestone && t.milestone.id === m.id ? 'selected' : ''}>◆ ${esc(m.title)}${m.due_date ? ' – ' + fmtD(m.due_date) : ''}</option>`).join('')}</select>` : `<div>${t.milestone ? '◆ ' + esc(t.milestone.title) : '<span class="hint">Không gắn mốc.</span>'}</div>`}</div>` : ''}
       </div>
-      ${c.editInfo || c.editDeadline || c.edit ? '<div class="actions"><button class="btn primary" data-act="tk-save">Lưu thay đổi</button></div>' : ''}
+      ${c.editInfo || c.editDesc || c.editDeadline || c.edit ? '<div class="actions"><button class="btn primary" data-act="tk-save">Lưu thay đổi</button></div>' : ''}
       <p class="err" id="tk-err" hidden></p>
+      ${W.TSECT.map(f => f(t)).join('')}
 
       <h3 class="sec-t">Tệp đính kèm, tài liệu (${t.files.length})</h3>
       <div class="w-files">${t.files.map(f => `<div class="w-file">${f.kind === 'doc'
@@ -417,21 +558,25 @@ async function openTask(id) {
 
       <h3 class="sec-t">Kết quả, tiến độ ${S.allow_percent ? `<span class="muted num">${t.progress || 0}%</span>` : ''}</h3>
       ${S.allow_percent ? `<div class="prog ${t.status === 'done' ? 'ok' : ''}"><i style="width:${t.progress || 0}%"></i></div>` : ''}
-      ${c.progress && !isDone(t) && t.status !== 'review' ? `<div class="inline-add"><input id="tk-rn" placeholder="Nội dung kết quả, báo cáo tiến độ" aria-label="Nội dung kết quả">${S.allow_percent ? `<input id="tk-rp" type="number" min="0" max="100" value="${t.progress || 0}" aria-label="% hoàn thành" style="max-width:90px">` : ''}<button class="btn sm" data-act="tk-res">Cập nhật</button></div>` : ''}
-      <div class="cmts">${t.results.map(r => `<div class="cmt">${av(r.user_id)}<div><b>${esc(U(r.user_id).full_name)}</b><time>${fmtDT(r.created_at)}</time>${r.progress !== null && r.progress !== undefined ? ` <span class="tag">${r.progress}%</span>` : ''}<p>${esc(r.note || '')}</p></div></div>`).join('') || '<span class="hint">Chưa có cập nhật kết quả.</span>'}</div>
+      ${(c.result ?? c.progress) && !isDone(t) && t.status !== 'review' ? `<div class="w-resbox"><textarea id="tk-rn" rows="2" placeholder="Nội dung kết quả, báo cáo tiến độ" aria-label="Nội dung kết quả"></textarea>
+        <div class="w-resrow">${S.allow_percent ? `<label class="w-range"><span>% hoàn thành</span><input id="tk-rp" type="range" min="0" max="100" step="5" value="${t.progress || 0}" aria-label="% hoàn thành"><b id="tk-rpv" class="num">${t.progress || 0}%</b></label>` : ''}
+        <label class="btn sm w-filepick">Đính kèm tệp…<input type="file" id="tk-rf" aria-label="Đính kèm tệp kết quả"></label><span class="t-sub" id="tk-rfs"></span><span class="spacer"></span><button class="btn sm primary" data-act="tk-res">Cập nhật kết quả</button></div></div>` : ''}
+      <div class="cmts">${t.results.map(r => `<div class="cmt">${av(r.user_id)}<div><b>${esc(U(r.user_id).full_name)}</b><time>${fmtDT(r.created_at)}</time>${r.progress !== null && r.progress !== undefined ? ` <span class="tag">${r.progress}%</span>` : ''}<p>${esc(r.note || '')}</p>${(r.files || []).map(f => `<a href="/api/task-files/${f.id}" download class="t-sub">📎 ${esc(f.file_name)} (${fmtSize(f.file_size)})</a>`).join(' ')}</div></div>`).join('') || '<span class="hint">Chưa có cập nhật kết quả.</span>'}</div>
 
       ${depSection(t)}
       <h3 class="sec-t">Việc con (${t.subtasks.filter(s => s.status === 'done').length}/${t.subtasks.length})</h3>
       ${t.subtasks.length ? `<div class="tbl-wrap"><table class="tbl"><tbody>${t.subtasks.map(s => `<tr class="click" data-act="tk-open" data-id="${s.id}"><td><span class="t-title">${esc(s.title)}</span></td><td>${who(s.assignee_id)}</td><td class="num ${late(s) ? 'late' : ''}">${dueTxt(s)}</td><td>${pill(s.status)}</td></tr>`).join('')}</tbody></table></div>` : ''}
-      ${t.depth < 2 && t.project.status !== 'closed' && (c.editInfo || c.manage) ? '<button class="btn sm" data-act="tk-sub">+ Thêm việc con</button>' : t.depth >= 2 ? '<span class="hint">Đã đạt giới hạn 3 cấp việc con.</span>' : ''}
+      ${t.depth < 2 && t.project.status !== 'closed' && (c.editInfo || c.manage) ? `<div class="inline-add w-subq"><input id="tk-sq" maxlength="155" placeholder="Tên việc con (tạo nhanh)" aria-label="Tên việc con"><input type="date" id="tk-sqd" aria-label="Thời hạn việc con"><select id="tk-sqa" aria-label="Người thực hiện việc con">${userOpts(t.assignee_id || B().me.id)}</select><button class="btn sm" data-act="tk-subq">Thêm nhanh</button><button class="btn sm ghost" data-act="tk-sub">Dạng đầy đủ…</button></div>` : t.depth >= 2 ? '<span class="hint">Đã đạt giới hạn 3 cấp việc con.</span>' : ''}
 
       <h3 class="sec-t">Người theo dõi (${t.followers.length})</h3>
       <div class="chips">${t.followers.map(u => `<span class="chip">${av(u)} ${esc(U(u).full_name)}${c.editInfo || c.manage || u === B().me.id ? ` <button class="btn ghost sm" data-act="tk-fdel" data-u="${u}" aria-label="Bỏ theo dõi">×</button>` : ''}</span>`).join('') || '<span class="hint">Chưa có người theo dõi.</span>'}</div>
-      ${c.editInfo || c.manage ? `<div class="inline-add"><select id="tk-fa" class="sel" aria-label="Thêm người theo dõi"><option value="">Chọn người theo dõi…</option>${B().users.filter(u => u.active && !t.followers.includes(u.id)).map(u => `<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select><button class="btn sm" data-act="tk-fadd">Thêm</button></div>` : ''}
+      ${c.editInfo || c.manage ? `<div class="inline-add"><select id="tk-fa" class="sel" multiple size="4" aria-label="Thêm người theo dõi (giữ Ctrl để chọn nhiều)">${B().users.filter(u => u.active && !t.followers.includes(u.id)).map(u => `<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select>
+        <select id="tk-fd" class="sel" aria-label="Thêm theo phòng"><option value="">Thêm theo phòng…</option>${B().departments.map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('')}</select><button class="btn sm" data-act="tk-fadd">Thêm</button></div>` : ''}
 
-      <h3 class="sec-t">Danh mục đầu việc (${t.checklist.filter(x => x.done).length}/${t.checklist.length})</h3>
-      <div class="cl">${t.checklist.map(x => `<div class="cl-row ${x.done ? 'done' : ''}"><label><input type="checkbox" data-wcl="${x.id}" ${x.done ? 'checked' : ''} ${dis(c.progress)}><span>${esc(x.text)}</span></label>${c.progress ? `<button class="btn ghost sm" data-act="tk-cldel" data-id="${x.id}" aria-label="Xóa đầu việc">×</button>` : ''}</div>`).join('') || '<span class="hint">Chưa có đầu việc.</span>'}</div>
-      ${c.progress ? '<div class="inline-add"><input id="tk-cl" placeholder="Thêm đầu việc" aria-label="Thêm đầu việc"><button class="btn sm" data-act="tk-cladd">Thêm</button></div>' : ''}
+      <h3 class="sec-t">Checklist (${t.checklist.filter(x => x.done).length}/${t.checklist.length})</h3>
+      ${(() => { const canCl = c.checklist ?? c.progress; const secs = [...new Set(t.checklist.map(x => x.section || ''))]; if (!secs.length) secs.push('');
+        return secs.map(sn => `<div class="cl w-clsec">${sn ? `<b class="w-clh">${esc(sn)}</b>` : ''}${t.checklist.filter(x => (x.section || '') === sn).map(x => `<div class="cl-row ${x.done ? 'done' : ''}"><label><input type="checkbox" data-wcl="${x.id}" ${x.done ? 'checked' : ''} ${dis(canCl)}><span>${esc(x.text)}</span></label>${x.assignee_id ? `<span class="t-sub">${av(x.assignee_id)} ${esc(U(x.assignee_id).full_name)}</span>` : ''}${canCl ? `<button class="btn ghost sm" data-act="tk-cldel" data-id="${x.id}" aria-label="Xóa việc cần làm">×</button>` : ''}</div>`).join('') || '<span class="hint">Chưa có việc cần làm.</span>'}</div>`).join('')
+          + (canCl ? `<div class="inline-add w-cladd"><input id="tk-cl" placeholder="Thêm việc cần làm (todo)" aria-label="Thêm việc cần làm"><input id="tk-cls" list="tk-clsl" placeholder="Tên checklist" aria-label="Tên checklist" style="max-width:170px"><datalist id="tk-clsl">${secs.filter(Boolean).map(x => `<option value="${esc(x)}">`).join('')}</datalist><select id="tk-cla" class="sel" aria-label="Người thực hiện" style="max-width:170px"><option value="">Không giao</option>${userOpts(null)}</select><button class="btn sm" data-act="tk-cladd">Thêm</button></div><p class="hint">Việc cần làm không có thời hạn; cần giao có thời hạn hãy tạo việc con.</p>` : ''); })()}
 
       <h3 class="sec-t">Trao đổi (${t.comments.length})</h3>
       <div class="cmts">${t.comments.map(m => `<div class="cmt">${av(m.user_id)}<div><b>${esc(U(m.user_id).full_name)}</b><time>${fmtDT(m.created_at)}</time><p>${esc(m.body)}</p></div></div>`).join('') || '<span class="hint">Chưa có trao đổi.</span>'}</div>
@@ -454,7 +599,8 @@ async function openTask(id) {
       const c = t.can, b = {};
       if (c.editInfo) Object.assign(b, { title: $('#tk-t').value, group_id: $('#tk-g').value || null, priority: $('#tk-pr').value, urgent: $('#tk-u').checked, important: $('#tk-i').checked, est_hours: $('#tk-h').value || 0, description: $('#tk-desc').value, tags: $('#tk-tags').value, goal_id: $('#tk-goal').value || null }, $('#tk-ms') ? { milestone_id: $('#tk-ms').value || null } : {});
       if (c.editDeadline) Object.assign(b, { start_date: $('#tk-s').value, due_date: $('#tk-d').value || null }, $('#tk-dt') ? { due_time: $('#tk-dt').value || null } : {});
-      if (c.edit && Number($('#tk-a').value) !== t.assignee_id) b.assignee_id = Number($('#tk-a').value);
+      if (!c.editInfo && c.editDesc) b.description = $('#tk-desc').value;
+      if (c.edit && (Number($('#tk-a').value) || null) !== (t.assignee_id || null)) b.assignee_id = Number($('#tk-a').value) || null;
       try { const r = await PUT('/api/tasks/' + t.id, b); await after(r); toast(r.shifted ? `Đã lưu; tự động dời ${r.shifted} công việc phụ thuộc` : 'Đã lưu công việc'); } catch (e) { err(e); }
     }),
     'tk-st': btn => busy(btn, async () => {
@@ -482,7 +628,10 @@ async function openTask(id) {
         'fl-go': b2 => busy(b2, async () => { try { await after(await POST(`/api/tasks/${t.id}/status`, { status: 'failed', reason: $('#fl-r').value })); toast('Đã đánh dấu thất bại'); } catch (e) { showErr('#fl-err', e); } })
       });
     },
-    'tk-res': btn => busy(btn, async () => { const p = $('#tk-rp'); try { await after(await POST(`/api/tasks/${t.id}/results`, { note: $('#tk-rn').value, progress: p ? p.value : undefined })); toast('Đã cập nhật kết quả'); } catch (e) { err(e); } }),
+    'tk-res': btn => busy(btn, async () => { const p = $('#tk-rp'), f = ($('#tk-rf') || {}).files ? $('#tk-rf').files[0] : null, b = { note: $('#tk-rn').value, progress: p && Number(p.value) !== (t.progress || 0) ? p.value : undefined };
+      if (f) { if (f.size > FILE_MAX) return err(`Tệp “${f.name}” vượt quá 10 MB.`); Object.assign(b, { file_name: f.name, file_mime: f.type, file_data: await readB64(f) }); }
+      try { await after(await POST(`/api/tasks/${t.id}/results`, b)); toast('Đã cập nhật kết quả'); } catch (e) { err(e); } }),
+    'tk-claim': btn => busy(btn, async () => { try { await after(await PUT('/api/tasks/' + t.id, { assignee_id: B().me.id })); toast('Bạn đã nhận công việc này'); } catch (e) { err(e); } }),
     'tk-fileup': btn => busy(btn, async () => {
       const fs = Array.from(($('#tk-file') || {}).files || []); if (!fs.length) return err('Vui lòng chọn tệp cần tải lên.');
       const errs = await attachAll([t.id], fs, []); await after();
@@ -492,24 +641,37 @@ async function openTask(id) {
     'tk-filedel': async btn => { if (!armed(btn, 'Gỡ?')) return; try { await after(await DEL('/api/task-files/' + btn.dataset.id)); toast('Đã gỡ tệp'); } catch (e) { err(e); } },
     'tk-depadd': () => depModal(t, draw, after),
     'tk-depdel': async btn => { if (!armed(btn, 'Gỡ?')) return; try { await after(await DEL(`/api/task-deps/${btn.dataset.id}?view=${t.id}`)); toast('Đã gỡ phụ thuộc'); } catch (e) { err(e); } },
+    'tk-subq': btn => busy(btn, async () => { const v = $('#tk-sq').value.trim(); if (!v) { $('#tk-sq').focus(); return; } const d = $('#tk-sqd').value;
+      try { await POST('/api/tasks', { project_id: t.project.id, parent_id: t.id, group_id: t.group_id, title: v, due_date: d || null, assignee_id: Number($('#tk-sqa').value), quick: true }); await reload(); render(); toast('Đã thêm việc con'); } catch (e) { err(e); } }),
     'tk-sub': () => newTask({ project_id: t.project.id, parent_id: t.id, group_id: t.group_id, onDone: () => { reload(); render(); } }),
     'tk-open': el => openTask(Number(el.dataset.id)),
-    'tk-fadd': btn => busy(btn, async () => { const v = $('#tk-fa').value; if (!v) return; try { await reload(await POST(`/api/tasks/${t.id}/followers`, { user_ids: [Number(v)] })); } catch (e) { err(e); } }),
+    'tk-fadd': btn => busy(btn, async () => { let ids = multiVals($('#tk-fa')); const d = $('#tk-fd').value; if (d) ids = ids.concat(B().users.filter(u => u.active && String(u.dept_id) === d && !t.followers.includes(u.id)).map(u => u.id));
+      if (!ids.length) return err('Vui lòng chọn người theo dõi.'); try { await reload(await POST(`/api/tasks/${t.id}/followers`, { user_ids: [...new Set(ids)] })); toast(`Đã thêm ${new Set(ids).size} người theo dõi`); } catch (e) { err(e); } }),
     'tk-fdel': btn => busy(btn, async () => { try { await reload(await DEL(`/api/tasks/${t.id}/followers/${btn.dataset.u}`)); } catch (e) { err(e); } }),
-    'tk-cladd': async () => { const v = $('#tk-cl').value.trim(); if (!v) return $('#tk-cl').focus(); try { await reload(await POST(`/api/tasks/${t.id}/checklist`, { text: v })); } catch (e) { err(e); } },
+    'tk-cladd': async () => { const v = $('#tk-cl').value.trim(); if (!v) return $('#tk-cl').focus(); try { await reload(await POST(`/api/tasks/${t.id}/checklist`, { text: v, section: $('#tk-cls').value.trim(), assignee_id: $('#tk-cla').value || null })); } catch (e) { err(e); } },
     'tk-cldel': async btn => { try { await reload(await DEL('/api/checklist/' + btn.dataset.id)); } catch (e) { err(e); } },
     'tk-cmadd': async () => { const v = $('#tk-cm').value.trim(); if (!v) return $('#tk-cm').focus(); try { await reload(await POST(`/api/tasks/${t.id}/comments`, { body: v })); } catch (e) { err(e); } },
     'tk-clone': () => {
       openModal(`${mh('Nhân bản công việc', esc(t.title))}<div class="modal-b"><div class="field"><label for="cl-t">Tên công việc mới</label><input id="cl-t" maxlength="155" value="${esc(('Bản sao: ' + t.title).slice(0, 155))}"></div>
-        <div class="w-sets">${[['assignee', 'Người nhận việc'], ['group', 'Nhóm công việc'], ['subtasks', 'Việc con (tối đa 3 cấp)'], ['checklist', 'Danh mục đầu việc'], ['followers', 'Người theo dõi'], ['description', 'Mô tả'], ['deadline', 'Thời hạn'], ['files', 'Tệp đính kèm']].map(([k, l]) => `<label class="check"><input type="checkbox" data-keep="${k}" checked> Giữ ${l.toLowerCase()}</label>`).join('')}</div>
+        <div class="form"><div class="field"><label for="cl-a">Người thực hiện</label><select id="cl-a"><option value="">Giữ nguyên</option>${userOpts(null)}</select></div>
+        <div class="field"><label for="cl-g">Nhóm công việc</label><select id="cl-g"><option value="keep">Giữ nguyên</option><option value="">Chưa phân loại</option>${t.groups.map(g => `<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select></div>
+        <div class="field"><label for="cl-d">Thời hạn</label><select id="cl-dm"><option value="keep">Giữ nguyên thời hạn</option><option value="none">Không đặt thời hạn</option><option value="set">Đặt thời hạn mới</option></select><input type="date" id="cl-d" hidden style="margin-top:6px"></div></div>
+        <div class="w-sets">${[['subtasks', 'Việc con (tối đa 3 cấp)'], ['sub_assignee', 'Người nhận việc con'], ['checklist', 'Checklist & todo'], ['urgent', 'Đánh dấu khẩn cấp'], ['important', 'Đánh dấu quan trọng'], ['tags', 'Danh sách nhãn'], ['files', 'Tài liệu đính kèm'], ['followers', 'Thành viên theo dõi'], ['description', 'Mô tả công việc'], ['start', 'Ngày bắt đầu'], ['fields', 'Trường tùy chỉnh (trừ dạng tệp)']].map(([k, l]) => `<label class="check"><input type="checkbox" data-keep="${k}" checked> Giữ ${l.charAt(0).toLowerCase() + l.slice(1)}</label>`).join('')}</div>
+        <p class="hint">Không giữ: người tạo việc, trao đổi, kết quả công việc, thời hạn của việc con.</p>
         <p class="err" id="cl-err" hidden></p></div><div class="modal-f"><button class="btn" data-act="cl-back">Quay lại</button><button class="btn primary" data-act="cl-go">Nhân bản</button></div>`, {
         'cl-back': () => draw(),
-        'cl-go': b2 => busy(b2, async () => { const keep = {}; $$('[data-keep]').forEach(x => { keep[x.dataset.keep] = x.checked; }); try { const n = await POST(`/api/tasks/${t.id}/clone`, { title: $('#cl-t').value, keep }); toast('Đã nhân bản công việc'); render(); t = n; draw(); } catch (e) { showErr('#cl-err', e); } })
+        'cl-go': b2 => busy(b2, async () => { const keep = {}; $$('[data-keep]').forEach(x => { keep[x.dataset.keep] = x.checked; });
+          const dm = $('#cl-dm').value; if (dm === 'none') keep.deadline = false; const body = { title: $('#cl-t').value, keep };
+          if ($('#cl-a').value) body.assignee_id = Number($('#cl-a').value); if ($('#cl-g').value !== 'keep') body.group_id = $('#cl-g').value || null; if (dm === 'set') { if (!$('#cl-d').value) return showErr('#cl-err', 'Vui lòng chọn thời hạn mới.'); body.due_date = $('#cl-d').value; }
+          try { const n = await POST(`/api/tasks/${t.id}/clone`, body); toast('Đã nhân bản công việc'); render(); t = n; draw(); } catch (e) { showErr('#cl-err', e); } })
       });
+      $('#cl-dm').onchange = e => { $('#cl-d').hidden = e.target.value !== 'set'; };
     },
     'tk-del': async btn => { if (!armed(btn, t.subtasks.length ? `Xóa cả ${t.subtasks.length} việc con? Bấm lần nữa` : 'Bấm lần nữa để xóa')) return; try { await DEL('/api/tasks/' + t.id); closeModal(); render(); refreshBoot(); toast('Đã xóa công việc'); } catch (e) { err(e); } },
     'wcl-toggle': async el => { try { await reload(await PUT('/api/checklist/' + el.dataset.wcl, { done: el.checked })); } catch (e) { err(e); } }
   };
+  /* Bộ xử lý mở rộng (work-report.js) dùng ngữ cảnh công việc đang mở */
+  for (const [k, fn] of Object.entries(W.THAND)) H[k] = el => fn(el, { get t() { return t; }, set t(v) { t = v; }, after, reload, draw, err });
   clToggle = H['wcl-toggle'];
   draw();
 }
@@ -713,6 +875,23 @@ Object.assign(SO.ACTIONS, {
     const rest = PT.total > PT.rows.length ? `<p class="hint">Hiển thị ${PT.rows.length}/${PT.total} công việc. <button class="btn sm" data-act="w-more">Tải thêm</button></p>` : '';
     body.innerHTML = (v === 'kanban' ? kanban(PT.rows) : v === 'gantt' ? ganttView(PT.rows) : milestoneStrip() + listView(PT.rows)) + rest; if (v === 'kanban') wireKanban(); if (v === 'gantt') wireGantt(); }),
   'w-qadd': btn => quickAdd(btn.dataset.g),
+  'w-gnew': btn => newTask({ project_id: PJ.id, group_id: btn.dataset.g ? Number(btn.dataset.g) : null }),
+  'w-gnewgroup': () => openModal(`${mh('Thêm nhóm công việc mới', esc(PJ.name))}<div class="modal-b"><div class="form"><div class="field full"><label for="gn-n">Tên nhóm công việc</label><input id="gn-n" maxlength="120"></div>
+    <div class="field full"><label for="gn-d">Nội dung mô tả</label><textarea id="gn-d"></textarea></div>${PJ.settings.est_enabled ? '<div class="field"><label for="gn-h">Thời lượng định mức (giờ/việc)</label><input id="gn-h" type="number" min="0" step="0.25"></div>' : ''}</div><p class="err" id="gn-err" hidden></p></div>
+    <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="gn-go">Tạo nhóm công việc</button></div>`, {
+    'gn-go': b2 => busy(b2, async () => { try { PJ = await POST(`/api/projects/${PJ.id}/groups`, { name: $('#gn-n').value, description: $('#gn-d').value, std_hours: $('#gn-h') ? $('#gn-h').value || 0 : 0 }); closeModal(); toast('Đã tạo nhóm công việc'); render(); } catch (e) { showErr('#gn-err', e); } }) }),
+  'w-pkind': async btn => { if (!armed(btn, `Chuyển sang ${PJ.kind === 'project' ? 'phòng ban' : 'dự án'}? Bấm lần nữa`)) return; try { PJ = await PUT('/api/projects/' + PJ.id, { kind: PJ.kind === 'project' ? 'team' : 'project' }); await refreshBoot(); toast('Đã chuyển loại'); go({ p: PJ.id }); } catch (e) { toast(e.message, true); } },
+  'w-fav': async btn => { try { await POST(`/api/projects/${btn.dataset.id}/favorite`, { on: btn.dataset.on === '1' }); toast(btn.dataset.on === '1' ? 'Đã thêm ưu tiên' : 'Đã bỏ ưu tiên'); render(); } catch (e) { toast(e.message, true); } },
+  'w-joinmgr': async btn => { if (!armed(btn, 'Thêm tôi làm quản lý? Bấm lần nữa')) return; try { await POST(`/api/projects/${btn.dataset.id}/join-manager`, {}); toast('Đã thêm bạn làm quản lý'); go({ p: btn.dataset.id }); } catch (e) { toast(e.message, true); } },
+  'w-poff': btn => { const d = Number(btn.dataset.d); periodOff = d === 0 ? 0 : periodOff + d; render(); },
+  'w-done': async btn => { const t = PT.rows.find(x => x.id === Number(btn.dataset.id)) || {}; const to = t.status === 'done' ? 'doing' : 'done';
+    try { let r; try { r = await POST(`/api/tasks/${btn.dataset.id}/status`, { status: to }); } catch (e) { if (to === 'done' && /việc con/.test(e.message)) { if (!armed(btn, '?')) return; r = await POST(`/api/tasks/${btn.dataset.id}/status`, { status: 'done', force: true }); } else throw e; }
+      toast(r.status === 'review' ? 'Đã gửi đánh giá hoàn thành' : r.status === 'done' ? 'Đã hoàn thành' : 'Đã bỏ đánh dấu hoàn thành'); render(); refreshBoot(); } catch (e) { toast(e.message, true); } },
+  'w-due': btn => { const t = PT.rows.find(x => x.id === Number(btn.dataset.id)) || {};
+    openModal(`${mh('Đổi thời hạn', esc(t.title || ''))}<div class="modal-b"><div class="field"><label for="dq-d">Thời hạn mới</label><input type="date" id="dq-d" value="${t.due_date || ''}"></div><p class="err" id="dq-err" hidden></p></div>
+      <div class="modal-f"><button class="btn" data-act="dq-clear">Bỏ thời hạn</button><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="dq-go">Lưu</button></div>`, {
+      'dq-go': b2 => busy(b2, async () => { try { const r = await PUT('/api/tasks/' + btn.dataset.id, { due_date: $('#dq-d').value || null }); closeModal(); toast(r.shifted ? `Đã đổi thời hạn; tự động dời ${r.shifted} công việc phụ thuộc` : 'Đã đổi thời hạn'); render(); } catch (e) { showErr('#dq-err', e); } }),
+      'dq-clear': b2 => busy(b2, async () => { try { await PUT('/api/tasks/' + btn.dataset.id, { due_date: null }); closeModal(); toast('Đã bỏ thời hạn'); render(); } catch (e) { showErr('#dq-err', e); } }) }); },
   'w-msnew': () => milestoneModal(null),
   'w-msedit': btn => milestoneModal(PJ.milestones.find(m => m.id === Number(btn.dataset.id))),
   'w-cal': btn => { calMonth = btn.dataset.m || null; render(); },
@@ -721,22 +900,24 @@ Object.assign(SO.ACTIONS, {
   'w-recedit': btn => recurModal(($('#w-body')._recs || []).find(r => r.id === Number(btn.dataset.id))),
   'w-rectoggle': async btn => { const r = ($('#w-body')._recs || []).find(x => x.id === Number(btn.dataset.id)); try { await PUT('/api/recurrences/' + r.id, { active: !r.active }); toast(r.active ? 'Đã vô hiệu hóa' : 'Đã kích hoạt'); render(); } catch (e) { toast(e.message, true); } },
   'w-recdel': async btn => { if (!armed(btn, 'Xóa? Bấm lần nữa')) return; try { await DEL('/api/recurrences/' + btn.dataset.id); toast('Đã xóa thiết lập lặp lại'); render(); } catch (e) { toast(e.message, true); } },
-  'w-ps-save': btn => busy(btn, async () => { try { PJ = await PUT('/api/projects/' + PJ.id, { name: $('#ps-n').value, kind: $('#ps-k').value, color: $('#ps-c').value, start_date: $('#ps-s').value || null, end_date: $('#ps-e').value || null, description: $('#ps-d').value }); await refreshBoot(); toast('Đã lưu thông tin'); render(); } catch (e) { showErr('#ps-err', e); } }),
+  'w-ps-save': btn => busy(btn, async () => { try { PJ = await PUT('/api/projects/' + PJ.id, { name: $('#ps-n').value, kind: $('#ps-k').value, color: $('#ps-c').value, start_date: $('#ps-s').value || null, end_date: $('#ps-e').value || null, description: $('#ps-d').value, dept_id: $('#ps-dept').value || null, classification: $('#ps-cls').value }); await refreshBoot(); toast('Đã lưu thông tin'); render(); } catch (e) { showErr('#ps-err', e); } }),
   'w-pr-save': btn => busy(btn, async () => {
     const b = {}; $$('[data-wset]').forEach(x => { b[x.dataset.wset] = x.checked; });
     if ($('#ps-dm')) b.deps_mode = $('#ps-dm').value;
+    if ($('#ps-sd')) b.subtask_display = $('#ps-sd').value;
     b.reviewer_mode = $('#ps-rm').value; b.reviewers = multiVals($('#ps-rl')); b.review_sla_h = Number($('#ps-sla').value) || 0;
     b.fail_roles = $$('[data-wfr]').filter(x => x.checked).map(x => x.dataset.wfr); b.fail_reasons = $('#ps-fr').value.split('\n').map(x => x.trim()).filter(Boolean);
     try { PJ = await PUT(`/api/projects/${PJ.id}/settings`, b); toast('Đã lưu quy tắc làm việc'); render(); } catch (e) { showErr('#pr-err', e); }
   }),
-  'w-madd': btn => busy(btn, async () => { const ids = multiVals($('#pm-u')); if (!ids.length) return showErr('#pm-err', 'Vui lòng chọn người cần thêm.'); try { PJ = await POST(`/api/projects/${PJ.id}/members`, { user_ids: ids, role: $('#pm-r').value }); toast('Đã thêm thành viên'); render(); } catch (e) { showErr('#pm-err', e); } }),
+  'w-madd': btn => busy(btn, async () => { const ids = multiVals($('#pm-u')), dept = $('#pm-dept').value; if (!ids.length && !dept) return showErr('#pm-err', 'Vui lòng chọn người hoặc phòng cần thêm.'); try { PJ = await POST(`/api/projects/${PJ.id}/members`, { user_ids: ids, dept_id: dept || null, role: $('#pm-r').value }); toast('Đã thêm thành viên'); render(); } catch (e) { showErr('#pm-err', e); } }),
   'w-mdel': async btn => { if (!armed(btn, 'Xóa?')) return; try { PJ = await DEL(`/api/projects/${PJ.id}/members/${btn.dataset.u}`); toast('Đã xóa khỏi dự án'); render(); } catch (e) { toast(e.message, true); } },
   'w-gadd': btn => busy(btn, async () => { try { PJ = await POST(`/api/projects/${PJ.id}/groups`, { name: $('#pg-n').value, std_hours: $('#pg-h').value || 0 }); toast('Đã thêm nhóm công việc'); render(); } catch (e) { showErr('#pg-err', e); } }),
   'w-gedit': btn => { const g = PJ.groups.find(x => x.id === Number(btn.dataset.g));
     openModal(`${mh('Sửa nhóm công việc')}<div class="modal-b"><div class="form"><div class="field full"><label for="ge-n">Tên nhóm</label><input id="ge-n" value="${esc(g.name)}" maxlength="120"></div>
-      <div class="field"><label for="ge-h">Thời lượng định mức (giờ/việc)</label><input id="ge-h" type="number" min="0" step="0.5" value="${g.std_hours || ''}"></div><div class="field full"><label for="ge-d">Mô tả</label><textarea id="ge-d">${esc(g.description || '')}</textarea></div></div>
+      <div class="field"><label for="ge-h">Thời lượng định mức (giờ/việc)</label><input id="ge-h" type="number" min="0" step="0.5" value="${g.std_hours || ''}"></div><div class="field full"><label for="ge-d">Mô tả</label><textarea id="ge-d">${esc(g.description || '')}</textarea></div>
+      <div class="field full"><label for="ge-r">Người đánh giá của nhóm (giữ Ctrl để chọn nhiều)</label><select id="ge-r" multiple size="5">${B().users.filter(u => u.active).map(u => `<option value="${u.id}" ${(JSON.parse(g.reviewers || '[]')).includes(u.id) ? 'selected' : ''}>${esc(u.full_name)}</option>`).join('')}</select><span class="t-sub">Áp dụng khi dự án bật “Yêu cầu đánh giá trước khi hoàn thành” (Base bài 63000276270).</span></div></div>
       <p class="hint">Đổi định mức sẽ áp dụng cho mọi công việc trong nhóm.</p><p class="err" id="ge-err" hidden></p></div><div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="ge-save">Lưu</button></div>`, {
-      'ge-save': b2 => busy(b2, async () => { try { PJ = await PUT('/api/groups/' + g.id, { name: $('#ge-n').value, std_hours: $('#ge-h').value || 0, description: $('#ge-d').value }); closeModal(); toast('Đã lưu nhóm công việc'); render(); } catch (e) { showErr('#ge-err', e); } }) }); },
+      'ge-save': b2 => busy(b2, async () => { try { PJ = await PUT('/api/groups/' + g.id, { name: $('#ge-n').value, std_hours: $('#ge-h').value || 0, description: $('#ge-d').value, reviewers: multiVals($('#ge-r')) }); closeModal(); toast('Đã lưu nhóm công việc'); render(); } catch (e) { showErr('#ge-err', e); } }) }); },
   'w-gclose': async btn => { const g = PJ.groups.find(x => x.id === Number(btn.dataset.g)); try { PJ = await PUT('/api/groups/' + g.id, { closed: !g.closed }); toast(g.closed ? 'Đã mở nhóm' : 'Đã tạm đóng nhóm'); render(); } catch (e) { toast(e.message, true); } },
   'w-gdel': async btn => { if (!armed(btn, 'Xóa nhóm? Việc chuyển về Chưa phân loại')) return; try { PJ = await DEL('/api/groups/' + btn.dataset.g); toast('Đã xóa nhóm công việc'); render(); } catch (e) { toast(e.message, true); } },
   'w-gmove': async btn => { const ids = PJ.groups.map(g => g.id), i = ids.indexOf(Number(btn.dataset.g)), j = i + Number(btn.dataset.d); if (j < 0 || j >= ids.length) return; [ids[i], ids[j]] = [ids[j], ids[i]]; try { PJ = await PUT(`/api/projects/${PJ.id}/groups-order`, { ids }); render(); } catch (e) { toast(e.message, true); } },
@@ -748,10 +929,10 @@ Object.assign(SO.ACTIONS, {
     <div class="field"><label for="po-n">Ghi chú</label><textarea id="po-n"></textarea></div><p class="err" id="po-err" hidden></p></div>
     <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="po-go">Mở lại</button></div>`, {
     'po-go': b2 => busy(b2, async () => { try { PJ = await POST(`/api/projects/${PJ.id}/reopen`, { health: $('#po-h').value, note: $('#po-n').value }); closeModal(); await refreshBoot(); toast('Đã mở lại'); render(); } catch (e) { showErr('#po-err', e); } }) }),
-  'w-pdel': () => openModal(`${mh('Xóa ' + KIND[PJ.kind].toLowerCase(), esc(PJ.name))}<div class="modal-b"><p class="notice">Thao tác này xóa vĩnh viễn ${KIND[PJ.kind].toLowerCase()} và toàn bộ ${PJ.stats.total || 0} công việc bên trong, không khôi phục được.</p>
+  'w-pdel': () => { openModal(`${mh('Xóa ' + KIND[PJ.kind].toLowerCase(), esc(PJ.name))}<div class="modal-b"><p class="notice">Thao tác này xóa vĩnh viễn ${KIND[PJ.kind].toLowerCase()} và toàn bộ ${PJ.stats.total || 0} công việc bên trong, không khôi phục được.</p>
     <div class="field"><label for="pd-n">Nhập đúng tên “${esc(PJ.name)}” để xác nhận</label><input id="pd-n" autocomplete="off"></div><p class="err" id="pd-err" hidden></p></div>
-    <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn danger" data-act="pd-go">Xóa vĩnh viễn</button></div>`, {
-    'pd-go': b2 => busy(b2, async () => { if ($('#pd-n').value.trim() !== PJ.name) return showErr('#pd-err', 'Tên nhập chưa khớp.'); try { await DEL('/api/projects/' + PJ.id); closeModal(); await refreshBoot(); toast('Đã xóa'); go({ tab: 'projects' }); } catch (e) { showErr('#pd-err', e); } }) })
+    <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn danger" data-act="pd-go" id="pd-go" disabled>Xác nhận xóa (6)</button></div>`, {
+    'pd-go': b2 => busy(b2, async () => { if (b2.disabled) return; if ($('#pd-n').value.trim() !== PJ.name) return showErr('#pd-err', 'Tên nhập chưa khớp.'); try { await DEL('/api/projects/' + PJ.id); closeModal(); await refreshBoot(); toast('Đã xóa'); go({ tab: 'projects' }); } catch (e) { showErr('#pd-err', e); } }) }); let n = 6; const tick = () => { const b = $('#pd-go'); if (!b) return; n--; if (n <= 0) { b.disabled = false; b.textContent = 'Xác nhận xóa'; } else { b.textContent = `Xác nhận xóa (${n})`; setTimeout(tick, 1000); } }; setTimeout(tick, 1000); }
 });
 async function quickAdd(gid) {
   const inp = $(`[data-wqadd="${gid}"]`), title = inp && inp.value.trim(); if (!title) return inp && inp.focus();
@@ -759,7 +940,8 @@ async function quickAdd(gid) {
   catch (e) { toast(e.message, true); }
 }
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-wtab],[data-wscope],[data-wpst],[data-wv],[data-wstaff]'); if (!t) return;
+  const t = e.target.closest('[data-wtab],[data-wscope],[data-wpst],[data-wpsc],[data-wv],[data-wstaff]'); if (!t) return;
+  if (t.dataset.wpsc) { projScope = t.dataset.wpsc; render(); return; }
   if (t.dataset.wtab) go(t.dataset.wtab === 'mine' ? {} : { tab: t.dataset.wtab });
   else if (t.dataset.wscope) { homeScope = t.dataset.wscope; render(); }
   else if (t.dataset.wpst) { projStatus = t.dataset.wpst; render(); }
@@ -772,6 +954,8 @@ async function staffList(uid) {
   box.innerHTML = `<section class="card"><div class="card-h"><h2>Việc chưa kết thúc của ${esc(U(uid).full_name)} (${d.total})</h2></div>${d.rows.length ? `<div class="tbl-wrap"><table class="tbl w-tbl">${tableHead}<tbody>${d.rows.map(t => taskRow(t, { project: true })).join('')}</tbody></table></div>` : '<div class="empty">Không có việc chưa kết thúc.</div>'}</section>`;
 }
 document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.wcl && clToggle && e.target.closest('#modal')) clToggle(e.target); });
+document.addEventListener('input', e => { if (e.target.id === 'tk-rp') { const o = $('#tk-rpv'); if (o) o.textContent = e.target.value + '%'; } });
+document.addEventListener('change', e => { if (e.target.id === 'tk-rf') { const o = $('#tk-rfs'); if (o) o.textContent = e.target.files[0] ? e.target.files[0].name : ''; } });
 document.addEventListener('change', e => { if (e.target.id !== 'tk-file') return; const box = e.target.closest('.w-fadd'), sum = box && box.querySelector('.w-fsum'); if (sum) sum.textContent = Array.from(e.target.files || []).map(f => `${f.name} (${fmtSize(f.size)})`).join('; ') || 'Chưa chọn tệp.'; });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
@@ -780,4 +964,6 @@ document.addEventListener('keydown', e => {
   if (act) { e.preventDefault(); const b = $(`[data-act="${act}"]`); if (b) b.click(); }
 });
 Object.assign(SO, { openTask, newTask, newProject });
+Object.assign(W, { pj: () => PJ, setPJ: v => { PJ = v; }, pt: () => PT, go, qp, taskRow, tableHead, pill, flags, ST, KIND, ROLE, HEALTH, CLOSE_RES, tagChips, fmtSize, readB64, multiVals,
+  openTask, newTask, newProject, late, isDone, dueTxt, FILE_MAX, attachAll, pref, setPref, isHead });
 })();
