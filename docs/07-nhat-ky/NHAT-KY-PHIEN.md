@@ -82,6 +82,16 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - `work-ui`: 39/39 đạt, 2 lần chạy liên tiếp; không cuộn ngang ở 390 px.
 - **Chưa kiểm chứng:** tải tệp gần 10 MB trên Cloudflare thật (rủi ro vượt 50 ms CPU).
 
+## 06/11/2026 (10:29). Triển khai bổ sung tạo công việc (so-1.6.1) theo yêu cầu của chủ sở hữu
+- **Việc đã làm:** hợp nhất fast-forward `tinh-nang/tao-cong-viec-day-du` vào `main` (commit `a6e9dc7`). Kiểm thử bắt buộc chạy lại đều đạt.
+- **GitHub:** Workers Builds `success`, `deploy` `success`, `kiem-tra` `success` (CI đã chạy `work-test`).
+- **Kiểm tra trên Cloudflare thật** (trình duyệt tích hợp):
+  - `/healthz` ok; `sw.js` = `so-1.6.1`; `work.js` và `app.css` là bản mới.
+  - Khi chưa đăng nhập, các đường dẫn tệp mới (`/api/task-files/:id`, `POST /api/tasks/:id/files`, `DELETE`) trả 401.
+  - Đọc bằng phiên quản trị sẵn có, không ghi: lược đồ mới đã áp dụng trên Durable Object. Dự án trả `tags`; danh sách công việc có `tags`, `file_count`, `goal_id`; chi tiết công việc có `files`, `tags`, `goal`; lọc `?tag=` trả 200.
+- **Chưa kiểm chứng trên Cloudflare thật:** tải tệp lên và đo CPU, vì phải ghi dữ liệu thật; cần chủ sở hữu thử một tệp.
+- **Phát hiện:** `/api/goals` chọn kỳ có ngày bắt đầu muộn nhất ("Quý I/2027", chưa có mục tiêu), không phải kỳ hiện hành. Do đó ô "Liên kết mục tiêu" sẽ trống dù kỳ hiện hành có mục tiêu. Đề xuất chọn kỳ chứa ngày hôm nay.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
 2. **Các việc P0 theo báo cáo rà soát:**
