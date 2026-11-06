@@ -136,6 +136,23 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Mức độ kiểm chứng:** đã kiểm thử cục bộ và mô phỏng. **Chưa chạy trên Cloudflare thật**, chưa hợp nhất vào `main`.
 - **Chưa làm:** webhook dự án, tùy chỉnh hình nền, email thông báo (hoãn).
 
+## 06/11/2026 (14:58–15:15). Triển khai so-1.8.0 (đầy đủ Base Wework) theo yêu cầu của chủ sở hữu
+- **Việc đã làm:** hợp nhất fast-forward `tinh-nang/day-du-base-wework` vào `main` (`56cc5b9..6ef65f4`).
+- **Kiểm thử chạy lại trước khi đẩy:**
+  - `node --check` toàn bộ;
+  - `worker-smoke`: `download 200 true`, `work-template 200 3`, `work-post 200`, `re-instantiate 200`;
+  - `/healthz` ok, `/api/login` 200;
+  - `work-test` 124/0, `work-ext-test` 91/0, `work-plan-test` 21/0;
+  - `work-ui` tất cả đạt, `work-ui-full` 44/0.
+- **GitHub:** Workers Builds `success`, `deploy` `success`, `kiem-tra` `success`.
+- **Kiểm tra trên Cloudflare thật** (trình duyệt tích hợp, phiên quản trị sẵn có, chỉ đọc):
+  - Máy chủ trả `sw.js` = `so-1.8.0`; `index.html` nạp `work-formula.js`, `xlsx-lite.js`, `work-report.js`.
+  - Khi chưa đăng nhập, `templates`, `config`, `system-report`, `fields`, `posts`, `members` đều trả 401.
+  - Các API mới trả 200 trong 76–97 ms (đo phía trình duyệt): `config`, `templates` (4 mẫu dựng sẵn), `members`, `members/:id/report`, `system-report`, `fields`, `posts`, `files`, `activity`, `sidebar`, `export?fields=all`. Điều này cho thấy các bảng mới đã được tạo trên Durable Object thật.
+  - Đã mở các màn hình Thành viên, Báo cáo hệ thống (có biểu đồ), Quản trị → Quản lý mẫu, Thảo luận, Tài liệu, Hoạt động, Phân quyền sử dụng (đủ 33 ô), Trường dữ liệu tùy chỉnh, Danh sách có thanh thông tin. Không có lỗi JavaScript.
+  - Trình duyệt kiểm tra phải kích hoạt service worker mới bằng SKIP_WAITING. Người dùng thật sẽ thấy thanh "Cập nhật" và bấm để dùng bản mới.
+- **Chưa kiểm chứng trên Cloudflare thật:** mọi thao tác ghi (tạo trường, thảo luận, tải tài liệu, nhập Excel, nhân bản, mẫu, tác vụ hàng loạt), vì không ghi vào dữ liệu thật; CPU của nhập 2.000 dòng và xuất 3.000 công việc.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
 2. **Các việc P0 theo báo cáo rà soát:**

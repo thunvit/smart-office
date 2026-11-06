@@ -1,7 +1,7 @@
 # ADR-007. Phân hệ Công việc – Dự án đầy đủ theo tài liệu Base Wework
 
 - Ngày: 06/11/2026
-- Trạng thái: Đang áp dụng trên nhánh `tinh-nang/day-du-base-wework`; chưa hợp nhất vào `main`
+- Trạng thái: Đang áp dụng; triển khai trên `main` ngày 06/11/2026 (commit `6ef65f4`, so-1.8.0)
 - Căn cứ:
   - yêu cầu của chủ sở hữu lúc 12:44 ngày 06/11/2026: xây dựng đầy đủ tính năng căn cứ hình ảnh và mô tả trong tài liệu;
   - bảng đối chiếu `docs/05-ra-soat/2026-11-06-DOI-CHIEU-BASE-WEWORK.md` (68 bài Base Wework);
