@@ -204,6 +204,20 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Chẩn đoán: thay vì bật `SO_DEBUG` toàn hệ thống, tôi triển khai `1ef3e6d`, cho các API sao lưu (chỉ quản trị) trả nội dung lỗi dạng 400. Nội dung lỗi: "too many terms in compound SELECT". Durable Object giới hạn số vế của câu `UNION ALL`; bản đầu ghép 70 bảng trong một câu.
   - Cách sửa: mỗi bảng một truy vấn đếm. `test/fake-do.js` bổ sung giới hạn 5 vế; kiểm thử Cloudflare mô phỏng báo lỗi trên mã cũ và đạt trên mã mới.
   - Bổ sung `GET /api/admin/restore/check`: kiểm tra Durable Object có cho hoãn kiểm tra khóa ngoại trong giao dịch hay không. Kiểm tra này không ghi dữ liệu (giao dịch luôn hoàn tác).
+- **Triển khai:** `316828f` (P0-9), `1ef3e6d` (chẩn đoán), `f29f620` (sửa lỗi). Mỗi lần Workers Builds, `deploy`, `kiem-tra` đều `success`.
+- **Sự cố quy trình (lỗi của tôi):**
+  - Commit `f29f620` được đẩy cùng chuỗi lệnh với `backup-ui` khi kiểm thử này đang báo 1 đạt, 4 không đạt, trái CLAUDE.md 6.1.
+  - Nguyên nhân kiểm thử lỗi: một máy chủ Node cũ (`node ./server.js`) còn chiếm cổng 3999, vì lệnh `pkill -f "node server.js"` không khớp tên tiến trình.
+  - Hệ quả: lần so sánh `work-ui` "mã mới 2/3 lỗi, bản `6ef65f4` 3/3 đạt" cũng không đáng tin. Nguyên nhân "gõ nhầm vào ô tiêu đề" xác định qua ảnh chụp thì vẫn đúng.
+  - Chạy lại trong môi trường sạch (`pkill -f server.js`): `backup-ui` 18/0, `work-ui` 3/3 đạt, `work-ui-full` 44/0. Mã đã đẩy đạt toàn bộ.
+  - Từ nay tách bước kiểm tra kết quả khỏi bước đẩy mã.
+- **Kiểm tra trên Cloudflare thật** (phiên quản trị sẵn có; chỉ đọc, chỉ ghi thêm dòng nhật ký an ninh `backup_export`):
+  - Danh mục 200 (173 ms): 69 bảng, 0 tệp.
+  - Xuất đủ 32/32 dòng qua 13 trang; trang chậm nhất 167 ms; tổng 2,3 giây.
+  - `restore/check`: `defer_foreign_keys` = có, tức Durable Object thật cho hoãn kiểm tra khóa ngoại trong giao dịch.
+  - PITR: lấy được mã thời điểm hiện tại và mã của 1 giờ trước (`0000001d-…`, `00000014-…`).
+  - Màn hình Sao lưu hiện đủ 3 mục và cảnh báo xóa Worker.
+- **Chưa kiểm chứng trên Cloudflare thật:** thực hiện khôi phục từ tệp và khôi phục theo thời điểm (đều thay toàn bộ dữ liệu, không làm trên hệ thống đang dùng).
 - **Chưa làm:** xuất định kỳ ra R2 (cần chủ sở hữu tạo bucket); diễn tập PITR và khôi phục từ tệp trên Cloudflare thật.
 
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
