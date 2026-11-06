@@ -46,13 +46,18 @@ Trên Windows: chạy `Khoi-dong-SmartOffice.bat`. Tài khoản quản trị m�
 
 ## Triển khai
 
-Xem [TRIEN-KHAI-CLOUDFLARE.md](TRIEN-KHAI-CLOUDFLARE.md). Có hai phương án:
+Xem [docs/03-trien-khai/TRIEN-KHAI-CLOUDFLARE.md](docs/03-trien-khai/TRIEN-KHAI-CLOUDFLARE.md). Có hai phương án:
 - **Cloudflare Workers + Durable Objects (khuyến nghị):** Cloudflare Workers Builds tự triển khai mỗi khi có mã mới trên nhánh `main`; cấu hình nằm trong `wrangler.jsonc`.
 - **Cloudflare Tunnel:** chạy trên máy chủ của đơn vị.
 
 Kiểm thử lõi Cloudflare bằng Node.js: `node test/worker-smoke.js`.
 
-Hướng dẫn nghiệp vụ cho người dùng nằm tại [HUONG-DAN-SU-DUNG.md](HUONG-DAN-SU-DUNG.md).
+Hướng dẫn nghiệp vụ cho người dùng nằm tại [docs/04-huong-dan/HUONG-DAN-SU-DUNG.md](docs/04-huong-dan/HUONG-DAN-SU-DUNG.md).
+
+## Tài liệu dự án và quy tắc cho trợ lý AI
+
+- Mục lục tài liệu (kế hoạch, thiết kế, triển khai, rà soát, quyết định kiến trúc, nhật ký, căn cứ pháp lý): [docs/README.md](docs/README.md).
+- Quy tắc bắt buộc cho trợ lý AI trước khi làm việc: [CLAUDE.md](CLAUDE.md).
 
 ## Cấu trúc mã nguồn
 
@@ -67,6 +72,7 @@ worker/          Cloudflare Workers: điểm vào, Durable Object, lớp tương
 wrangler.jsonc   Cấu hình triển khai Cloudflare Workers
 deploy/          Kịch bản triển khai Cloudflare Tunnel (Windows, Linux)
 test/            Kiểm thử lõi Cloudflare (mô phỏng Durable Object)
+docs/            Tài liệu dự án (xem docs/README.md)
 ```
 
 ## Lưu ý bảo mật

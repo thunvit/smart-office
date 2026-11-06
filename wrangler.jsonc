@@ -32,7 +32,7 @@
   // Bí mật ADMIN_PASSWORD (mật khẩu ban đầu của tài khoản admin) khai báo trên trang Cloudflare:
   // Workers & Pages > smart-office > Settings > Variables and Secrets. Không ghi mật khẩu vào tệp này.
 
-  // Bật sau khi tên miền vnptninhbinh.com.vn đã nằm trên tài khoản Cloudflare (xem TRIEN-KHAI-CLOUDFLARE.md):
+  // Bật sau khi tên miền vnptninhbinh.com.vn đã nằm trên tài khoản Cloudflare (xem docs/03-trien-khai/TRIEN-KHAI-CLOUDFLARE.md):
   // "routes": [{ "pattern": "smartoffice.vnptninhbinh.com.vn", "custom_domain": true }],
 
   "workers_dev": true,
