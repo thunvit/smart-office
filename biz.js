@@ -2,29 +2,11 @@
 /**
  * Phân hệ nhóm Thông tin (Bảng tin, Lịch họp, Tài liệu) và nhóm Kinh doanh (Khách hàng, Thu chi, Tài sản).
  */
-const path = require('path');
-const crypto = require('crypto');
 const D = require('./db');
 const { db, all, get, run, tx, today, now, addDays } = D;
 
-/* Kho tệp đính kèm: Node.js lưu trên đĩa (data/files); Cloudflare lưu trong SQLite của Durable Object,
- * chia khối 1 MB (giới hạn kích thước một dòng của Durable Object là 2 MB). */
-db.exec('CREATE TABLE IF NOT EXISTS file_chunks (stored_name TEXT NOT NULL, seq INTEGER NOT NULL, data BLOB NOT NULL, PRIMARY KEY(stored_name, seq))');
-const CHUNK = 1024 * 1024;
-const FILES = D.IS_WORKER ? {
-  put(name, buf) { tx(() => { for (let i = 0, k = 0; i < buf.length; i += CHUNK, k++) run('INSERT INTO file_chunks(stored_name,seq,data) VALUES(?,?,?)', name, k, buf.subarray(i, i + CHUNK)); }); },
-  read(name) { const rows = all('SELECT data FROM file_chunks WHERE stored_name=? ORDER BY seq', name); return rows.length ? Buffer.concat(rows.map(r => Buffer.from(r.data))) : null; },
-  del(name) { run('DELETE FROM file_chunks WHERE stored_name=?', name); }
-} : (() => {
-  const fs = require('fs');
-  const FILE_DIR = path.join(path.dirname(D.DB_FILE), 'files');
-  fs.mkdirSync(FILE_DIR, { recursive: true });
-  return {
-    put(name, buf) { fs.writeFileSync(path.join(FILE_DIR, name), buf); },
-    read(name) { const f = path.join(FILE_DIR, name); return fs.existsSync(f) ? fs.readFileSync(f) : null; },
-    del(name) { fs.unlink(path.join(FILE_DIR, name), () => {}); }
-  };
-})();
+/* Kho tệp đính kèm dùng chung: xem files.js */
+const { FILES, saveUpload, sendFile } = require('./files');
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS posts (
@@ -242,10 +224,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
     if (!docVisible(user, d)) forbid();
     const buf = d.stored_name && FILES.read(d.stored_name);
     if (!buf) notFound('Không tìm thấy tệp đính kèm.');
-    const ascii = d.file_name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').replace(/[^\w.\- ]/g, '_');
-    res.writeHead(200, { 'Content-Type': d.mime || 'application/octet-stream', 'Content-Length': buf.length, 'X-Content-Type-Options': 'nosniff',
-      'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(d.file_name)}` });
-    res.end(buf);
+    sendFile(res, buf, d.file_name, d.mime);
   }, { raw: true });
   function docInput(b) {
     const title = str(b.title, 300); if (!title) bad('Vui lòng nhập trích yếu / tên tài liệu.');
@@ -253,17 +232,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
     const dept = int(b.dept_id) || null; if (dept && !get('SELECT 1 FROM departments WHERE id=?', dept)) bad('Phòng ban không hợp lệ.');
     return { title, number: str(b.number, 80), issued: b.issued_date || null, issuer: str(b.issuer, 200), cat: DOC_CAT[b.category] ? b.category : 'khac', dept, desc: str(b.description, 2000), body: str(b.body, 100000) };
   }
-  function saveFile(b) {
-    if (!b.file_data) return null;
-    const buf = Buffer.from(String(b.file_data), 'base64');
-    if (!buf.length) bad('Tệp đính kèm rỗng.');
-    if (buf.length > 20 * 1024 * 1024) bad('Tệp đính kèm tối đa 20 MB.');
-    const name = str(b.file_name, 200) || 'tep-dinh-kem';
-    if (/\.(exe|bat|cmd|com|msi|scr|ps1|vbs|js|jar|sh)$/i.test(name)) bad('Không cho phép tải lên tệp chương trình (.exe, .bat, …).');
-    const stored = crypto.randomBytes(16).toString('hex') + path.extname(name).toLowerCase().replace(/[^.\w]/g, '');
-    FILES.put(stored, buf);
-    return { name, stored, size: buf.length, mime: str(b.file_mime, 120) || 'application/octet-stream' };
-  }
+  const saveFile = b => saveUpload(b, bad);
   route('POST', '/api/docs', ({ user, body }) => {
     if (!canUpload(user)) forbid('Chỉ lãnh đạo, Phòng HC–NS và quản trị viên được cập nhật kho tài liệu.');
     const x = docInput(body), f = saveFile(body);

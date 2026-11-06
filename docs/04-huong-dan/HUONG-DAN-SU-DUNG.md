@@ -210,11 +210,12 @@ Cần làm → Đang làm → (Chờ đánh giá, nếu dự án bật "Yêu c�
 1. Tạo dự án/phòng ban: nút "+ Dự án / phòng ban"; chọn loại, quản lý cùng, thành viên.
 2. Thiết lập (chỉ Quản lý): thẻ "Thiết lập" trong dự án; quản lý thành viên, nhóm công việc (định mức giờ, sắp xếp, tạm đóng) và quy tắc làm việc.
 3. Giao việc: nút "+ Công việc", hoặc gõ vào ô "Thêm nhanh" dưới từng nhóm rồi nhấn Enter (giao cho chính mình, hạn 3 ngày). Chọn "Giao cho nhiều người" để tạo mỗi người một việc.
+3a. Khi giao việc có thể gắn **nhãn** (cách nhau bằng dấu phẩy, tối đa 10), **liên kết mục tiêu** (phân hệ Mục tiêu – KPI), **tệp đính kèm** (mỗi tệp tối đa 10 MB, không nhận tệp chương trình) và **tài liệu từ kho Tài liệu**. Tài liệu liên kết giữ nguyên phân quyền: người không được xem tài liệu sẽ không tải được.
 4. Trong chi tiết công việc: cập nhật kết quả và % hoàn thành, thêm việc con (tối đa 3 cấp), đầu việc, người theo dõi, trao đổi; xem lịch sử hoạt động; nhân bản.
 5. Chế độ xem: Danh sách (theo nhóm, việc con thụt lề), Kanban (kéo thẻ giữa Cần làm, Đang làm, Hoàn thành), Gantt (chỉ dự án), Báo cáo (theo người thực hiện, theo nhóm, tỷ lệ đúng hạn).
 6. Xuất dữ liệu: nút "Xuất Excel (CSV)" trong dự án; chỉ gồm công việc người dùng được xem.
 
 ### 5. Chưa có trong phiên bản này (Giai đoạn 2)
 
-Công việc phụ thuộc, việc lặp lại, mốc (milestone), lịch, kéo thả Gantt, trường tùy chỉnh, mẫu dự án, nhân bản dự án, nhập Excel, bàn giao hàng loạt, ủy quyền giao việc, thông báo email.
+Trường dữ liệu tùy chỉnh, công việc phụ thuộc, việc lặp lại, mốc (milestone), lịch, kéo thả Gantt, mẫu dự án, nhân bản dự án, nhập Excel, bàn giao hàng loạt, ủy quyền giao việc, thông báo email.
 

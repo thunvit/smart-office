@@ -68,6 +68,20 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Phát hiện: trình duyệt đã cài bản 1.5.0 vẫn dùng giao diện cũ cho đến khi người dùng bấm "Cập nhật" trên thanh thông báo phiên bản mới; trong thời gian đó màn hình Công việc cũ không tương thích API mới.
 - **Chưa kiểm chứng trên Cloudflare thật:** các thao tác ghi (tạo dự án, giao việc, đánh giá) – mới kiểm thử cục bộ.
 
+## 06/11/2026 (10:11). Bổ sung thông tin khi tạo công việc theo Base Wework
+- **Mục tiêu:** đối chiếu bài "Cách tạo công việc mới" của Base Wework do chủ sở hữu gửi, bổ sung phần còn thiếu.
+- **Việc đã làm** (nhánh `tinh-nang/tao-cong-viec-day-du`):
+  - Bổ sung tệp đính kèm, liên kết tài liệu từ kho Tài liệu, nhãn và lọc theo nhãn, liên kết Mục tiêu – KPI; nhân bản giữ tệp và nhãn; CSV có cột Nhãn.
+  - Tách kho tệp thành `files.js`, dùng chung cho Tài liệu và Công việc (bổ sung ADR-005).
+  - Giao diện: thêm các trường vào hộp thoại tạo công việc và chi tiết công việc; nút "Chọn tệp…" thay ô chọn tệp mặc định của trình duyệt (vốn hiện tiếng Anh).
+  - Sửa lỗi bố cục có sẵn: ô đánh dấu trong `.field` bị kéo giãn 100% chiều rộng (`.field input` áp dụng cả checkbox), làm lệch nhãn "Giao cho nhiều người". Ảnh hưởng mọi biểu mẫu có ô đánh dấu đặt trực tiếp trong `.field`.
+  - `sw.js` lên `so-1.6.1`.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `work-test`: 90 đạt, 0 không đạt (thêm 26 điều kiện: nhãn, mục tiêu, tệp, tài liệu, quyền, nhân bản, CSV);
+  - `worker-smoke`: đạt; bản Node: `/healthz` ok, `/api/login` 200;
+  - `work-ui`: 39/39 đạt, 2 lần chạy liên tiếp; không cuộn ngang ở 390 px.
+- **Chưa kiểm chứng:** tải tệp gần 10 MB trên Cloudflare thật (rủi ro vượt 50 ms CPU).
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
 2. **Các việc P0 theo báo cáo rà soát:**

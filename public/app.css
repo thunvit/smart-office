@@ -532,3 +532,16 @@ tr.voided td{opacity:.5;text-decoration:line-through}
 .w-flags .check{white-space:nowrap}
 /* Điện thoại: bảng công việc gọn trong 1 màn hình, ẩn cột Người thực hiện (đã có trong chi tiết) */
 @media (max-width:600px){.w-tbl{min-width:0!important}.w-tbl th:nth-child(2),.w-tbl td:nth-child(2){display:none}.w-tbl td,.w-tbl th{padding-left:10px;padding-right:10px}}
+/* Công việc: nhãn, tệp đính kèm */
+.tag.w-tagc{color:var(--info);border-color:var(--info-weak);background:var(--info-weak)}
+.w-tagrow{display:flex;gap:6px;flex-wrap:wrap;padding-top:6px}
+.w-files{display:flex;flex-direction:column;gap:6px}
+.w-file{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;border:1px solid var(--line);border-radius:8px}
+.w-file a{word-break:break-word}
+.w-fadd input[type=file]{flex:1;min-width:0}
+.kcard .w-tagc{margin-right:4px}
+.w-filepick{position:relative;overflow:hidden;align-self:flex-start;cursor:pointer}
+.w-filepick input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.w-filepick:focus-within{outline:2px solid var(--accent);outline-offset:2px}
+.field>label.check{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:400;color:var(--muted);align-self:flex-start}
+.field input[type=checkbox],.field input[type=radio]{width:auto;padding:0;flex:none}

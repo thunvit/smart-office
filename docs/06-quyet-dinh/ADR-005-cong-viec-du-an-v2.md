@@ -24,3 +24,13 @@
 - Sửa lỗi lộ dữ liệu: phiên bản 1.x cho mọi người dùng xem toàn bộ công việc.
 - Bảng tổng quan và bộ đếm trên menu vẫn đọc bảng `tasks` như cũ. Các giá trị `done` và `failed` được tính là đã kết thúc.
 - Giai đoạn 2 (phụ thuộc, lặp lại, trường tùy chỉnh, mẫu) sẽ bổ sung bảng mới, không phá vỡ lược đồ này.
+
+## Bổ sung 06/11/2026
+1. **Kho tệp dùng chung:** tách `FILES` từ `biz.js` thành mô-đun `files.js` gồm `FILES`, `saveUpload`, `sendFile`. Phân hệ Tài liệu và Công việc dùng chung; trên Workers vẫn chia khối 1 MB.
+2. **Bảng `task_files`:** loại `file` (tệp tải lên) hoặc `doc` (liên kết tài liệu).
+   - Tệp vật lý có thể được nhiều công việc tham chiếu, khi nhân bản hoặc giao nhiều người. Tệp chỉ bị xóa khi không còn công việc hay tài liệu nào tham chiếu (`releaseBlobs`).
+   - Loại `doc` không sao chép tệp, để giữ phân quyền của phân hệ Tài liệu.
+3. **Cột `tasks.tags`** lưu dạng `,nhãn 1,nhãn 2,` để lọc chính xác bằng `LIKE '%,nhãn,%'`. **Cột `tasks.goal_id`** liên kết với `goals`.
+4. **Giới hạn thân yêu cầu** riêng cho `POST /api/tasks/:id/files`: 15 MB, tương ứng tệp 10 MB sau mã hóa base64.
+   - Rủi ro: giải mã base64 và JSON với tệp lớn có thể vượt chỉ tiêu CPU 50 ms (HN) trên Workers, cần đo trên Cloudflare thật.
+

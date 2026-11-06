@@ -682,7 +682,7 @@ async function handle(req, res) {
     if (!rt.public && !user) throw new HttpError(401, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
     if (rt.admin && !isAdmin(user)) forbid('Chức năng dành cho quản trị viên.');
     const params = {}; rt.keys.forEach((k, i) => params[k] = decodeURIComponent(m[i + 1]));
-    const body = ['POST', 'PUT', 'DELETE'].includes(req.method) ? await readBody(req, url.pathname.startsWith('/api/docs') ? 30e6 : 5e6) : {};
+    const body = ['POST', 'PUT', 'DELETE'].includes(req.method) ? await readBody(req, (url.pathname.startsWith('/api/docs') ? 30e6 : /^\/api\/tasks\/\d+\/files$/.test(url.pathname) ? 15e6 : 5e6)) : {};
     const result = await rt.handler({ req, res, user, params, body, query: Object.fromEntries(url.searchParams) });
     if (!rt.raw) json(200, result === undefined ? { ok: true } : result);
   } catch (e) {

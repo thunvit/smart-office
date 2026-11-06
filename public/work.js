@@ -13,7 +13,7 @@ const KIND = { project: 'Dự án', team: 'Phòng ban' };
 const ROLE = { owner: 'Quản trị hệ thống', manager: 'Quản lý', member: 'Thành viên', follower: 'Người theo dõi' };
 const CLOSE_RES = { success: 'Thành công', failed: 'Thất bại', cancelled: 'Hủy' };
 const HEALTH = { on_track: 'Đúng tiến độ', late: 'Chậm tiến độ', risk: 'Rủi ro cao' };
-const LOG = { create: 'tạo công việc', update: 'cập nhật', start: 'bắt đầu thực hiện', todo: 'chuyển về Cần làm', reopen: 'mở lại', done: 'hoàn thành', submit_review: 'gửi đánh giá hoàn thành', approve: 'duyệt hoàn thành', return: 'trả lại', failed: 'đánh dấu thất bại', result: 'cập nhật kết quả', followers: 'thêm người theo dõi', clone: 'nhân bản' };
+const LOG = { file: 'đính kèm', file_del: 'gỡ tệp', create: 'tạo công việc', update: 'cập nhật', start: 'bắt đầu thực hiện', todo: 'chuyển về Cần làm', reopen: 'mở lại', done: 'hoàn thành', submit_review: 'gửi đánh giá hoàn thành', approve: 'duyệt hoàn thành', return: 'trả lại', failed: 'đánh dấu thất bại', result: 'cập nhật kết quả', followers: 'thêm người theo dõi', clone: 'nhân bản' };
 const COLORS = ['#0e6f68', '#3a5bb0', '#a8501f', '#7a4fb0', '#2b8547', '#b03a6c', '#5b6774', '#a86a10'];
 const isDone = t => t.status === 'done' || t.status === 'failed';
 const late = t => !isDone(t) && t.due_date && (t.due_date < TODAY() || (t.due_date === TODAY() && t.due_time && t.due_time < new Date().toTimeString().slice(0, 5)));
@@ -25,13 +25,43 @@ const flags = t => (t.urgent ? '<span class="tag w-urgent">Khẩn cấp</span>' 
 const multiVals = sel => Array.from(sel.selectedOptions).map(o => Number(o.value));
 const isHead = () => B().departments.some(d => d.head_id === B().me.id);
 let clToggle = null;
+/* ---- Nhãn, mục tiêu, tệp đính kèm (bổ sung theo bài "Cách tạo công việc mới" của Base Wework) ---- */
+const FILE_MAX = 10 * 1024 * 1024;
+const tagChips = tags => (tags || []).map(x => `<span class="tag w-tagc">#${esc(x)}</span>`).join('');
+const fmtSize = n => n >= 1048576 ? (n / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round((n || 0) / 1024)) + ' KB';
+let GOALS = null, DOCS = null, DOCS_AT = 0;
+async function loadGoals() {
+  if (GOALS) return GOALS;
+  try { const r = await GET('/api/goals'); const out = []; const walk = (g, d) => { out.push({ id: g.id, title: g.title, depth: d }); (g.children || []).forEach(c => walk(c, d + 1)); }; (r.goals || []).forEach(g => walk(g, 0)); GOALS = { cycle: r.cycle, list: out }; }
+  catch (e) { GOALS = { cycle: null, list: [] }; }
+  return GOALS;
+}
+async function loadDocs() {
+  if (DOCS && Date.now() - DOCS_AT < 60000) return DOCS;
+  try { DOCS = (await GET('/api/docs')).docs || []; DOCS_AT = Date.now(); } catch (e) { DOCS = []; }
+  return DOCS;
+}
+const goalOpts = (G, sel) => `<option value="">Không liên kết</option>${G.list.map(g => `<option value="${g.id}" ${g.id === sel ? 'selected' : ''}>${'— '.repeat(g.depth)}${esc(g.title)}</option>`).join('')}`;
+const docOpts = docs => docs.map(d => `<option value="${d.id}">${esc(d.title)}${d.number ? ' (' + esc(d.number) + ')' : ''}${d.kind === 'article' ? ' – bài viết' : ''}</option>`).join('');
+const readB64 = f => new Promise((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1] || ''); r.onerror = () => no(new Error('Không đọc được tệp ' + f.name)); r.readAsDataURL(f); });
+/* Tải tệp và liên kết tài liệu cho một hoặc nhiều công việc (giao nhiều người dùng chung một tệp). Trả về danh sách lỗi. */
+async function attachAll(ids, files, docIds) {
+  const errs = [];
+  for (const f of files) {
+    if (f.size > FILE_MAX) { errs.push(`${f.name}: vượt quá 10 MB`); continue; }
+    try { await POST(`/api/tasks/${ids[0]}/files`, { also_task_ids: ids.slice(1), file_name: f.name, file_mime: f.type, file_data: await readB64(f) }); } catch (e) { errs.push(`${f.name}: ${e.message}`); }
+  }
+  for (const d of docIds) { try { await POST(`/api/tasks/${ids[0]}/files`, { also_task_ids: ids.slice(1), doc_id: d }); } catch (e) { errs.push(`Tài liệu #${d}: ${e.message}`); } }
+  return errs;
+}
+let listTag = '';
 let homeQ = '', homeScope = 'assigned', homeStatus = 'open', projStatus = 'open', projQ = '', listStatus = '', listAssignee = '', listQ = '';
 
 /* ================= Hàng công việc dùng chung ================= */
 function taskRow(t, opt = {}) {
   const prog = t.progress ? `<div class="prog w-mini ${t.status === 'done' ? 'ok' : ''}" title="${t.progress}%"><i style="width:${t.progress}%"></i></div>` : '';
   const meta = [opt.project && t.project_name ? `<span class="tag" style="border-color:${esc(t.project_color)};color:${esc(t.project_color)}">${esc(t.project_name)}</span>` : '',
-    t.sub_total ? `<span>${t.sub_done}/${t.sub_total} việc con</span>` : '', t.cl_total ? `<span>${t.cl_done}/${t.cl_total} đầu việc</span>` : '', t.cm_count ? `<span>${t.cm_count} trao đổi</span>` : ''].filter(Boolean).join(' · ');
+    t.sub_total ? `<span>${t.sub_done}/${t.sub_total} việc con</span>` : '', t.cl_total ? `<span>${t.cl_done}/${t.cl_total} đầu việc</span>` : '', t.cm_count ? `<span>${t.cm_count} trao đổi</span>` : '', t.file_count ? `<span>${t.file_count} tệp</span>` : '', (t.tags || []).length ? tagChips(t.tags) : ''].filter(Boolean).join(' · ');
   return `<tr class="click w-row ${isDone(t) ? 'w-closed' : ''}" data-task="${t.id}"><td><div class="w-title" style="padding-left:${(opt.depth || 0) * 22}px">${opt.depth ? '<span class="w-branch" aria-hidden="true">└</span>' : ''}<span class="t-title">${esc(t.title)}</span>${flags(t)}</div>${meta ? `<div class="t-sub" style="padding-left:${(opt.depth || 0) * 22}px">${meta}</div>` : ''}</td>
     <td>${who(t.assignee_id)}</td><td class="num ${late(t) ? 'late' : ''}">${dueTxt(t)}${late(t) ? `<div class="t-sub late">Quá ${dayNum(TODAY()) - dayNum(t.due_date) || 'hạn'}${dayNum(TODAY()) - dayNum(t.due_date) ? ' ngày' : ''}</div>` : ''}</td>
     <td>${pill(t.status)}${prog}</td></tr>`;
@@ -108,15 +138,18 @@ async function projectView(main, id, v) {
   <div class="toolbar"><div class="seg">${tabs.map(([k, l]) => `<button data-wv="${k}" aria-pressed="${k === v}">${l}</button>`).join('')}</div><span class="spacer"></span>
     ${['list', 'kanban', 'gantt'].includes(v) ? `<select class="sel" id="w-ls" aria-label="Lọc trạng thái"><option value="">Mọi trạng thái</option><option value="open">Chưa kết thúc</option><option value="late">Quá hạn</option>${Object.entries(ST).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select>
     <select class="sel" id="w-la" aria-label="Lọc người thực hiện"><option value="">Mọi người thực hiện</option>${PJ.members.map(m => `<option value="${m.user_id}">${esc(U(m.user_id).full_name)}</option>`).join('')}</select>
+    ${(PJ.tags || []).length ? `<select class="sel" id="w-lt" aria-label="Lọc theo nhãn"><option value="">Mọi nhãn</option>${PJ.tags.map(x => `<option value="${esc(x)}">#${esc(x)}</option>`).join('')}</select>` : ''}
     <input class="search" id="w-lq" type="search" placeholder="Tìm công việc…" value="${esc(listQ)}" aria-label="Tìm công việc">` : ''}</div>
   <div id="w-body"><div class="loading">Đang tải…</div></div>`;
   const ls = $('#w-ls'); if (ls) { ls.value = listStatus; ls.onchange = e => { listStatus = e.target.value; render(); }; }
   const la = $('#w-la'); if (la) { la.value = listAssignee; la.onchange = e => { listAssignee = e.target.value; render(); }; }
+  if (listTag && !(PJ.tags || []).includes(listTag)) listTag = '';
+  const lt = $('#w-lt'); if (lt) { lt.value = listTag; lt.onchange = e => { listTag = e.target.value; render(); }; }
   const lq = $('#w-lq'); if (lq) lq.addEventListener('input', debounce(e => { listQ = e.target.value; render(); setTimeout(() => { const i = $('#w-lq'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 50); }, 350));
   const body = $('#w-body');
   if (v === 'report') return reportTab(body);
   if (v === 'settings') return settingsTab(body);
-  PT = await GET(`/api/projects/${PJ.id}/tasks?` + new URLSearchParams({ status: listStatus, assignee: listAssignee, q: listQ, limit: 200 }));
+  PT = await GET(`/api/projects/${PJ.id}/tasks?` + new URLSearchParams({ status: listStatus, assignee: listAssignee, q: listQ, tag: listTag, limit: 200 }));
   const more = PT.total > PT.rows.length ? `<p class="hint">Hiển thị ${PT.rows.length}/${PT.total} công việc (tối đa 200 mỗi lần). <button class="btn sm" data-act="w-more">Tải thêm</button></p>` : '';
   if (v === 'kanban') body.innerHTML = kanban(PT.rows) + more, wireKanban();
   else if (v === 'gantt') body.innerHTML = ganttView(PT.rows) + more;
@@ -144,7 +177,7 @@ function kanban(rows) {
   const cols = Object.keys(ST).filter(s => s !== 'failed' || PJ.settings.allow_failed).filter(s => s !== 'review' || PJ.settings.review);
   return `<div class="board w-board" style="grid-template-columns:repeat(${cols.length},minmax(220px,1fr))">${cols.map(s => { const col = rows.filter(t => t.status === s); return `<div class="col" data-wcol="${s}"><div class="col-h">${pill(s)}<span class="muted num">${col.length}</span></div>
     ${col.map(t => `<div class="kcard" draggable="${['todo', 'doing', 'done'].includes(s) ? 'true' : 'false'}" data-task="${t.id}"><div class="t-title">${esc(t.title)}</div>${flags(t)}
-      ${t.progress ? `<div class="prog"><i style="width:${t.progress}%"></i></div>` : ''}<div class="row">${who(t.assignee_id)}<span class="num ${late(t) ? 'late' : 'muted'}">${t.due_date ? fmtD(t.due_date).slice(0, 5) : ''}</span></div></div>`).join('')}</div>`; }).join('')}</div>
+      ${(t.tags || []).length ? `<div>${tagChips(t.tags)}</div>` : ''}${t.progress ? `<div class="prog"><i style="width:${t.progress}%"></i></div>` : ''}<div class="row">${who(t.assignee_id)}<span class="num ${late(t) ? 'late' : 'muted'}">${t.due_date ? fmtD(t.due_date).slice(0, 5) : ''}</span></div></div>`).join('')}</div>`; }).join('')}</div>
     <p class="hint">Kéo thẻ giữa các cột Cần làm, Đang làm, Hoàn thành để đổi trạng thái. Đánh giá, thất bại thao tác trong chi tiết công việc.</p>`;
 }
 function wireKanban() {
@@ -272,6 +305,7 @@ async function newTask(ctx = {}) {
   let pid = ctx.project_id || (PJ && qp().get('p') ? PJ.id : projects[0].id);
   if (!projects.some(p => p.id === pid)) pid = projects[0].id;
   let P = await GET('/api/projects/' + pid);
+  const [G, DOCL] = await Promise.all([loadGoals(), loadDocs()]);
   const draw = () => openModal(`${mh(ctx.parent_id ? 'Thêm việc con' : 'Thêm công việc')}<div class="modal-b"><div class="form">
     <div class="field full"><label for="nt-t">Tên công việc <span class="t-sub" id="nt-cnt">0/155</span></label><input id="nt-t" maxlength="155" placeholder="Ví dụ: Lập báo cáo doanh thu tháng 11"></div>
     <div class="field"><label for="nt-p">Dự án / phòng ban</label><select id="nt-p" ${ctx.parent_id ? 'disabled' : ''}>${projects.map(p => `<option value="${p.id}" ${p.id === P.id ? 'selected' : ''}>${esc(p.name)} (${KIND[p.kind]})</option>`).join('')}</select></div>
@@ -284,6 +318,10 @@ async function newTask(ctx = {}) {
     <div class="field"><span class="lbl">Gắn cờ</span><div class="w-flags"><label class="check"><input type="checkbox" id="nt-u"> Khẩn cấp</label><label class="check"><input type="checkbox" id="nt-i"> Quan trọng</label></div></div>
     <div class="field"><label for="nt-f">Người theo dõi (giữ Ctrl)</label><select id="nt-f" multiple size="5">${B().users.filter(u => u.active).map(u => `<option value="${u.id}">${esc(u.full_name)}</option>`).join('')}</select></div>
     <div class="field full"><label for="nt-desc">Mô tả</label><textarea id="nt-desc" placeholder="Nội dung, căn cứ, kết quả cần đạt"></textarea></div>
+    <div class="field"><label for="nt-tags">Nhãn (cách nhau bằng dấu phẩy, tối đa 10)</label><input id="nt-tags" list="nt-taglist" maxlength="330" placeholder="Ví dụ: Hạ tầng, Báo cáo tháng"><datalist id="nt-taglist">${(P.tags || []).map(x => `<option value="${esc(x)}">`).join('')}</datalist></div>
+    <div class="field"><label for="nt-goal">Liên kết mục tiêu${G.cycle ? ' (' + esc(G.cycle.name) + ')' : ''}</label><select id="nt-goal" ${G.list.length ? '' : 'disabled'}>${goalOpts(G, null)}</select>${G.list.length ? '' : '<span class="t-sub">Chưa có mục tiêu trong kỳ hiện hành.</span>'}</div>
+    <div class="field"><span class="lbl">Tệp đính kèm (mỗi tệp tối đa 10 MB)</span><label class="btn sm w-filepick">Chọn tệp…<input type="file" id="nt-files" multiple aria-label="Chọn tệp đính kèm"></label><span class="t-sub" id="nt-fsum">Chưa chọn tệp.</span></div>
+    <div class="field"><label for="nt-docs">Tài liệu từ kho Tài liệu (giữ Ctrl để chọn nhiều)</label><select id="nt-docs" multiple size="4" ${DOCL.length ? '' : 'disabled'}>${DOCL.length ? docOpts(DOCL) : '<option disabled>Chưa có tài liệu bạn được xem</option>'}</select></div>
   </div><p class="hint">Người nhận việc ngoài dự án sẽ được thêm với vai trò Người theo dõi để xem được việc của mình.</p><p class="err" id="nt-err" hidden></p></div>
   <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="nt-save">Giao việc</button></div>`, H);
   const H = {
@@ -291,14 +329,23 @@ async function newTask(ctx = {}) {
       const multi = $('#nt-multi').checked;
       const body = { project_id: P.id, parent_id: ctx.parent_id || null, group_id: $('#nt-g').value || null, title: $('#nt-t').value, start_date: $('#nt-s').value, due_date: $('#nt-d').value || null,
         due_time: $('#nt-dt') ? ($('#nt-dt').value || null) : null, priority: $('#nt-pr').value, urgent: $('#nt-u').checked, important: $('#nt-i').checked,
-        followers: multiVals($('#nt-f')), description: $('#nt-desc').value };
+        followers: multiVals($('#nt-f')), description: $('#nt-desc').value, tags: $('#nt-tags').value, goal_id: $('#nt-goal').value || null };
+      const files = Array.from($('#nt-files').files || []), docIds = $('#nt-docs').disabled ? [] : multiVals($('#nt-docs'));
+      const big = files.find(f => f.size > FILE_MAX); if (big) return showErr('#nt-err', `Tệp “${big.name}” vượt quá 10 MB.`);
       if (multi) { body.assignee_ids = multiVals($('#nt-am')); if (!body.assignee_ids.length) return showErr('#nt-err', 'Vui lòng chọn người nhận việc.'); } else body.assignee_id = Number($('#nt-a').value);
-      try { const r = await POST('/api/tasks', body); closeModal(); refreshBoot(); toast(r.ids ? `Đã giao ${r.ids.length} công việc` : 'Đã giao việc'); if (ctx.onDone) ctx.onDone(r); else render(); }
-      catch (e) { showErr('#nt-err', e); }
+      let r;
+      try { r = await POST('/api/tasks', body); } catch (e) { return showErr('#nt-err', e); }
+      const ids = r.ids || [r.id];
+      const errs = files.length || docIds.length ? await attachAll(ids, files, docIds) : [];
+      closeModal(); refreshBoot();
+      if (errs.length) toast(`Đã giao việc; ${errs.length} tệp/tài liệu chưa đính kèm được: ${errs[0]}`, true);
+      else toast(r.ids ? `Đã giao ${r.ids.length} công việc` : 'Đã giao việc' + (files.length + docIds.length ? ` kèm ${files.length + docIds.length} tệp/tài liệu` : ''));
+      if (ctx.onDone) ctx.onDone(r); else render();
     })
   };
   const wire = () => {
     $('#nt-t').oninput = e => { $('#nt-cnt').textContent = e.target.value.length + '/155'; };
+    $('#nt-files').onchange = e => { const fs = Array.from(e.target.files || []); $('#nt-fsum').textContent = fs.length ? fs.map(f => `${f.name} (${fmtSize(f.size)})`).join('; ') : 'Chưa chọn tệp.'; };
     $('#nt-multi').onchange = e => { $('#nt-am-f').hidden = !e.target.checked; $('#nt-a').disabled = e.target.checked; };
     $('#nt-p').onchange = async e => { try { P = await GET('/api/projects/' + e.target.value); const t = $('#nt-t').value; draw(); wire(); $('#nt-t').value = t; } catch (er) { showErr('#nt-err', er); } };
   };
@@ -308,7 +355,8 @@ async function newTask(ctx = {}) {
 /* ================= Hộp thoại: chi tiết công việc ================= */
 async function openTask(id) {
   let t;
-  try { t = await GET('/api/tasks/' + id); } catch (e) { return toast(e.message, true); }
+  let G, DOCL;
+  try { [t, G, DOCL] = await Promise.all([GET('/api/tasks/' + id), loadGoals(), loadDocs()]); } catch (e) { return toast(e.message, true); }
   const reload = async nt => { t = nt || await GET('/api/tasks/' + t.id); draw(true); };
   const after = async nt => { await reload(nt); render(); refreshBoot(); };
   const draw = keep => {
@@ -333,9 +381,22 @@ async function openTask(id) {
         <div class="field"><label for="tk-h">Thời lượng dự kiến (giờ)</label><input type="number" id="tk-h" min="0" step="0.5" value="${t.est_hours || ''}" ${dis(c.editInfo)}></div>
         <div class="field full"><span class="lbl">Gắn cờ</span><div class="w-flags"><label class="check"><input type="checkbox" id="tk-u" ${t.urgent ? 'checked' : ''} ${dis(c.editInfo)}> Khẩn cấp</label><label class="check"><input type="checkbox" id="tk-i" ${t.important ? 'checked' : ''} ${dis(c.editInfo)}> Quan trọng</label></div></div>
         <div class="field full"><label for="tk-desc">Mô tả</label><textarea id="tk-desc" rows="4" ${dis(c.editInfo)}>${esc(t.description || '')}</textarea></div>
+        <div class="field"><label for="tk-tags">Nhãn (cách nhau bằng dấu phẩy)</label>${c.editInfo ? `<input id="tk-tags" maxlength="330" value="${esc(t.tags.join(', '))}">` : `<div class="w-tagrow">${tagChips(t.tags) || '<span class="hint">Chưa gắn nhãn.</span>'}</div>`}</div>
+        <div class="field"><label for="tk-goal">Liên kết mục tiêu</label>${c.editInfo ? `<select id="tk-goal">${goalOpts(t.goal && !G.list.some(g => g.id === t.goal.id) ? { list: [{ id: t.goal.id, title: t.goal.title, depth: 0 }, ...G.list] } : G, t.goal ? t.goal.id : null)}</select>` : `<div>${t.goal ? `<a href="#muc-tieu" data-act="close">${esc(t.goal.title)}</a>` : '<span class="hint">Không liên kết.</span>'}</div>`}
+          ${t.goal ? `<span class="t-sub">Tiến độ mục tiêu: ${Number(t.goal.current).toLocaleString('vi-VN')}/${Number(t.goal.target).toLocaleString('vi-VN')} ${esc(t.goal.unit || '')}</span>` : ''}</div>
       </div>
       ${c.editInfo || c.editDeadline || c.edit ? '<div class="actions"><button class="btn primary" data-act="tk-save">Lưu thay đổi</button></div>' : ''}
       <p class="err" id="tk-err" hidden></p>
+
+      <h3 class="sec-t">Tệp đính kèm, tài liệu (${t.files.length})</h3>
+      <div class="w-files">${t.files.map(f => `<div class="w-file">${f.kind === 'doc'
+          ? `<span class="tag">Tài liệu</span><a href="${f.file_size ? `/api/docs/${f.doc_id}/file` : '#tai-lieu'}" ${f.file_size ? 'download' : 'data-act="close"'}>${esc(f.doc_title || f.file_name || 'Tài liệu #' + f.doc_id)}</a>`
+          : `<span class="tag">Tệp</span><a href="/api/task-files/${f.id}" download>${esc(f.file_name)}</a><span class="t-sub num">${fmtSize(f.file_size)}</span>`}
+        <span class="t-sub">${esc(U(f.uploaded_by).full_name)} · ${fmtDT(f.created_at)}</span><span class="spacer"></span>
+        ${f.uploaded_by === B().me.id || c.edit || c.manage ? `<button class="btn ghost sm" data-act="tk-filedel" data-id="${f.id}" aria-label="Gỡ ${esc(f.file_name || 'tài liệu')}">Gỡ</button>` : ''}</div>`).join('') || '<span class="hint">Chưa có tệp đính kèm.</span>'}</div>
+      ${t.files.some(f => f.kind === 'doc') ? '<p class="hint">Tài liệu từ kho Tài liệu giữ nguyên phân quyền: chỉ người được xem tài liệu mới tải được.</p>' : ''}
+      ${(c.editInfo || c.progress) && t.project.status !== 'closed' ? `<div class="inline-add w-fadd"><label class="btn sm w-filepick">Chọn tệp…<input type="file" id="tk-file" multiple aria-label="Chọn tệp đính kèm"></label><span class="t-sub w-fsum">Chưa chọn tệp.</span><span class="spacer"></span><button class="btn sm" data-act="tk-fileup">Tải lên</button></div>
+        ${DOCL.length ? `<div class="inline-add w-fadd"><select id="tk-doc" class="sel" aria-label="Chọn tài liệu từ kho Tài liệu"><option value="">Chọn tài liệu từ kho Tài liệu…</option>${docOpts(DOCL.filter(d => !t.files.some(f => f.doc_id === d.id)))}</select><button class="btn sm" data-act="tk-doclink">Liên kết</button></div>` : ''}` : ''}
 
       <h3 class="sec-t">Kết quả, tiến độ ${S.allow_percent ? `<span class="muted num">${t.progress || 0}%</span>` : ''}</h3>
       ${S.allow_percent ? `<div class="prog ${t.status === 'done' ? 'ok' : ''}"><i style="width:${t.progress || 0}%"></i></div>` : ''}
@@ -373,7 +434,7 @@ async function openTask(id) {
   const H = {
     'tk-save': btn => busy(btn, async () => {
       const c = t.can, b = {};
-      if (c.editInfo) Object.assign(b, { title: $('#tk-t').value, group_id: $('#tk-g').value || null, priority: $('#tk-pr').value, urgent: $('#tk-u').checked, important: $('#tk-i').checked, est_hours: $('#tk-h').value || 0, description: $('#tk-desc').value });
+      if (c.editInfo) Object.assign(b, { title: $('#tk-t').value, group_id: $('#tk-g').value || null, priority: $('#tk-pr').value, urgent: $('#tk-u').checked, important: $('#tk-i').checked, est_hours: $('#tk-h').value || 0, description: $('#tk-desc').value, tags: $('#tk-tags').value, goal_id: $('#tk-goal').value || null });
       if (c.editDeadline) Object.assign(b, { start_date: $('#tk-s').value, due_date: $('#tk-d').value || null }, $('#tk-dt') ? { due_time: $('#tk-dt').value || null } : {});
       if (c.edit && Number($('#tk-a').value) !== t.assignee_id) b.assignee_id = Number($('#tk-a').value);
       try { await after(await PUT('/api/tasks/' + t.id, b)); toast('Đã lưu công việc'); } catch (e) { err(e); }
@@ -404,6 +465,13 @@ async function openTask(id) {
       });
     },
     'tk-res': btn => busy(btn, async () => { const p = $('#tk-rp'); try { await after(await POST(`/api/tasks/${t.id}/results`, { note: $('#tk-rn').value, progress: p ? p.value : undefined })); toast('Đã cập nhật kết quả'); } catch (e) { err(e); } }),
+    'tk-fileup': btn => busy(btn, async () => {
+      const fs = Array.from(($('#tk-file') || {}).files || []); if (!fs.length) return err('Vui lòng chọn tệp cần tải lên.');
+      const errs = await attachAll([t.id], fs, []); await after();
+      if (errs.length) err(errs.join('; ')); else toast(`Đã đính kèm ${fs.length} tệp`);
+    }),
+    'tk-doclink': btn => busy(btn, async () => { const v = Number($('#tk-doc').value); if (!v) return err('Vui lòng chọn tài liệu.'); try { await after(await POST(`/api/tasks/${t.id}/files`, { doc_id: v })); toast('Đã liên kết tài liệu'); } catch (e) { err(e); } }),
+    'tk-filedel': async btn => { if (!armed(btn, 'Gỡ?')) return; try { await after(await DEL('/api/task-files/' + btn.dataset.id)); toast('Đã gỡ tệp'); } catch (e) { err(e); } },
     'tk-sub': () => newTask({ project_id: t.project.id, parent_id: t.id, group_id: t.group_id, onDone: () => { reload(); render(); } }),
     'tk-open': el => openTask(Number(el.dataset.id)),
     'tk-fadd': btn => busy(btn, async () => { const v = $('#tk-fa').value; if (!v) return; try { await reload(await POST(`/api/tasks/${t.id}/followers`, { user_ids: [Number(v)] })); } catch (e) { err(e); } }),
@@ -413,7 +481,7 @@ async function openTask(id) {
     'tk-cmadd': async () => { const v = $('#tk-cm').value.trim(); if (!v) return $('#tk-cm').focus(); try { await reload(await POST(`/api/tasks/${t.id}/comments`, { body: v })); } catch (e) { err(e); } },
     'tk-clone': () => {
       openModal(`${mh('Nhân bản công việc', esc(t.title))}<div class="modal-b"><div class="field"><label for="cl-t">Tên công việc mới</label><input id="cl-t" maxlength="155" value="${esc(('Bản sao: ' + t.title).slice(0, 155))}"></div>
-        <div class="w-sets">${[['assignee', 'Người nhận việc'], ['group', 'Nhóm công việc'], ['subtasks', 'Việc con (tối đa 3 cấp)'], ['checklist', 'Danh mục đầu việc'], ['followers', 'Người theo dõi'], ['description', 'Mô tả'], ['deadline', 'Thời hạn']].map(([k, l]) => `<label class="check"><input type="checkbox" data-keep="${k}" checked> Giữ ${l.toLowerCase()}</label>`).join('')}</div>
+        <div class="w-sets">${[['assignee', 'Người nhận việc'], ['group', 'Nhóm công việc'], ['subtasks', 'Việc con (tối đa 3 cấp)'], ['checklist', 'Danh mục đầu việc'], ['followers', 'Người theo dõi'], ['description', 'Mô tả'], ['deadline', 'Thời hạn'], ['files', 'Tệp đính kèm']].map(([k, l]) => `<label class="check"><input type="checkbox" data-keep="${k}" checked> Giữ ${l.toLowerCase()}</label>`).join('')}</div>
         <p class="err" id="cl-err" hidden></p></div><div class="modal-f"><button class="btn" data-act="cl-back">Quay lại</button><button class="btn primary" data-act="cl-go">Nhân bản</button></div>`, {
         'cl-back': () => draw(),
         'cl-go': b2 => busy(b2, async () => { const keep = {}; $$('[data-keep]').forEach(x => { keep[x.dataset.keep] = x.checked; }); try { const n = await POST(`/api/tasks/${t.id}/clone`, { title: $('#cl-t').value, keep }); toast('Đã nhân bản công việc'); render(); t = n; draw(); } catch (e) { showErr('#cl-err', e); } })
@@ -430,7 +498,7 @@ async function openTask(id) {
 Object.assign(SO.ACTIONS, {
   'w-new-task': () => newTask({}),
   'w-new-project': () => newProject(),
-  'w-more': async btn => busy(btn, async () => { const more = await GET(`/api/projects/${PJ.id}/tasks?` + new URLSearchParams({ status: listStatus, assignee: listAssignee, q: listQ, limit: 200, offset: PT.rows.length })); PT.rows = PT.rows.concat(more.rows); const v = qp().get('v') || 'list'; const body = $('#w-body');
+  'w-more': async btn => busy(btn, async () => { const more = await GET(`/api/projects/${PJ.id}/tasks?` + new URLSearchParams({ status: listStatus, assignee: listAssignee, q: listQ, tag: listTag, limit: 200, offset: PT.rows.length })); PT.rows = PT.rows.concat(more.rows); const v = qp().get('v') || 'list'; const body = $('#w-body');
     const rest = PT.total > PT.rows.length ? `<p class="hint">Hiển thị ${PT.rows.length}/${PT.total} công việc. <button class="btn sm" data-act="w-more">Tải thêm</button></p>` : '';
     body.innerHTML = (v === 'kanban' ? kanban(PT.rows) : v === 'gantt' ? ganttView(PT.rows) : listView(PT.rows)) + rest; if (v === 'kanban') wireKanban(); }),
   'w-qadd': btn => quickAdd(btn.dataset.g),
@@ -484,6 +552,7 @@ async function staffList(uid) {
   box.innerHTML = `<section class="card"><div class="card-h"><h2>Việc chưa kết thúc của ${esc(U(uid).full_name)} (${d.total})</h2></div>${d.rows.length ? `<div class="tbl-wrap"><table class="tbl w-tbl">${tableHead}<tbody>${d.rows.map(t => taskRow(t, { project: true })).join('')}</tbody></table></div>` : '<div class="empty">Không có việc chưa kết thúc.</div>'}</section>`;
 }
 document.addEventListener('change', e => { if (e.target.dataset && e.target.dataset.wcl && clToggle && e.target.closest('#modal')) clToggle(e.target); });
+document.addEventListener('change', e => { if (e.target.id !== 'tk-file') return; const box = e.target.closest('.w-fadd'), sum = box && box.querySelector('.w-fsum'); if (sum) sum.textContent = Array.from(e.target.files || []).map(f => `${f.name} (${fmtSize(f.size)})`).join('; ') || 'Chưa chọn tệp.'; });
 document.addEventListener('keydown', e => {
   if (e.key !== 'Enter') return;
   const q = e.target.closest && e.target.closest('[data-wqadd]'); if (q) { e.preventDefault(); quickAdd(q.dataset.wqadd); return; }

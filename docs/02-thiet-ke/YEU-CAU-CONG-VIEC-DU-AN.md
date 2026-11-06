@@ -92,3 +92,22 @@
    | `failed` | Thất bại |
 
 5. **Kiểm thử:** kịch bản `test/work-test.js` chạy trên cả bản Node và bản mô phỏng Durable Object. Bao gồm phân quyền xem, sửa, xóa, đánh giá, thất bại, giới hạn người nhận việc, việc con, giao nhiều người.
+
+## V. Bổ sung 06/11/2026: thông tin khi tạo công việc
+
+Căn cứ: bài [Base Wework: Cách tạo công việc mới](https://help.base.vn/support/solutions/articles/63000270213), sửa đổi ngày 22/10/2024, đọc ngày 06/11/2026.
+
+| Thông tin theo Base Wework | SmartOffice | Ghi chú |
+|---|---|---|
+| Tên công việc ≤ 155 ký tự | Có | Kiểm tra tại máy chủ (`MAX_TITLE`) |
+| Một người nhận việc | Có | Giao nhiều người thì tạo mỗi người một việc |
+| Phòng ban/Dự án/Nhóm công việc | Có | |
+| Đến hạn vào (thời hạn) | Có | Theo giờ nếu dự án bật |
+| Mô tả | Có | |
+| Trường dữ liệu tùy chỉnh | Chưa | Giai đoạn 2 |
+| Tệp đính kèm | **Bổ sung** | Tối đa 10 MB/tệp, 30 tệp/công việc; chặn tệp chương trình; giao nhiều người dùng chung một tệp |
+| Chọn tệp từ Base Drive | **Bổ sung** | Liên kết tài liệu từ phân hệ Tài liệu; tải về qua `/api/docs/:id/file` nên giữ nguyên quyền xem của tài liệu |
+| Nhãn (tags) | **Bổ sung** | Tối đa 10 nhãn × 30 ký tự; bỏ trùng không phân biệt hoa thường; lọc chính xác theo nhãn; xuất CSV có cột Nhãn |
+| Người theo dõi | Có | |
+| Liên kết Mục tiêu | **Bổ sung** | Liên kết với phân hệ Mục tiêu – KPI; hiển thị tiến độ mục tiêu trong chi tiết công việc |
+

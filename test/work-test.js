@@ -158,6 +158,68 @@ const login = async u => { sessions[u] = ''; const r = await call(u, 'POST', '/a
   ok(r.s === 200 && r.b.includes('Hỗ trợ kế toán') && !r.b.includes(someTask.title), 'CSV dự án của người theo dõi chỉ gồm việc được giao/gắn', r.s);
   ok((await call('huy.dq', 'GET', '/api/projects/1/export.csv')).s === 403, 'người không thuộc dự án không xuất được CSV dự án');
 
+  // 14. Tạo công việc đầy đủ theo Base Wework: nhãn, mục tiêu, tệp đính kèm, tài liệu liên kết
+  const goals = (await call('long.hd', 'GET', '/api/goals')).b.goals;
+  ok(Array.isArray(goals) && goals.length > 0, 'có mục tiêu mẫu để liên kết', goals && goals.length);
+  const goalId = goals[0].id;
+  r = await call('long.hd', 'POST', '/api/tasks', { project_id: 1, title: 'Rà soát hạ tầng mạng', assignee_id: 9,
+    tags: [' Hạ tầng ', 'hạ tầng', 'Bảo mật', 'a,b', 't4', 't5', 't6', 't7', 't8', 't9', 't10', 't11'], goal_id: goalId });
+  ok(r.s === 200 && r.b.tags[0] === 'Hạ tầng' && r.b.tags[1] === 'Bảo mật' && r.b.tags[2] === 'a b' && r.b.tags.length === 10, 'nhãn được chuẩn hóa, bỏ trùng, tối đa 10', r.b.tags);
+  ok(r.b.goal && r.b.goal.id === goalId, 'liên kết mục tiêu khi tạo công việc', r.b.goal);
+  const ft = r.b.id;
+  ok((await call('long.hd', 'POST', '/api/tasks', { project_id: 1, title: 'x', goal_id: 999999 })).s === 400, 'mục tiêu không tồn tại bị từ chối');
+  r = await call('long.hd', 'GET', '/api/projects/1/tasks?tag=' + encodeURIComponent('Bảo mật'));
+  ok(r.s === 200 && r.b.rows.some(t => t.id === ft) && r.b.rows.every(t => t.tags.includes('Bảo mật')), 'lọc công việc theo nhãn', r.b.total);
+  r = await call('long.hd', 'GET', '/api/projects/1/tasks?tag=' + encodeURIComponent('Bảo'));
+  ok(!r.b.rows.some(t => t.id === ft), 'lọc nhãn khớp chính xác, không khớp một phần');
+  ok((await call('long.hd', 'GET', '/api/projects/1')).b.tags.includes('Bảo mật'), 'dự án trả danh sách nhãn đang dùng');
+  r = await call('long.hd', 'PUT', '/api/tasks/' + ft, { tags: 'Bảo mật, Ưu tiên quý IV', goal_id: null });
+  ok(r.s === 200 && r.b.tags.join('|') === 'Bảo mật|Ưu tiên quý IV' && r.b.goal === null, 'sửa nhãn, gỡ liên kết mục tiêu', r.b.tags);
+
+  const b64 = t => Buffer.from(t).toString('base64');
+  r = await call('long.hd', 'POST', `/api/tasks/${ft}/files`, { file_name: 'biên bản khảo sát.pdf', file_mime: 'application/pdf', file_data: b64('NOI DUNG BIEN BAN') });
+  ok(r.s === 200 && r.b.files.length === 1 && r.b.files[0].kind === 'file' && r.b.files[0].file_size === 17, 'đính kèm tệp vào công việc', r.b.files || r.b);
+  const fid = r.b.files[0].id;
+  r = await call('mai.bt', 'GET', '/api/task-files/' + fid);
+  ok(r.s === 200 && r.b === 'NOI DUNG BIEN BAN', 'người nhận việc tải được tệp', r.s);
+  ok((await call('huong.tt', 'GET', '/api/task-files/' + fid)).s === 403, 'người ngoài không tải được tệp của công việc');
+  ok((await call('huong.tt', 'POST', `/api/tasks/${ft}/files`, { file_name: 'x.txt', file_data: b64('x') })).s === 403, 'người ngoài không đính kèm được');
+  ok((await call('long.hd', 'POST', `/api/tasks/${ft}/files`, { file_name: 'cai-dat.exe', file_data: b64('MZ') })).s === 400, 'chặn tệp chương trình .exe');
+  r = await call('long.hd', 'POST', `/api/tasks/${ft}/files`, { file_name: 'lon.bin', file_data: Buffer.alloc(10 * 1024 * 1024 + 10).toString('base64') });
+  ok(r.s === 400 && /10 MB/.test(r.b.error), 'tệp quá 10 MB bị từ chối', r.s);
+  r = await call('long.hd', 'GET', '/api/projects/1/tasks?tag=' + encodeURIComponent('Bảo mật'));
+  ok(r.b.rows.find(t => t.id === ft).file_count === 1, 'danh sách hiển thị số tệp đính kèm');
+
+  // Tài liệu từ kho Tài liệu: giữ quyền xem của tài liệu
+  const deptOther = (await call('thanh.nv', 'GET', '/api/bootstrap')).b.departments.find(d => d.name.includes('Kinh doanh')).id;
+  const dPublic = (await call('thanh.nv', 'POST', '/api/docs', { title: 'Quy chế dùng chung', body: 'Nội dung quy chế' })).b.id;
+  const dPrivate = (await call('thanh.nv', 'POST', '/api/docs', { title: 'Tài liệu nội bộ phòng Kinh doanh', body: 'Mật', dept_id: deptOther })).b.id;
+  r = await call('long.hd', 'POST', `/api/tasks/${ft}/files`, { doc_id: dPublic });
+  ok(r.s === 200 && r.b.files.some(f => f.kind === 'doc' && f.doc_id === dPublic && f.doc_title === 'Quy chế dùng chung'), 'liên kết tài liệu từ kho Tài liệu', r.b.files || r.b);
+  ok((await call('long.hd', 'POST', `/api/tasks/${ft}/files`, { doc_id: dPrivate })).s === 403, 'không liên kết được tài liệu mình không có quyền xem');
+
+  // Giao nhiều người: một tệp gắn vào nhiều công việc; người ngoài không chèn được vào việc không thuộc quyền
+  r = await call('long.hd', 'POST', '/api/tasks', { project_id: 1, title: 'Báo cáo tuần', assignee_ids: [8, 9] });
+  const [m1, m2] = r.b.ids;
+  r = await call('long.hd', 'POST', `/api/tasks/${m1}/files`, { also_task_ids: [m2], file_name: 'mau-bao-cao.docx', file_data: b64('MAU') });
+  ok(r.s === 200 && (await call('long.hd', 'GET', '/api/tasks/' + m2)).b.files.length === 1, 'một tệp gắn cho mọi công việc khi giao nhiều người');
+  ok((await call('mai.bt', 'POST', `/api/tasks/${m2}/files`, { also_task_ids: [someTask.id], file_name: 'x.txt', file_data: b64('x') })).s === 403, 'không gắn tệp sang công việc không có quyền');
+
+  // Nhân bản giữ tệp; xóa bản gốc không làm mất tệp của bản sao
+  r = await call('long.hd', 'POST', `/api/tasks/${ft}/clone`, { keep: {} });
+  ok(r.s === 200 && r.b.files.length === 2 && r.b.tags.includes('Bảo mật'), 'nhân bản giữ tệp và nhãn', r.b.files && r.b.files.length);
+  const cloneFile = r.b.files.find(f => f.kind === 'file').id, cloneId = r.b.id;
+  ok((await call('long.hd', 'DELETE', '/api/tasks/' + ft)).s === 200, 'xóa công việc gốc');
+  r = await call('long.hd', 'GET', '/api/task-files/' + cloneFile);
+  ok(r.s === 200 && r.b === 'NOI DUNG BIEN BAN', 'tệp dùng chung vẫn còn ở bản sao sau khi xóa bản gốc', r.s);
+  ok((await call('huong.tt', 'DELETE', '/api/task-files/' + cloneFile)).s === 403, 'người ngoài không gỡ được tệp');
+  r = await call('long.hd', 'DELETE', '/api/task-files/' + cloneFile);
+  ok(r.s === 200 && r.b.files.length === 1, 'quản lý gỡ tệp khỏi công việc', r.b.files && r.b.files.length);
+  ok((await call('long.hd', 'GET', '/api/task-files/' + cloneFile)).s === 404, 'tệp đã gỡ không còn tải được');
+  r = await call('long.hd', 'GET', '/api/projects/1/export.csv');
+  ok(r.s === 200 && r.b.includes('Nhãn') && r.b.includes('Bảo mật; Ưu tiên quý IV'), 'CSV có cột Nhãn');
+  void cloneId;
+
   console.log(`work-test: ${pass} đạt, ${fail} không đạt`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('FAIL', e); process.exit(1); });
