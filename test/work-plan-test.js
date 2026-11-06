@@ -28,5 +28,14 @@ eq(P.dueFromHours('2024-01-01', 39.5), { due_date: '2024-01-02', due_time: '15:3
 eq(!!P.normalizeRule({ freq: 'week', interval: 1, weekdays: [] }).error, true, 'thiếu thứ trong tuần bị từ chối');
 eq(!!P.normalizeRule({ freq: 'hour' }).error, true, 'chu kỳ không hợp lệ bị từ chối');
 eq(!!P.normalizeRule({ freq: 'year', months: [], monthdays: [1] }).error, true, 'thiếu tháng trong năm bị từ chối');
+// Bộ tính công thức trường tùy chỉnh (public/work-formula.js): không dùng eval, thứ tự phép tính như Excel
+const FM = require('../public/work-formula.js');
+eq(FM.evaluate('ROUND($a/3,2)+IF($a>2,10,0)', { a: 4 }), { ok: true, value: 11.33 }, 'công thức ROUND, IF, so sánh');
+eq(FM.evaluate('2^3^2', {}).value, 64, 'lũy thừa tính từ trái sang phải như Excel');
+eq(FM.evaluate('-$a+AVERAGE(2;4)*2', { a: 1 }).value, 5, 'dấu âm, dấu ; phân cách đối số, ưu tiên nhân');
+eq(FM.evaluate('SUM($x,1)', {}).value, 1, 'biến chưa có giá trị tính là 0');
+eq(FM.check('SUM($a,$x)', ['a']).ok, false, 'biến không tồn tại bị từ chối');
+eq(FM.check('constructor.constructor("x")()', []).ok, false, 'mã lạ bị từ chối');
+eq(FM.evaluate('1/0', {}).ok, false, 'chia cho 0 báo không xác định');
 console.log(`work-plan-test: ${pass} đạt, ${fail} không đạt`);
 process.exit(fail ? 1 : 0);

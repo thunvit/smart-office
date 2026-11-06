@@ -62,6 +62,21 @@ CREATE INDEX IF NOT EXISTS ix_tasks_goal ON tasks(goal_id);
 `);
 /* Lập kế hoạch: phụ thuộc, mốc dự án, công việc lặp lại (Base Wework bài 63000283721, 63000283724, 63000267947, 63000268543) */
 addCol('tasks', 'milestone_id', 'INTEGER');
+/* Bổ sung đầy đủ theo đối chiếu Base Wework (docs/05-ra-soat/2026-11-06-DOI-CHIEU-BASE-WEWORK.md) */
+addCol('projects', 'dept_id', 'INTEGER');               // Department (cấp cha)
+addCol('projects', 'classification', "TEXT DEFAULT 'internal'"); // internal | customer
+addCol('projects', 'bg', "TEXT DEFAULT ''");            // hình nền (mã màu nhẹ)
+addCol('task_groups', 'reviewers', "TEXT DEFAULT '[]'"); // người đánh giá theo nhóm
+addCol('task_checklist', 'section', "TEXT DEFAULT ''");   // tên checklist (Base: checklist chứa các todo)
+addCol('task_checklist', 'assignee_id', 'INTEGER');       // người thực hiện todo
+addCol('task_files', 'result_id', 'INTEGER');             // tệp đính kèm kết quả công việc
+addCol('task_files', 'field_id', 'INTEGER');              // tệp của trường tùy chỉnh dạng tập tin
+db.exec(`
+CREATE TABLE IF NOT EXISTS project_favorites (user_id INTEGER NOT NULL, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, created_at TEXT, PRIMARY KEY(user_id, project_id));
+CREATE INDEX IF NOT EXISTS ix_projects_dept ON projects(dept_id);
+CREATE TABLE IF NOT EXISTS work_delegations (owner_id INTEGER NOT NULL, delegate_id INTEGER NOT NULL, created_at TEXT, PRIMARY KEY(owner_id, delegate_id));
+CREATE INDEX IF NOT EXISTS ix_deleg_delegate ON work_delegations(delegate_id);
+`);
 addCol('tasks', 'recurrence_id', 'INTEGER');
 db.exec(`
 CREATE TABLE IF NOT EXISTS task_deps (
@@ -109,8 +124,33 @@ function normTags(v) {
   return out.length ? ',' + out.join(',') + ',' : '';
 }
 const tagList = s => String(s || '').split(',').filter(Boolean);
-const ROLES = ['manager', 'member', 'follower'];
+const ROLES = ['manager', 'member', 'guest', 'follower'];
+/* Bảng phân quyền sử dụng theo Base Wework (bài 63000277998 và hình minh họa):
+ * 1. Theo loại tài khoản (Quản lý luôn có; tùy chọn cho Thành viên, Khách).
+ * 2. Chỉnh sửa – cập nhật công việc (Người giao & người thực hiện luôn có; tùy chọn cho Người theo dõi, Khác).
+ * 3. Giới hạn đặc biệt đối với người được giao việc. */
+const PERM_ACCOUNT = { create_task: 'Thêm công việc mới', create_group: 'Tạo nhóm công việc mới', view_others: 'Xem công việc của người khác', view_unassigned: 'Xem và chỉ định các công việc chưa được giao', view_report: 'Xem báo cáo của dự án', discuss: 'Thêm thảo luận mới', upload_doc: 'Tải lên tài liệu mới' };
+const PERM_EDIT = { rename: 'Chỉnh sửa tên công việc', status: 'Đánh dấu - bỏ đánh dấu hoàn thành công việc', description: 'Chỉnh sửa miêu tả công việc', dates: 'Chỉnh sửa thời gian bắt đầu và thời hạn', result: 'Cập nhật kết quả công việc', checklist: 'Tạo và cập nhật checklist', delete: 'Quyền xóa công việc', transfer: 'Chuyển công việc cho người khác' };
+const PERM_RESTRICT = { no_edit: 'Không cho phép người được giao việc chỉnh sửa công việc', no_deadline: 'Không cho phép người được giao việc chỉnh sửa deadline', no_delete: 'Không cho phép người được giao việc xóa công việc hoặc chuyển giao cho người khác' };
+/* Chuẩn hóa ma trận quyền; tương thích thiết lập cũ (member_create, member_view_all, assignee_edit_*) */
+function permOf(S) {
+  const P = S.perm && typeof S.perm === 'object' ? S.perm : {};
+  const acc = {}, ed = {}, rs = {};
+  for (const k of Object.keys(PERM_ACCOUNT)) {
+    const v = (P.account || {})[k] || {};
+    const legacy = k === 'create_task' ? S.member_create !== false : k === 'view_others' ? S.member_view_all !== false : k === 'view_unassigned' ? S.member_view_all !== false : true;
+    acc[k] = { member: v.member === undefined ? legacy : !!v.member, guest: !!v.guest };
+  }
+  for (const k of Object.keys(PERM_EDIT)) { const v = (P.edit || {})[k] || {}; ed[k] = { follower: v.follower === undefined ? ['result', 'checklist'].includes(k) : !!v.follower, other: !!v.other }; }
+  const R0 = P.restrict || {};
+  rs.no_edit = R0.no_edit === undefined ? S.assignee_edit_info === false : !!R0.no_edit;
+  rs.no_deadline = R0.no_deadline === undefined ? S.assignee_edit_deadline === false : !!R0.no_deadline;
+  rs.no_delete = R0.no_delete === undefined ? true : !!R0.no_delete; // mặc định: người được giao không xóa, không chuyển giao (giữ hành vi bản 1.6, khớp hình minh họa bài 63000277998)
+  return { account: acc, edit: ed, restrict: rs };
+}
+const accountCan = (role, S, key) => role === 'owner' || role === 'manager' || ((role === 'member' || role === 'guest') && permOf(S).account[key][role]);
 const KINDS = ['project', 'team'];
+const HEALTHS = ['on_track', 'late', 'risk'];
 const DEFAULT_SETTINGS = {
   allow_percent: true,          // Cho phép cập nhật % hoàn thành
   review: false,                // Yêu cầu đánh giá trước khi hoàn thành
@@ -135,6 +175,8 @@ const parseJSON = (s, d) => { try { const v = JSON.parse(s || ''); return v && t
 const settingsOf = p => Object.assign({}, DEFAULT_SETTINGS, parseJSON(p.settings, {}));
 
 function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc, str, int, isDate }) {
+  const HOOKS = { task: [], project: [], create: [], clone: [], purge: [], projectPurge: [] };
+  let applyTemplate = () => {};
   /* ---------- Phân quyền ---------- */
   const isOwner = u => isAdmin(u) || isDirector(u);
   const projectOf = id => get('SELECT * FROM projects WHERE id=?', id) || notFound('Dự án/phòng ban không tồn tại hoặc đã bị xóa.');
@@ -142,25 +184,26 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   const canManage = r => r === 'owner' || r === 'manager';
   const isFollower = (tid, uid) => !!get('SELECT 1 FROM task_followers WHERE task_id=? AND user_id=?', tid, uid);
   function taskAccess(u, t, p = projectOf(t.project_id), role = roleIn(u, t.project_id)) {
-    const S = settingsOf(p);
-    const mine = t.assignee_id === u.id, creator = t.creator_id === u.id, follower = isFollower(t.id, u.id);
-    const manage = canManage(role);
-    const view = manage || mine || creator || follower || (role === 'member' && S.member_view_all);
+    const S = settingsOf(p), PM = permOf(S);
+    const mine = !!t.assignee_id && t.assignee_id === u.id, creator = t.creator_id === u.id, follower = isFollower(t.id, u.id);
+    const manage = canManage(role), party = mine || creator;
+    const other = !manage && !party && !follower && (role === 'member' || role === 'guest');
+    const unassigned = !t.assignee_id;
+    const view = manage || party || follower || (other && (PM.account.view_others[role] || (unassigned && PM.account.view_unassigned[role])));
     const open = p.status !== 'closed';
-    const fullEdit = open && (manage || creator);
-    const reviewer = S.review && (manage || (S.reviewer_mode === 'list' ? (S.reviewers || []).includes(u.id) : creator));
-    return {
-      view, manage, mine, creator, follower, role, S, open,
-      edit: fullEdit,
-      editInfo: open && (fullEdit || (mine && S.assignee_edit_info)),
-      editDeadline: open && (fullEdit || (mine && S.assignee_edit_deadline)),
-      progress: open && (fullEdit || mine),
-      del: open && (manage || (creator && S.creator_delete)),
+    /* Người được giao (không đồng thời là người giao) bị giới hạn theo mục 3 */
+    const restricted = k => mine && !creator && ((k === 'rename' || k === 'description') ? PM.restrict.no_edit : k === 'dates' ? PM.restrict.no_deadline : (k === 'delete' || k === 'transfer') ? PM.restrict.no_delete : false);
+    const can = k => open && view && (manage || (party && !restricted(k) && !(k === 'delete' && creator && !mine && S.creator_delete === false)) || (follower && !party && PM.edit[k].follower) || (other && PM.edit[k].other));
+    const reviewer = S.review && (manage || (S.reviewer_mode === 'list' ? (S.reviewers || []).includes(u.id) : creator) || groupReviewer(t.group_id, u.id));
+    const r = { view, manage, mine, creator, follower, role, S, open, perm: PM,
+      edit: can('transfer'), editInfo: can('rename'), editDesc: can('description'), editDeadline: can('dates'),
+      status: can('status'), result: can('result'), checklist: can('checklist'), del: can('delete'),
       fail: open && S.allow_failed && (manage || (creator && S.fail_roles.includes('creator')) || (mine && S.fail_roles.includes('assignee')) || (follower && S.fail_roles.includes('follower'))),
-      review: open && reviewer,
-      comment: view
-    };
+      review: open && !!reviewer, comment: view, claim: open && unassigned && (manage || (view && PM.account.view_unassigned[role])) };
+    r.progress = r.status;
+    return r;
   }
+  const groupReviewer = (gid, uid) => { if (!gid) return false; const g = get('SELECT reviewers FROM task_groups WHERE id=?', gid); return !!g && parseJSON(g.reviewers, []).includes(uid); };
   const taskOf = id => get('SELECT * FROM tasks WHERE id=?', id) || notFound('Công việc không tồn tại hoặc đã bị xóa.');
   const need = (cond, msg) => { if (!cond) forbid(msg || 'Bạn không có quyền thực hiện thao tác này.'); };
   const tlog = (tid, uid, action, detail = '') => run('INSERT INTO task_logs(task_id,user_id,action,detail,created_at) VALUES(?,?,?,?,?)', tid, uid, action, str(detail, 500), now());
@@ -194,39 +237,75 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   function projectFull(u, p) {
     const role = roleIn(u, p.id);
     need(role, 'Bạn không phải thành viên của dự án/phòng ban này.');
+    const out = projectBase(u, p, role);
+    for (const f of HOOKS.project) f(u, out, role);
+    return out;
+  }
+  function projectBase(u, p, role) {
     return {
       ...p, settings: settingsOf(p), my_role: role, can_manage: canManage(role),
-      can_create: p.status !== 'closed' && (canManage(role) || (role === 'member' && settingsOf(p).member_create)),
+      can_create: p.status !== 'closed' && accountCan(role, settingsOf(p), 'create_task'),
       members: all('SELECT m.user_id, m.role FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? ORDER BY CASE m.role WHEN \'manager\' THEN 0 WHEN \'member\' THEN 1 ELSE 2 END, u.full_name', p.id),
       groups: all('SELECT * FROM task_groups WHERE project_id=? ORDER BY sort, id', p.id),
       stats: projectStats(p.id),
       milestones: milestonesOf(p.id),
+      perm: permOf(settingsOf(p)), perm_labels: { account: PERM_ACCOUNT, edit: PERM_EDIT, restrict: PERM_RESTRICT },
+      can_group: accountCan(role, settingsOf(p), 'create_group'), can_report: accountCan(role, settingsOf(p), 'view_report'),
+      can_discuss: accountCan(role, settingsOf(p), 'discuss'), can_upload: accountCan(role, settingsOf(p), 'upload_doc'),
+      can_delete: canManage(role) && (isOwner(u) || settingsOf(p).managers_can_delete !== false), is_owner: isOwner(u),
+      fav: !!get('SELECT 1 FROM project_favorites WHERE user_id=? AND project_id=?', u.id, p.id),
+      dept_name: p.dept_id ? (get('SELECT name FROM departments WHERE id=?', p.dept_id) || {}).name : null,
       tags: [...new Set(all("SELECT tags FROM tasks WHERE project_id=? AND tags<>'' LIMIT 2000", p.id).flatMap(r => tagList(r.tags)))].sort((x, y) => x.localeCompare(y, 'vi')).slice(0, 200)
     };
   }
   route('GET', '/api/projects', ({ user, query }) => {
     recTick();
     const w = [], a = [];
-    if (!isOwner(user)) { w.push('EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?)'); a.push(user.id); }
+    /* scope: (mặc định) dự án tôi tham gia; all: toàn bộ (chỉ Owner, Base bài 63000252597); dept: dự án thuộc Department tôi quản lý; fav: ưu tiên */
+    const scope = query.scope === 'all' && isOwner(user) ? 'all' : query.scope === 'dept' ? 'dept' : query.scope === 'fav' ? 'fav' : 'mine';
+    if (scope === 'mine') { w.push('EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?)'); a.push(user.id); }
+    if (scope === 'dept') { w.push('p.dept_id IN (SELECT id FROM departments WHERE head_id=?)'); a.push(user.id); }
+    if (scope === 'fav') { w.push('EXISTS (SELECT 1 FROM project_favorites f WHERE f.project_id=p.id AND f.user_id=?)'); a.push(user.id); }
+    if (HEALTHS.includes(query.health)) { w.push("p.health=? AND p.status<>'closed'"); a.push(query.health); }
+    if (query.dept) { w.push('p.dept_id=?'); a.push(int(query.dept)); }
     if (query.status === 'closed') w.push("p.status='closed'"); else if (query.status !== 'all') w.push("p.status<>'closed'");
     if (KINDS.includes(query.kind)) { w.push('p.kind=?'); a.push(query.kind); }
     if (query.q) { w.push('p.name LIKE ?'); a.push('%' + str(query.q, 80) + '%'); }
     const [T, T2, N] = lateArgs();
-    const rows = all(`SELECT p.id, p.name, p.color, p.kind, p.status, p.health, p.start_date, p.end_date, p.close_result, p.owner_id,
+    const rows = all(`SELECT p.id, p.name, p.color, p.kind, p.status, p.health, p.start_date, p.end_date, p.close_result, p.owner_id, p.dept_id, p.classification,
         (SELECT role FROM project_members m WHERE m.project_id=p.id AND m.user_id=?) my_role,
+        EXISTS (SELECT 1 FROM project_favorites f WHERE f.project_id=p.id AND f.user_id=?) fav,
         (SELECT COUNT(*) FROM project_members m WHERE m.project_id=p.id AND m.role<>'follower') member_count,
         (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id) total,
         (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id AND t.status='done') done,
         (SELECT COUNT(*) FROM tasks t WHERE t.project_id=p.id AND ${lateExpr}) late
-      FROM projects p ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.status='closed', p.kind, p.name LIMIT 500`, user.id, T, T2, N, ...a);
-    return rows.map(r => ({ ...r, my_role: isOwner(user) && !r.my_role ? 'owner' : r.my_role }));
+      FROM projects p ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY p.status='closed', fav DESC, p.kind, p.name LIMIT 500`, user.id, user.id, T, T2, N, ...a);
+    return rows.map(r => ({ ...r, fav: !!r.fav, joined: !!r.my_role, my_role: isOwner(user) && !r.my_role ? 'owner' : r.my_role }));
+  });
+  route('POST', '/api/projects/:id/favorite', ({ user, params, body }) => {
+    const p = projectOf(int(params.id)); need(roleIn(user, p.id), 'Bạn không phải thành viên của dự án/phòng ban này.');
+    if (body.on === false) run('DELETE FROM project_favorites WHERE user_id=? AND project_id=?', user.id, p.id);
+    else { if (get('SELECT COUNT(*) n FROM project_favorites WHERE user_id=?', user.id).n >= 300) bad('Tối đa 300 dự án/phòng ban ưu tiên.'); run('INSERT OR IGNORE INTO project_favorites(user_id,project_id,created_at) VALUES(?,?,?)', user.id, p.id, now()); }
+    return { fav: body.on !== false };
+  });
+  /* Owner tự thêm mình làm quản lý (Base bài 63000252596) */
+  route('POST', '/api/projects/:id/join-manager', ({ user, params }) => {
+    const p = projectOf(int(params.id)); need(isOwner(user), 'Chỉ quản trị hệ thống mới thực hiện được thao tác này.');
+    run('DELETE FROM project_members WHERE project_id=? AND user_id=?', p.id, user.id);
+    run('INSERT INTO project_members(project_id,user_id,role,added_at) VALUES(?,?,?,?)', p.id, user.id, 'manager', now());
+    log(user.id, `tự thêm mình làm quản lý <b>${esc(p.name)}</b>`);
+    return projectFull(user, projectOf(p.id));
   });
   function projectInput(body, old = {}) {
     const p = {
       name: str(body.name ?? old.name, 120), kind: body.kind ?? old.kind ?? 'project', color: str(body.color ?? old.color, 9) || '#0e6f68',
       description: str(body.description ?? old.description, 3000),
-      start_date: (body.start_date ?? old.start_date) || null, end_date: (body.end_date ?? old.end_date) || null
+      start_date: (body.start_date ?? old.start_date) || null, end_date: (body.end_date ?? old.end_date) || null,
+      dept_id: body.dept_id !== undefined ? (int(body.dept_id) || null) : (old.dept_id || null),
+      classification: ['internal', 'customer'].includes(body.classification) ? body.classification : (old.classification || 'internal'),
+      bg: body.bg !== undefined ? (/^#[0-9a-fA-F]{6}$/.test(body.bg) ? body.bg : '') : (old.bg || '')
     };
+    if (p.dept_id && !get('SELECT 1 FROM departments WHERE id=?', p.dept_id)) bad('Department không hợp lệ.');
     if (!p.name) bad('Vui lòng nhập tên dự án/phòng ban.');
     if (!KINDS.includes(p.kind)) bad('Loại không hợp lệ.');
     if (!/^#[0-9a-fA-F]{6}$/.test(p.color)) bad('Màu không hợp lệ.');
@@ -235,16 +314,45 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     if (p.kind === 'team') { p.start_date = null; p.end_date = null; }
     return p;
   }
+  /* Cấu hình hệ thống của phân hệ (Base bài 63000270226): quyền tạo dự án, phòng ban */
+  const CFG_DEF = { create_project: { mode: 'all', users: [] }, create_team: { mode: 'all', users: [] } };
+  const workCfg = () => Object.assign({}, CFG_DEF, parseJSON((get("SELECT value FROM settings WHERE key='work_config'") || {}).value, {}));
+  const isDeptHead = u => !!get('SELECT 1 FROM departments WHERE head_id=?', u.id);
+  const canCreateProject = (u, kind) => { if (isOwner(u)) return true; const c = workCfg()[kind === 'team' ? 'create_team' : 'create_project'] || { mode: 'all' };
+    return c.mode === 'all' || (c.mode === 'heads' && isDeptHead(u)) || (c.mode === 'list' && (c.users || []).includes(u.id)); };
+  route('GET', '/api/work/config', ({ user }) => ({ ...workCfg(), can_create_project: canCreateProject(user, 'project'), can_create_team: canCreateProject(user, 'team'), is_owner: isOwner(user),
+    delegates: all('SELECT delegate_id FROM work_delegations WHERE owner_id=?', user.id).map(r => r.delegate_id),
+    delegators: all('SELECT owner_id FROM work_delegations WHERE delegate_id=?', user.id).map(r => r.owner_id) }));
+  route('PUT', '/api/work/config', ({ user, body }) => {
+    need(isOwner(user), 'Chỉ quản trị hệ thống mới được thay đổi cấu hình.');
+    const c = workCfg();
+    for (const k of ['create_project', 'create_team']) if (body[k]) { const m = ['all', 'heads', 'list'].includes(body[k].mode) ? body[k].mode : 'all'; c[k] = { mode: m, users: (Array.isArray(body[k].users) ? body[k].users : []).map(int).filter(userOk).slice(0, 500) }; }
+    run("INSERT INTO settings(key,value) VALUES('work_config',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", JSON.stringify(c));
+    log(user.id, 'cập nhật cấu hình phân hệ Công việc – Dự án');
+    return workCfg();
+  });
+  /* Ủy quyền giao việc (Base bài 63000254750): tối đa 10 người */
+  route('PUT', '/api/work/delegations', ({ user, body }) => {
+    const ids = [...new Set((Array.isArray(body.delegate_ids) ? body.delegate_ids : []).map(int).filter(id => id !== user.id && userOk(id)))];
+    if (ids.length > 10) bad('Mỗi tài khoản ủy quyền tối đa 10 người.');
+    tx(() => { run('DELETE FROM work_delegations WHERE owner_id=?', user.id); for (const d of ids) run('INSERT INTO work_delegations(owner_id,delegate_id,created_at) VALUES(?,?,?)', user.id, d, now()); });
+    log(user.id, `cập nhật ủy quyền giao việc (${ids.length} người)`);
+    return { delegates: ids };
+  });
   route('POST', '/api/projects', ({ user, body }) => {
     const p = projectInput(body);
+    need(canCreateProject(user, p.kind), `Bạn chưa được phân quyền tạo ${p.kind === 'team' ? 'phòng ban' : 'dự án'} mới.`);
     const managers = new Set([user.id, ...(Array.isArray(body.managers) ? body.managers.map(int) : [])].filter(userOk));
-    const members = new Set((Array.isArray(body.members) ? body.members.map(int) : []).filter(id => userOk(id) && !managers.has(id)));
+    const memberIds = (Array.isArray(body.members) ? body.members.map(int) : []).concat(...(Array.isArray(body.member_depts) ? body.member_depts : []).map(d => all('SELECT id FROM users WHERE dept_id=? AND active=1', int(d)).map(r => r.id)));
+    const members = new Set(memberIds.filter(id => userOk(id) && !managers.has(id)));
+    const health = HEALTHS.includes(body.health) ? body.health : 'on_track';
     let id;
     tx(() => {
-      id = Number(run(`INSERT INTO projects(name,color,owner_id,kind,description,start_date,end_date,status,settings,created_at,updated_at)
-        VALUES(?,?,?,?,?,?,?,'open',?,?,?)`, p.name, p.color, user.id, p.kind, p.description, p.start_date, p.end_date, JSON.stringify(DEFAULT_SETTINGS), now(), now()).lastInsertRowid);
+      id = Number(run(`INSERT INTO projects(name,color,owner_id,kind,description,start_date,end_date,status,health,dept_id,classification,bg,settings,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,'open',?,?,?,?,?,?,?)`, p.name, p.color, user.id, p.kind, p.description, p.start_date, p.end_date, health, p.dept_id, p.classification, p.bg, JSON.stringify(DEFAULT_SETTINGS), now(), now()).lastInsertRowid);
       for (const m of managers) run('INSERT INTO project_members(project_id,user_id,role,added_at) VALUES(?,?,?,?)', id, m, 'manager', now());
       for (const m of members) run('INSERT INTO project_members(project_id,user_id,role,added_at) VALUES(?,?,?,?)', id, m, 'member', now());
+      if (body.template_id) applyTemplate(user, id, body.template_id);
     });
     log(user.id, `tạo ${p.kind === 'team' ? 'phòng ban' : 'dự án'} <b>${esc(p.name)}</b>`);
     return projectFull(user, projectOf(id));
@@ -253,7 +361,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   route('PUT', '/api/projects/:id', ({ user, params, body }) => {
     const old = projectOf(int(params.id)); need(canManage(roleIn(user, old.id)), 'Chỉ quản lý dự án/phòng ban mới được sửa thông tin.');
     const p = projectInput(body, old);
-    run('UPDATE projects SET name=?, kind=?, color=?, description=?, start_date=?, end_date=?, updated_at=? WHERE id=?', p.name, p.kind, p.color, p.description, p.start_date, p.end_date, now(), old.id);
+    run('UPDATE projects SET name=?, kind=?, color=?, description=?, start_date=?, end_date=?, dept_id=?, classification=?, bg=?, updated_at=? WHERE id=?', p.name, p.kind, p.color, p.description, p.start_date, p.end_date, p.dept_id, p.classification, p.bg, now(), old.id);
     if (p.kind !== old.kind) log(user.id, `chuyển <b>${esc(p.name)}</b> sang loại ${p.kind === 'team' ? 'phòng ban' : 'dự án'}`);
     return projectFull(user, projectOf(old.id));
   });
@@ -262,6 +370,19 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     const S = settingsOf(p), b = body || {};
     for (const k of ['allow_percent', 'review', 'allow_failed', 'member_view_all', 'member_create', 'assignee_edit_deadline', 'assignee_edit_info', 'creator_delete', 'deadline_time', 'deps']) if (k in b) S[k] = !!b[k];
     if ('deps_mode' in b) { if (!['keep', 'none'].includes(b.deps_mode)) bad('Chế độ phụ thuộc không hợp lệ.'); S.deps_mode = b.deps_mode; }
+    if ('est_enabled' in b) S.est_enabled = !!b.est_enabled;
+    if ('subtask_display' in b) S.subtask_display = ['multi', 'one', 'none'].includes(b.subtask_display) ? b.subtask_display : 'multi';
+    if ('managers_can_delete' in b) { need(isOwner(user), 'Chỉ quản trị hệ thống mới được thiết lập quyền xóa của quản lý.'); S.managers_can_delete = !!b.managers_can_delete; }
+    if (b.perm && typeof b.perm === 'object') {
+      const cur = permOf(S), P = { account: {}, edit: {}, restrict: {} };
+      for (const k of Object.keys(PERM_ACCOUNT)) { const v = (b.perm.account || {})[k] || cur.account[k]; P.account[k] = { member: !!v.member, guest: !!v.guest }; }
+      for (const k of Object.keys(PERM_EDIT)) { const v = (b.perm.edit || {})[k] || cur.edit[k]; P.edit[k] = { follower: !!v.follower, other: !!v.other }; }
+      for (const k of Object.keys(PERM_RESTRICT)) P.restrict[k] = (b.perm.restrict || {})[k] !== undefined ? !!b.perm.restrict[k] : cur.restrict[k];
+      S.perm = P;
+      /* Đồng bộ khóa cũ để các màn hình, báo cáo cũ đọc đúng */
+      S.member_create = P.account.create_task.member; S.member_view_all = P.account.view_others.member;
+      S.assignee_edit_info = !P.restrict.no_edit; S.assignee_edit_deadline = !P.restrict.no_deadline;
+    }
     if ('reviewer_mode' in b) { if (!['creator', 'list'].includes(b.reviewer_mode)) bad('Chế độ đánh giá không hợp lệ.'); S.reviewer_mode = b.reviewer_mode; }
     if ('reviewers' in b) S.reviewers = (Array.isArray(b.reviewers) ? b.reviewers : []).map(int).filter(userOk).slice(0, 50);
     if ('review_sla_h' in b) S.review_sla_h = Math.min(Math.max(int(b.review_sla_h), 0), 720);
@@ -287,7 +408,8 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   });
   route('DELETE', '/api/projects/:id', ({ user, params }) => {
     const p = projectOf(int(params.id)); need(canManage(roleIn(user, p.id)), 'Chỉ quản lý dự án/phòng ban mới được xóa.');
-    const blobs = all("SELECT f.stored_name FROM task_files f JOIN tasks t ON t.id=f.task_id WHERE t.project_id=? AND f.kind='file'", p.id).map(r => r.stored_name);
+    need(isOwner(user) || settingsOf(p).managers_can_delete !== false, 'Quản trị hệ thống đã giới hạn quyền xóa của quản lý đối với dự án/phòng ban này.');
+    const blobs = all("SELECT f.stored_name FROM task_files f JOIN tasks t ON t.id=f.task_id WHERE t.project_id=? AND f.kind='file'", p.id).map(r => r.stored_name).concat(...HOOKS.projectPurge.map(f => f(p.id)));
     tx(() => { run('DELETE FROM task_files WHERE task_id IN (SELECT id FROM tasks WHERE project_id=?)', p.id); run('DELETE FROM task_deps WHERE project_id=?', p.id); run('DELETE FROM project_milestones WHERE project_id=?', p.id); run('DELETE FROM task_recurrences WHERE project_id=?', p.id); run('DELETE FROM tasks WHERE project_id=?', p.id); run('DELETE FROM projects WHERE id=?', p.id); });
     releaseBlobs(blobs);
     log(user.id, `xóa <b>${esc(p.name)}</b>`);
@@ -297,7 +419,8 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   route('POST', '/api/projects/:id/members', ({ user, params, body }) => {
     const p = projectOf(int(params.id)); need(canManage(roleIn(user, p.id)), 'Chỉ quản lý mới được thêm thành viên.');
     const role = ROLES.includes(body.role) ? body.role : 'member';
-    const ids = (Array.isArray(body.user_ids) ? body.user_ids : [body.user_id]).map(int).filter(userOk);
+    let ids = (Array.isArray(body.user_ids) ? body.user_ids : [body.user_id]).map(int).filter(userOk);
+    if (body.dept_id) ids = [...new Set(ids.concat(all('SELECT id FROM users WHERE dept_id=? AND active=1', int(body.dept_id)).map(r => r.id)))];
     if (!ids.length) bad('Vui lòng chọn người dùng.');
     tx(() => { for (const uid of ids) { run('DELETE FROM project_members WHERE project_id=? AND user_id=?', p.id, uid); run('INSERT INTO project_members(project_id,user_id,role,added_at) VALUES(?,?,?,?)', p.id, uid, role, now()); } });
     return projectFull(user, projectOf(p.id));
@@ -322,7 +445,8 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
 
   /* ---------- Nhóm công việc ---------- */
   route('POST', '/api/projects/:id/groups', ({ user, params, body }) => {
-    const p = projectOf(int(params.id)); need(canManage(roleIn(user, p.id)), 'Chỉ quản lý mới được thêm nhóm công việc.');
+    const p = projectOf(int(params.id)); need(accountCan(roleIn(user, p.id), settingsOf(p), 'create_group'), 'Bạn không có quyền tạo nhóm công việc.');
+    if (p.status === 'closed') bad('Dự án/phòng ban đã đóng.');
     const name = str(body.name, 120); if (!name) bad('Vui lòng nhập tên nhóm công việc.');
     const sort = (get('SELECT MAX(sort) m FROM task_groups WHERE project_id=?', p.id).m || 0) + 1;
     run('INSERT INTO task_groups(project_id,name,description,sort,std_hours) VALUES(?,?,?,?,?)', p.id, name, str(body.description, 500), sort, Math.max(0, Number(body.std_hours) || 0));
@@ -335,6 +459,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     const std = 'std_hours' in body ? Math.max(0, Number(body.std_hours) || 0) : g.std_hours;
     run('UPDATE task_groups SET name=?, description=?, closed=?, std_hours=? WHERE id=?', name, str(body.description ?? g.description, 500), 'closed' in body ? (body.closed ? 1 : 0) : g.closed, std, g.id);
     if (std !== g.std_hours && std > 0) run('UPDATE tasks SET est_hours=? WHERE group_id=?', std, g.id);
+    if ('reviewers' in body) run('UPDATE task_groups SET reviewers=? WHERE id=?', JSON.stringify((Array.isArray(body.reviewers) ? body.reviewers : []).map(int).filter(userOk).slice(0, 50)), g.id);
     return projectFull(user, projectOf(g.project_id));
   });
   route('DELETE', '/api/groups/:id', ({ user, params }) => {
@@ -353,13 +478,15 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   /* ---------- Công việc: danh sách ---------- */
   function visibleFilter(u, alias = 't') {
     if (isOwner(u)) return { sql: '1=1', args: [] };
-    /* Dự án mà người dùng xem được mọi công việc: quản lý, hoặc thành viên khi thiết lập cho phép */
-    const full = all("SELECT p.id, p.settings, m.role FROM project_members m JOIN projects p ON p.id=m.project_id WHERE m.user_id=? AND m.role IN ('manager','member')", u.id)
-      .filter(r => r.role === 'manager' || settingsOf(r).member_view_all).map(r => r.id);
+    /* Dự án xem được mọi công việc: quản lý; thành viên/khách khi bảng quyền cho phép. Công việc chưa giao: theo quyền "xem và chỉ định" */
+    const rows = all("SELECT p.id, p.settings, m.role FROM project_members m JOIN projects p ON p.id=m.project_id WHERE m.user_id=? AND m.role IN ('manager','member','guest')", u.id);
+    const full = rows.filter(r => r.role === 'manager' || permOf(settingsOf(r)).account.view_others[r.role]).map(r => r.id);
+    const un = rows.filter(r => r.role !== 'manager' && !full.includes(r.id) && permOf(settingsOf(r)).account.view_unassigned[r.role]).map(r => r.id);
+    const inList = ids => ids.map(() => '?').join(',');
     return {
       sql: `(${alias}.assignee_id=? OR ${alias}.creator_id=? OR EXISTS (SELECT 1 FROM task_followers f WHERE f.task_id=${alias}.id AND f.user_id=?)` +
-        (full.length ? ` OR ${alias}.project_id IN (${full.map(() => '?').join(',')}))` : ')'),
-      args: [u.id, u.id, u.id, ...full]
+        (full.length ? ` OR ${alias}.project_id IN (${inList(full)})` : '') + (un.length ? ` OR (${alias}.assignee_id IS NULL AND ${alias}.project_id IN (${inList(un)}))` : '') + ')',
+      args: [u.id, u.id, u.id, ...full, ...un]
     };
   }
   function statusFilter(q, w, a) {
@@ -384,7 +511,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     const total = get(`SELECT COUNT(*) n FROM tasks t WHERE ${w.join(' AND ')}`, ...a).n;
     if (!role && !total) need(false, 'Bạn không phải thành viên của dự án/phòng ban này.');
     const rows = all(`SELECT ${TASK_COLS} FROM tasks t WHERE ${w.join(' AND ')}
-      ORDER BY COALESCE(t.parent_id, t.id), t.parent_id IS NOT NULL, t.due_date, t.id LIMIT ? OFFSET ?`, ...a, limit, offset).map(shape);
+      ORDER BY ${query.sort === 'updated' ? 't.updated_at DESC, t.id DESC' : query.sort === 'due' ? 't.due_date IS NULL, t.due_date, t.id' : 'COALESCE(t.parent_id, t.id), t.parent_id IS NOT NULL, t.due_date, t.id'} LIMIT ? OFFSET ?`, ...a, limit, offset).map(shape);
     const out = { total, limit, offset, rows };
     if (query.deps) { const ids = new Set(rows.map(r => r.id)); out.deps = all('SELECT id, pred_id, succ_id, type FROM task_deps WHERE project_id=? LIMIT 2000', p.id).filter(d => ids.has(d.pred_id) && ids.has(d.succ_id)); }
     return out;
@@ -395,7 +522,8 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     const scope = query.scope || 'assigned';
     const w = [], a = [];
     if (scope === 'assigned') { w.push('t.assignee_id=?'); a.push(user.id); }
-    else if (scope === 'created') { w.push('t.creator_id=? AND t.assignee_id<>?'); a.push(user.id, user.id); }
+    else if (scope === 'created') { w.push('t.creator_id=? AND (t.assignee_id IS NULL OR t.assignee_id<>?)'); a.push(user.id, user.id); }
+    else if (scope === 'marked') { w.push('EXISTS (SELECT 1 FROM task_marks k WHERE k.task_id=t.id AND k.user_id=?)'); a.push(user.id); const v = visibleFilter(user); w.push(v.sql); a.push(...v.args); }
     else if (scope === 'following') { w.push('EXISTS (SELECT 1 FROM task_followers f WHERE f.task_id=t.id AND f.user_id=?)'); a.push(user.id); }
     else if (scope === 'review') {
       w.push("t.status='review'"); const v = visibleFilter(user); w.push(v.sql); a.push(...v.args);
@@ -445,9 +573,11 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     t.milestones = all('SELECT id, title, due_date FROM project_milestones WHERE project_id=? ORDER BY due_date IS NULL, due_date, id', p.id);
     t.deps = depInfo(user, t, p);
     t.recurrence = t.recurrence_id ? get('SELECT id, title, active FROM task_recurrences WHERE id=?', t.recurrence_id) || null : null;
-    t.files = all('SELECT f.id, f.kind, f.doc_id, f.file_name, f.file_size, f.mime, f.uploaded_by, f.created_at, d.title doc_title FROM task_files f LEFT JOIN doc_items d ON d.id=f.doc_id WHERE f.task_id=? ORDER BY f.id', t.id);
-    const { view, edit, editInfo, editDeadline, progress, del, fail, review, comment, manage } = acc;
-    t.can = { view, edit, editInfo, editDeadline, progress, del, fail, review, comment, manage };
+    t.files = all('SELECT f.id, f.kind, f.doc_id, f.file_name, f.file_size, f.mime, f.uploaded_by, f.created_at, f.result_id, f.field_id, d.title doc_title FROM task_files f LEFT JOIN doc_items d ON d.id=f.doc_id WHERE f.task_id=? ORDER BY f.id', t.id);
+    const { view, edit, editInfo, editDesc, editDeadline, progress, status, result, checklist, del, fail, review, comment, manage, claim } = acc;
+    t.can = { view, edit, editInfo, editDesc, editDeadline, progress, status, result, checklist, del, fail, review, comment, manage, claim };
+    t.my_role = acc.role;
+    for (const f of HOOKS.task) f(user, t, p, acc);
     return t;
   }
   route('GET', '/api/tasks/:id', ({ user, params }) => taskFull(user, int(params.id)));
@@ -466,11 +596,18 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
       if (parent.project_id !== p.id) bad('Việc con phải cùng dự án với việc cha.');
       need(taskAccess(user, parent, p, role).view, 'Bạn không có quyền với công việc cha.');
       if (depthOf(parent.id) + 1 > MAX_DEPTH) bad(`Chỉ tạo được tối đa ${MAX_DEPTH} cấp việc con.`);
-    } else need(canManage(role) || (role === 'member' && S.member_create), 'Bạn không có quyền tạo công việc trong dự án/phòng ban này.');
+    } else need(accountCan(role, S, 'create_task'), 'Bạn không có quyền tạo công việc trong dự án/phòng ban này.');
     const title = str(body.title, MAX_TITLE); if (!title) bad('Vui lòng nhập tên công việc.');
-    const assignees = [...new Set((Array.isArray(body.assignee_ids) && body.assignee_ids.length ? body.assignee_ids : [body.assignee_id || user.id]).map(int))];
+    const assignees = body.unassigned ? [null] : [...new Set((Array.isArray(body.assignee_ids) && body.assignee_ids.length ? body.assignee_ids : [body.assignee_id || user.id]).map(int))];
     if (assignees.length > 100) bad('Giao tối đa 100 người một lần.');
-    for (const a of assignees) if (!userOk(a)) bad('Người nhận việc không hợp lệ.');
+    for (const a of assignees) if (a !== null && !userOk(a)) bad('Người nhận việc không hợp lệ.');
+    /* Ủy quyền giao việc: người giao có thể là người đã ủy quyền cho tôi (Base bài 63000254750) */
+    let creator = user.id;
+    if (body.creator_id && int(body.creator_id) !== user.id) {
+      creator = int(body.creator_id);
+      need(get('SELECT 1 FROM work_delegations WHERE owner_id=? AND delegate_id=?', creator, user.id), 'Bạn chưa được người này ủy quyền giao việc.');
+      const crole = roleIn(get('SELECT * FROM users WHERE id=?', creator) || {}, p.id); need(parent || accountCan(crole, S, 'create_task'), 'Người ủy quyền không có quyền tạo công việc trong dự án/phòng ban này.');
+    }
     const group_id = body.group_id ? int(body.group_id) : (parent ? parent.group_id : null);
     let est = Number(body.est_hours) || 0;
     if (group_id) { const g = get('SELECT * FROM task_groups WHERE id=? AND project_id=?', group_id, p.id); if (!g) bad('Nhóm công việc không hợp lệ.'); if (!est && g.std_hours) est = g.std_hours; }
@@ -488,13 +625,15 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
       for (const a of assignees) {
         const id = Number(run(`INSERT INTO tasks(project_id,group_id,parent_id,title,description,assignee_id,creator_id,status,priority,urgent,important,
             start_date,due_date,due_time,est_hours,progress,tags,goal_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'todo',?,?,?,?,?,?,?,0,?,?,?,?)`,
-          p.id, group_id, parent ? parent.id : null, title, str(body.description, 10000), a, user.id, prio, body.urgent ? 1 : 0, body.important ? 1 : 0,
+          p.id, group_id, parent ? parent.id : null, title, str(body.description, 10000), a, creator, prio, body.urgent ? 1 : 0, body.important ? 1 : 0,
           start, due, dueTime, est, tags, goal, now(), now()).lastInsertRowid);
         if (ms) run('UPDATE tasks SET milestone_id=? WHERE id=?', ms, id);
-        if (!get('SELECT 1 FROM project_members WHERE project_id=? AND user_id=?', p.id, a)) ensureMember(p.id, a, 'follower');
+        if (a && !get('SELECT 1 FROM project_members WHERE project_id=? AND user_id=?', p.id, a)) ensureMember(p.id, a, 'follower');
+        if (creator !== user.id) run('INSERT OR IGNORE INTO task_followers(task_id,user_id) VALUES(?,?)', id, user.id);
         for (const f of followers) if (f !== a) { run('INSERT OR IGNORE INTO task_followers(task_id,user_id) VALUES(?,?)', id, f); ensureMember(p.id, f, 'follower'); }
         for (const c of (Array.isArray(body.checklist) ? body.checklist : [])) if (str(c)) run('INSERT INTO task_checklist(task_id,text) VALUES(?,?)', id, str(c, 300));
         tlog(id, user.id, 'create', parent ? `việc con của #${parent.id}` : '');
+        for (const f of HOOKS.create) f(user, id, p, body);
         ids.push(id);
       }
     });
@@ -509,7 +648,9 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     const S = acc.S, set = {}, changed = [];
     const want = k => k in body && body[k] !== undefined;
     if (want('title') || want('description') || want('priority') || want('urgent') || want('important') || want('group_id') || want('est_hours') || want('tags') || want('goal_id') || want('milestone_id')) {
-      need(acc.editInfo, 'Bạn không có quyền sửa thông tin công việc này.');
+      const onlyDesc = Object.keys(body).filter(k => want(k) && ['title', 'description', 'priority', 'urgent', 'important', 'group_id', 'est_hours', 'tags', 'goal_id', 'milestone_id'].includes(k)).every(k => k === 'description');
+      if (want('description')) need(acc.editDesc, 'Bạn không có quyền sửa mô tả công việc này.');
+      if (!onlyDesc) need(acc.editInfo, 'Bạn không có quyền sửa thông tin công việc này.');
       if (want('title')) { set.title = str(body.title, MAX_TITLE); if (!set.title) bad('Vui lòng nhập tên công việc.'); }
       if (want('description')) set.description = str(body.description, 10000);
       if (want('priority')) { if (!PRIO.includes(body.priority)) bad('Mức ưu tiên không hợp lệ.'); set.priority = body.priority; }
@@ -534,9 +675,10 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
       Object.assign(set, { start_date: start, due_date: due, due_time: dt });
     }
     if (want('assignee_id')) {
-      need(acc.edit, 'Chỉ người giao việc hoặc quản lý mới được đổi người nhận việc.');
-      const a = int(body.assignee_id); if (!userOk(a)) bad('Người nhận việc không hợp lệ.');
-      set.assignee_id = a; ensureMember(p.id, a, 'follower');
+      const a = body.assignee_id ? int(body.assignee_id) : null;
+      need(acc.edit || (acc.claim && (a === user.id || acc.manage)), 'Bạn không có quyền chuyển công việc cho người khác.');
+      if (a !== null && !userOk(a)) bad('Người nhận việc không hợp lệ.');
+      set.assignee_id = a; if (a) ensureMember(p.id, a, 'follower');
     }
     const keys = Object.keys(set); if (!keys.length) bad('Không có thông tin nào thay đổi.');
     for (const k of keys) if (String(set[k] ?? '') !== String(t[k] ?? '')) changed.push(k);
@@ -566,7 +708,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
       tlog(t.id, user.id, 'failed', reason);
       return taskFull(user, t.id);
     }
-    need(acc.progress, 'Chỉ người nhận việc, người giao việc hoặc quản lý mới được cập nhật trạng thái.');
+    need(acc.status, 'Bạn không có quyền cập nhật trạng thái công việc này.');
     if (to === 'done') {
       if (t.status === 'done') bad('Công việc đã hoàn thành.');
       if (t.status === 'review') bad('Công việc đang chờ đánh giá.');
@@ -607,7 +749,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   /* Cập nhật kết quả, % hoàn thành */
   route('POST', '/api/tasks/:id/results', ({ user, params, body }) => {
     const t = taskOf(int(params.id)), acc = taskAccess(user, t);
-    need(acc.progress, 'Chỉ người nhận việc, người giao việc hoặc quản lý mới được cập nhật kết quả.');
+    need(acc.result, 'Bạn không có quyền cập nhật kết quả công việc này.');
     if (['done', 'failed'].includes(t.status)) bad('Công việc đã kết thúc.');
     const note = str(body.note, 5000);
     let prog = null;
@@ -615,8 +757,10 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
       if (!acc.S.allow_percent) bad('Dự án/phòng ban chưa bật cập nhật % hoàn thành.');
       prog = int(body.progress); if (prog < 0 || prog > 100) bad('% hoàn thành phải từ 0 đến 100.');
     }
-    if (!note && prog === null) bad('Vui lòng nhập kết quả hoặc % hoàn thành.');
-    run('INSERT INTO task_results(task_id,user_id,note,progress,created_at) VALUES(?,?,?,?,?)', t.id, user.id, note, prog, now());
+    const f = body.file_data ? saveUpload(body, bad, TASK_FILE_MAX) : null;
+    if (!note && prog === null && !f) bad('Vui lòng nhập kết quả, tệp hoặc % hoàn thành.');
+    const rid = Number(run('INSERT INTO task_results(task_id,user_id,note,progress,created_at) VALUES(?,?,?,?,?)', t.id, user.id, note, prog, now()).lastInsertRowid);
+    if (f) run('INSERT INTO task_files(task_id,kind,file_name,file_size,mime,stored_name,uploaded_by,created_at,result_id) VALUES(?,?,?,?,?,?,?,?,?)', t.id, 'file', f.name, f.size, f.mime, f.stored, user.id, now(), rid);
     if (prog !== null) run("UPDATE tasks SET progress=?, status=CASE WHEN status='todo' THEN 'doing' ELSE status END, updated_at=? WHERE id=?", prog, now(), t.id);
     tlog(t.id, user.id, 'result', prog !== null ? prog + '%' : '');
     return taskFull(user, t.id);
@@ -642,7 +786,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     const t = taskOf(int(params.id)), acc = taskAccess(user, t);
     need(acc.del, 'Bạn không có quyền xóa công việc này.');
     const ids = [t.id]; for (let i = 0; i < ids.length && i < 2000; i++) for (const c of all('SELECT id FROM tasks WHERE parent_id=?', ids[i])) ids.push(c.id);
-    const blobs = blobsOf(ids);
+    const blobs = blobsOf(ids).concat(...HOOKS.purge.map(f => f(ids)));
     tx(() => { for (const id of ids.reverse()) { run('DELETE FROM task_files WHERE task_id=?', id); run('DELETE FROM task_deps WHERE pred_id=? OR succ_id=?', id, id); run('DELETE FROM tasks WHERE id=?', id); } });
     releaseBlobs(blobs);
     log(user.id, `xóa công việc <b>${esc(t.title)}</b>`);
@@ -651,18 +795,23 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   /* Nhân bản công việc */
   route('POST', '/api/tasks/:id/clone', ({ user, params, body }) => {
     const src = taskOf(int(params.id)), p = projectOf(src.project_id), role = roleIn(user, p.id), acc = taskAccess(user, src, p, role);
-    need(acc.view && acc.open && (canManage(role) || (role === 'member' && acc.S.member_create)), 'Bạn không có quyền nhân bản công việc này.');
+    need(acc.view && acc.open && accountCan(role, acc.S, 'create_task'), 'Bạn không có quyền nhân bản công việc này.');
     const keep = body.keep || {};
     const cloneOne = (s, parentId, depth) => {
       const id = Number(run(`INSERT INTO tasks(project_id,group_id,parent_id,title,description,assignee_id,creator_id,status,priority,urgent,important,
           start_date,due_date,due_time,est_hours,progress,tags,goal_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'todo',?,?,?,?,?,?,?,0,?,?,?,?)`,
-        p.id, keep.group === false ? null : s.group_id, parentId, depth === 0 ? (str(body.title, MAX_TITLE) || ('Bản sao: ' + s.title).slice(0, MAX_TITLE)) : s.title,
-        keep.description === false ? '' : s.description, keep.assignee === false ? user.id : s.assignee_id, user.id, s.priority, s.urgent, s.important,
-        today(), keep.deadline === false || depth > 0 ? null : s.due_date, keep.deadline === false || depth > 0 ? null : s.due_time, s.est_hours, s.tags || '', s.goal_id || null, now(), now()).lastInsertRowid);
+        p.id, depth === 0 && body.group_id !== undefined ? (int(body.group_id) || null) : (keep.group === false ? null : s.group_id), parentId, depth === 0 ? (str(body.title, MAX_TITLE) || ('Bản sao: ' + s.title).slice(0, MAX_TITLE)) : s.title,
+        keep.description === false ? '' : s.description,
+        depth === 0 ? (body.assignee_id ? int(body.assignee_id) : (keep.assignee === false ? user.id : s.assignee_id)) : (keep.sub_assignee === false ? null : s.assignee_id),
+        user.id, s.priority, keep.urgent === false ? 0 : s.urgent, keep.important === false ? 0 : s.important,
+        keep.start === false || !s.start_date ? today() : s.start_date,
+        depth > 0 ? null : (isDate(body.due_date) ? body.due_date : keep.deadline === false ? null : s.due_date), depth > 0 || keep.deadline === false ? null : s.due_time,
+        s.est_hours, keep.tags === false ? '' : (s.tags || ''), s.goal_id || null, now(), now()).lastInsertRowid);
+      for (const f of HOOKS.clone) f(s.id, id, keep);
       if (s.milestone_id) run('UPDATE tasks SET milestone_id=? WHERE id=?', s.milestone_id, id);
       if (keep.files !== false) run(`INSERT INTO task_files(task_id,kind,doc_id,file_name,file_size,mime,stored_name,uploaded_by,created_at)
-        SELECT ?,kind,doc_id,file_name,file_size,mime,stored_name,?,? FROM task_files WHERE task_id=?`, id, user.id, now(), s.id);
-      if (keep.checklist !== false) for (const c of all('SELECT text FROM task_checklist WHERE task_id=?', s.id)) run('INSERT INTO task_checklist(task_id,text) VALUES(?,?)', id, c.text);
+        SELECT ?,kind,doc_id,file_name,file_size,mime,stored_name,?,? FROM task_files WHERE task_id=? AND result_id IS NULL`, id, user.id, now(), s.id);
+      if (keep.checklist !== false) for (const c of all('SELECT text, section, assignee_id FROM task_checklist WHERE task_id=?', s.id)) run('INSERT INTO task_checklist(task_id,text,section,assignee_id) VALUES(?,?,?,?)', id, c.text, c.section || '', c.assignee_id || null);
       if (keep.followers !== false) for (const f of all('SELECT user_id FROM task_followers WHERE task_id=?', s.id)) run('INSERT OR IGNORE INTO task_followers(task_id,user_id) VALUES(?,?)', id, f.user_id);
       if (keep.subtasks !== false && depth < MAX_DEPTH) for (const c of all('SELECT * FROM tasks WHERE parent_id=?', s.id)) cloneOne(c, id, depth + 1);
       return id;
@@ -864,7 +1013,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   });
   route('POST', '/api/projects/:id/recurrences', ({ user, params, body }) => {
     const p = projectOf(int(params.id)), role = roleIn(user, p.id), S = settingsOf(p);
-    need(canManage(role) || (role === 'member' && S.member_create), 'Bạn không có quyền tạo công việc lặp lại trong dự án/phòng ban này.');
+    need(accountCan(role, S, 'create_task'), 'Bạn không có quyền tạo công việc lặp lại trong dự án/phòng ban này.');
     if (p.status === 'closed') bad('Dự án/phòng ban đã đóng.');
     if (get('SELECT COUNT(*) n FROM task_recurrences WHERE project_id=?', p.id).n >= 200) bad('Mỗi dự án tối đa 200 công việc lặp lại.');
     const x = recInput(body || {}, p);
@@ -900,7 +1049,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   /* ---------- Tệp đính kèm, tài liệu liên kết ----------
    * Quyền thêm: người xem được công việc và có quyền sửa thông tin hoặc cập nhật tiến độ (người giao, người nhận, quản lý).
    * Tài liệu từ kho Tài liệu chỉ lưu liên kết; tải về qua /api/docs/:id/file nên vẫn áp dụng quyền xem của tài liệu đó. */
-  const canAttach = acc => acc.view && acc.open && (acc.editInfo || acc.progress);
+  const canAttach = acc => acc.view && acc.open && (acc.editInfo || acc.editDesc || acc.result);
   const docVisible = (u, d) => !d.dept_id || isOwner(u) || u.dept_id === d.dept_id;
   route('POST', '/api/tasks/:id/files', ({ user, params, body }) => {
     const ids = [...new Set([int(params.id), ...(Array.isArray(body.also_task_ids) ? body.also_task_ids.map(int) : [])])].slice(0, 100);
@@ -916,9 +1065,10 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     } else {
       const f = saveUpload(body, bad, TASK_FILE_MAX); if (!f) bad('Vui lòng chọn tệp đính kèm.');
       row = { kind: 'file', doc_id: null, name: f.name, size: f.size, mime: f.mime, stored: f.stored };
+      if (body.field_id) { const fd = get("SELECT id FROM task_fields WHERE id=? AND type='file' AND project_id=?", int(body.field_id), taskOf(ids[0]).project_id); if (!fd) bad('Trường tùy chỉnh không hợp lệ.'); row.field = fd.id; }
     }
     tx(() => { for (const id of ids) {
-      run('INSERT INTO task_files(task_id,kind,doc_id,file_name,file_size,mime,stored_name,uploaded_by,created_at) VALUES(?,?,?,?,?,?,?,?,?)', id, row.kind, row.doc_id, row.name, row.size, row.mime, row.stored, user.id, now());
+      run('INSERT INTO task_files(task_id,kind,doc_id,file_name,file_size,mime,stored_name,uploaded_by,created_at,field_id) VALUES(?,?,?,?,?,?,?,?,?,?)', id, row.kind, row.doc_id, row.name, row.size, row.mime, row.stored, user.id, now(), row.field || null);
       tlog(id, user.id, 'file', row.name);
     } });
     return taskFull(user, ids[0]);
@@ -941,20 +1091,24 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
 
   /* Checklist, bình luận (có kiểm tra quyền) */
   route('POST', '/api/tasks/:id/checklist', ({ user, params, body }) => {
-    const t = taskOf(int(params.id)); need(taskAccess(user, t).progress, 'Bạn không có quyền sửa danh mục đầu việc.');
+    const t = taskOf(int(params.id)); need(taskAccess(user, t).checklist, 'Bạn không có quyền tạo, cập nhật checklist.');
     const text = str(body.text, 300); if (!text) bad('Vui lòng nhập nội dung đầu việc.');
-    run('INSERT INTO task_checklist(task_id,text) VALUES(?,?)', t.id, text);
+    const asg = body.assignee_id ? int(body.assignee_id) : null; if (asg && !userOk(asg)) bad('Người thực hiện không hợp lệ.');
+    if (get('SELECT COUNT(*) n FROM task_checklist WHERE task_id=?', t.id).n >= 200) bad('Mỗi công việc tối đa 200 việc cần làm.');
+    run('INSERT INTO task_checklist(task_id,text,section,assignee_id) VALUES(?,?,?,?)', t.id, text, str(body.section, 120), asg);
     return taskFull(user, t.id);
   });
   route('PUT', '/api/checklist/:id', ({ user, params, body }) => {
     const c = get('SELECT * FROM task_checklist WHERE id=?', int(params.id)) || notFound();
-    need(taskAccess(user, taskOf(c.task_id)).progress, 'Bạn không có quyền sửa danh mục đầu việc.');
-    run('UPDATE task_checklist SET done=? WHERE id=?', body.done ? 1 : 0, c.id);
+    need(taskAccess(user, taskOf(c.task_id)).checklist, 'Bạn không có quyền tạo, cập nhật checklist.');
+    if ('done' in body) run('UPDATE task_checklist SET done=? WHERE id=?', body.done ? 1 : 0, c.id);
+    if ('text' in body) { const tx2 = str(body.text, 300); if (!tx2) bad('Vui lòng nhập nội dung.'); run('UPDATE task_checklist SET text=? WHERE id=?', tx2, c.id); }
+    if ('assignee_id' in body) { const a2 = body.assignee_id ? int(body.assignee_id) : null; if (a2 && !userOk(a2)) bad('Người thực hiện không hợp lệ.'); run('UPDATE task_checklist SET assignee_id=? WHERE id=?', a2, c.id); }
     return taskFull(user, c.task_id);
   });
   route('DELETE', '/api/checklist/:id', ({ user, params }) => {
     const c = get('SELECT * FROM task_checklist WHERE id=?', int(params.id)) || notFound();
-    need(taskAccess(user, taskOf(c.task_id)).progress, 'Bạn không có quyền sửa danh mục đầu việc.');
+    need(taskAccess(user, taskOf(c.task_id)).checklist, 'Bạn không có quyền tạo, cập nhật checklist.');
     run('DELETE FROM task_checklist WHERE id=?', c.id);
     return taskFull(user, c.task_id);
   });
@@ -967,14 +1121,14 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
 
   /* ---------- Báo cáo dự án, xuất CSV ---------- */
   route('GET', '/api/projects/:id/report', ({ user, params }) => {
-    const p = projectOf(int(params.id)), role = roleIn(user, p.id); need(role && role !== 'follower', 'Chỉ quản lý và thành viên mới xem được báo cáo dự án/phòng ban.');
+    const p = projectOf(int(params.id)), role = roleIn(user, p.id); need(accountCan(role, settingsOf(p), 'view_report'), 'Bạn không có quyền xem báo cáo của dự án/phòng ban này.');
     const [T, T2, N] = lateArgs();
-    const v = canManage(role) || settingsOf(p).member_view_all ? { sql: '1=1', args: [] } : visibleFilter(user);
+    const v = canManage(role) || permOf(settingsOf(p)).account.view_others[role] ? { sql: '1=1', args: [] } : visibleFilter(user);
     const base = `FROM tasks t WHERE t.project_id=? AND ${v.sql}`;
     const agg = `COUNT(*) total, SUM(t.status='todo') todo, SUM(t.status='doing') doing, SUM(t.status='review') review, SUM(t.status='done') done,
       SUM(t.status='failed') failed, SUM(${lateExpr}) late,
       SUM(t.status='done' AND t.due_date IS NOT NULL AND substr(COALESCE(t.completed_at,t.done_at),1,10) <= t.due_date) ontime,
-      SUM(t.status='done' AND t.due_date IS NOT NULL) done_with_due`;
+      SUM(t.status='done' AND t.due_date IS NOT NULL) done_with_due, ROUND(SUM(COALESCE(t.est_hours,0)),2) est_hours, ROUND(SUM(CASE WHEN t.status='done' THEN COALESCE(t.est_hours,0) ELSE 0 END),2) est_done`;
     return {
       summary: get(`SELECT ${agg} ${base}`, T, T2, N, p.id, ...v.args),
       by_member: all(`SELECT t.assignee_id user_id, ${agg} ${base} GROUP BY t.assignee_id ORDER BY total DESC`, T, T2, N, p.id, ...v.args),
@@ -995,6 +1149,12 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     res.end(csv);
   }, { raw: true });
 
+  /* Mô-đun mở rộng (work-ext.js): dùng chung các hàm phân quyền, truy vấn của mô-đun này */
+  const H = { route, bad, forbid, notFound, isAdmin, isDirector, log, esc, str, int, isDate, isOwner, projectOf, roleIn, canManage, taskAccess, taskOf, taskFull, projectFull,
+    need, tlog, userOk, ensureMember, settingsOf, accountCan, permOf, visibleFilter, lateExpr, lateArgs, TASK_COLS, shape, pageArgs, releaseBlobs, blobsOf, normTags, tagList,
+    depthOf, PLAN, MAX_TITLE, MAX_DEPTH, PRIO, CLOSED, STATUS, isDeptHead, canCreateProject, milestonesOf, HOOKS, parseJSON, DEFAULT_SETTINGS, validDue, cascade, depsOn, recTick, isTime };
+  const EXT = require('./work-ext').register(H);
+  applyTemplate = EXT.applyTemplate;
   return { taskAccess, roleIn, recTick };
 }
 

@@ -149,8 +149,9 @@ const login = async u => { sessions[u] = ''; const r = await call(u, 'POST', '/a
   ok((await call('huong.tt', 'GET', '/api/projects/1/report')).s === 403, 'người ngoài không xem được báo cáo');
   r = await call('quan.lm', 'GET', '/api/work/staff');
   ok(r.s === 200 && r.b.some(x => x.user_id === 6), 'trưởng phòng xem "nhân viên của tôi"', r.b);
-  r = await call('thanh.nv', 'GET', '/api/projects');
-  ok(r.b.length >= 4, 'giám đốc thấy mọi dự án', r.b.length);
+  r = await call('thanh.nv', 'GET', '/api/projects?scope=all');
+  ok(r.b.length >= 4, 'giám đốc thấy mọi dự án ở thẻ "Tất cả (cho quản trị)"', r.b.length);
+  ok((await call('mai.bt', 'GET', '/api/projects?scope=all')).b.length === 2, 'thành viên thường dùng scope=all vẫn chỉ thấy dự án mình tham gia');
 
   // 13. Xuất CSV theo quyền
   r = await call('huong.tt', 'GET', '/api/export/tasks.csv');
