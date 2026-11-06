@@ -809,11 +809,12 @@ EXT.seedExt();
 
 /* Cloudflare: đặt lại mật khẩu quản trị ban đầu theo bí mật ADMIN_PASSWORD (chỉ khi tài khoản admin chưa đổi mật khẩu). */
 function applyAdminSecret() {
-  const pw = process.env.ADMIN_PASSWORD;
-  if (!pw) return false;
+  // Ưu tiên bí mật ADMIN_PASSWORD; nếu không có, dùng mã băm ADMIN_PASSWORD_HASH (chỉ lưu mã băm, không lưu mật khẩu).
+  const pw = process.env.ADMIN_PASSWORD, ph = process.env.ADMIN_PASSWORD_HASH;
+  if (!pw && !/^scrypt\$[0-9a-f]{32}\$[0-9a-f]{128}$/.test(ph || '')) return false;
   const a = get("SELECT id, must_change_pw FROM users WHERE username='admin'");
   if (!a || !a.must_change_pw) return false;
-  run('UPDATE users SET pass_hash=? WHERE id=?', D.hashPw(pw), a.id);
+  run('UPDATE users SET pass_hash=? WHERE id=?', pw ? D.hashPw(pw) : ph, a.id);
   return true;
 }
 module.exports = { handle, applyAdminSecret };

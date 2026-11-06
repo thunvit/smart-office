@@ -22,7 +22,10 @@
   "vars": {
     "PUBLIC_ORIGINS": "https://smartoffice.vnptninhbinh.com.vn",
     // "1" = nạp dữ liệu mẫu (bản trình diễn). Để trống = cơ sở dữ liệu trống, chỉ có tài khoản admin.
-    "SO_DEMO": ""
+    "SO_DEMO": "",
+    // Mã băm (scrypt) mật khẩu ban đầu của admin; mật khẩu gốc được bàn giao riêng cho chủ sở hữu, không lưu trong kho mã.
+    // Chỉ có tác dụng khi admin chưa đổi mật khẩu lần đầu.
+    "ADMIN_PASSWORD_HASH": "scrypt$d8678fc782c5557fbcc4183f9ab710a0$0e164084bec2c914ce8a3726f2183ef2427b090bcf542e4740e250aafa8993b0633d47786fdd530063b57bc3ecd994e16e71a7747f806abe831de6b189f0d92c"
   },
   // Bí mật ADMIN_PASSWORD (mật khẩu ban đầu của tài khoản admin) khai báo trên trang Cloudflare:
   // Workers & Pages > smart-office > Settings > Variables and Secrets. Không ghi mật khẩu vào tệp này.

@@ -16,6 +16,7 @@ function createApp(storage, env = {}) {
   process.env.NO_DEMO = env.SO_DEMO === '1' ? '' : '1';
   if (env.PUBLIC_ORIGINS) process.env.PUBLIC_ORIGINS = env.PUBLIC_ORIGINS;
   if (env.ADMIN_PASSWORD) process.env.ADMIN_PASSWORD = env.ADMIN_PASSWORD;
+  if (env.ADMIN_PASSWORD_HASH) process.env.ADMIN_PASSWORD_HASH = env.ADMIN_PASSWORD_HASH;
   globalThis.__SO_WORKER = true;
   globalThis.__SO_SQL = makeSql(storage);
   APP = require('../server.js');
