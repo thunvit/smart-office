@@ -108,6 +108,18 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Chưa kiểm chứng:** CPU trên Cloudflare thật với chuỗi phụ thuộc dài; việc sinh công việc lặp lại trên Durable Object thật.
 - **Còn lại:** đợt 2 (trường tùy chỉnh, nhân bản và mẫu dự án, nhân bản sang dự án khác, nhập CSV, xuất Gantt); đợt 3 (tác vụ hàng loạt, ủy quyền, báo cáo hệ thống, dự án ưu tiên, đánh giá theo nhóm, email).
 
+## 06/11/2026 (11:04). Triển khai đợt 1 lập kế hoạch (so-1.7.0) theo yêu cầu của chủ sở hữu
+- **Việc đã làm:** hợp nhất fast-forward `tinh-nang/lap-ke-hoach` vào `main` (commit `5f4cbbb`). Kiểm thử bắt buộc chạy lại đều đạt.
+- **GitHub:** Workers Builds `success`, `deploy` `success`, `kiem-tra` `success` (có `work-test`, `work-plan-test`).
+- **Kiểm tra trên Cloudflare thật** (trình duyệt tích hợp):
+  - `/healthz` ok; `sw.js` = `so-1.7.0`; `work.js` là bản mới.
+  - Khi chưa đăng nhập, `recurrences`, `preview`, `deps`, `milestones` đều trả 401.
+  - Đọc bằng phiên quản trị sẵn có, không ghi: dự án có `milestones` và thiết lập `deps` = false (mặc định); chi tiết công việc có `deps`, `milestones`, `recurrence`.
+  - Thời gian phản hồi đo phía trình duyệt: lọc Lịch 60 ms; danh sách kèm `deps` 61 ms.
+- **Ghi nhận dữ liệu thật:** chỉ có một kỳ mục tiêu "Quý I/2027" (01/01–31/03/2027), không có kỳ chứa ngày hiện tại. Hệ thống chọn kỳ này theo quy tắc dự phòng, đúng thiết kế. Đề nghị quản trị tạo kỳ "Quý IV/2026" nếu cần liên kết mục tiêu ngay.
+- **Chưa kiểm chứng trên Cloudflare thật:** các thao tác ghi (tạo phụ thuộc, lặp lại, mốc, kéo thả Gantt); việc sinh công việc lặp lại trên Durable Object.
+- **Theo chỉ đạo của chủ sở hữu:** email thông báo để sau.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
 2. **Các việc P0 theo báo cáo rà soát:**
