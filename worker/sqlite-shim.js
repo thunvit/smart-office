@@ -23,9 +23,16 @@ function normRow(row) {
   return row;
 }
 
-function makeSql(storage) {
-  const sql = storage.sql;
-  const execOne = (q, params) => sql.exec(q, ...params.map(normParam));
+/**
+ * getStorage: hàm trả về ctx.storage của Durable Object ĐANG phục vụ yêu cầu.
+ * Không được giữ cố định storage của lần khởi tạo đầu: Cloudflare có thể khởi tạo lại
+ * Durable Object trong cùng isolate, và mọi I/O qua storage cũ sẽ bị từ chối
+ * ("Cannot perform I/O on behalf of a different Durable Object").
+ */
+function makeSql(getStorage) {
+  if (typeof getStorage !== 'function') { const s = getStorage; getStorage = () => s; }
+  const sqlNow = () => getStorage().sql;
+  const execOne = (q, params) => sqlNow().exec(q, ...params.map(normParam));
   return {
     exec(text) {
       const src = String(text).trim();
@@ -35,7 +42,7 @@ function makeSql(storage) {
       const kept = parts.filter(p => !SKIP.test(p)).join(';\n').trim();
       if (!kept) return;
       if (TXN.test(kept)) throw new Error('Dùng tx() thay cho BEGIN/COMMIT trên Cloudflare.');
-      sql.exec(kept);
+      sqlNow().exec(kept);
     },
     prepare(q) {
       return {
@@ -44,12 +51,12 @@ function makeSql(storage) {
         run: (...p) => {
           const c = execOne(q, p);
           c.toArray();
-          const id = sql.exec('SELECT last_insert_rowid() AS id').one().id;
+          const id = sqlNow().exec('SELECT last_insert_rowid() AS id').one().id;
           return { changes: c.rowsWritten, lastInsertRowid: id };
         }
       };
     },
-    transactionSync: fn => storage.transactionSync(fn)
+    transactionSync: fn => getStorage().transactionSync(fn)
   };
 }
 

@@ -12,8 +12,9 @@ export class SmartOffice extends DurableObject {
     this.app = null;
   }
   async fetch(request) {
-    if (!this.app) this.app = core.createApp(this.ctx.storage, this.env);
-    return core.handleRequest(this.app, request);
+    // Gọi ở MỌI yêu cầu để gắn storage của chính đối tượng này (ứng dụng chỉ khởi tạo một lần mỗi isolate).
+    const app = core.createApp(this.ctx.storage, this.env);
+    return core.handleRequest(app, request);
   }
 }
 

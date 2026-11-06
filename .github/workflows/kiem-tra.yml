@@ -24,3 +24,4 @@ jobs:
         run: |
           node test/worker-smoke.js | tee out.txt
           grep -q "download 200 true" out.txt
+          grep -q "re-instantiate 200" out.txt

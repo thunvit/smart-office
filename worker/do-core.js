@@ -10,7 +10,9 @@
 const { makeSql } = require('./sqlite-shim.js');
 
 let APP = null;
+let CURRENT_STORAGE = null; // storage của Durable Object đang phục vụ; cập nhật ở mỗi yêu cầu
 function createApp(storage, env = {}) {
+  CURRENT_STORAGE = storage;
   if (APP) return APP;
   process.env.TRUST_PROXY = '1';
   process.env.NO_DEMO = env.SO_DEMO === '1' ? '' : '1';
@@ -19,7 +21,7 @@ function createApp(storage, env = {}) {
   if (env.ADMIN_PASSWORD) process.env.ADMIN_PASSWORD = env.ADMIN_PASSWORD;
   if (env.ADMIN_PASSWORD_HASH) process.env.ADMIN_PASSWORD_HASH = env.ADMIN_PASSWORD_HASH;
   globalThis.__SO_WORKER = true;
-  globalThis.__SO_SQL = makeSql(storage);
+  globalThis.__SO_SQL = makeSql(() => CURRENT_STORAGE);
   APP = require('../server.js');
   APP.applyAdminSecret();
   return APP;

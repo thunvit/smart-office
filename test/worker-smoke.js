@@ -6,7 +6,9 @@ const core = require(REPO + '/worker/do-core.js');
 (async () => {
   const fs = require('fs'); try { fs.unlinkSync(path.join(require('os').tmpdir(), 'so-do-test.db')); } catch (e) {}
   const demo = process.argv[2] === 'demo';
-  const app = core.createApp(fakeStorage(path.join(require('os').tmpdir(), 'so-do-test.db')), demo ? { SO_DEMO: '1' } : { ADMIN_PASSWORD: 'Thu-Nghiem#2026', PUBLIC_ORIGINS: 'https://smartoffice.vnptninhbinh.com.vn' });
+  const DBF = path.join(require('os').tmpdir(), 'so-do-test.db');
+  const st1 = fakeStorage(DBF);
+  let app = core.createApp(st1, demo ? { SO_DEMO: '1' } : { ADMIN_PASSWORD: 'Thu-Nghiem#2026', PUBLIC_ORIGINS: 'https://smartoffice.vnptninhbinh.com.vn' });
   const B = 'https://smart-office.example.workers.dev';
   let cookie = '';
   const call = async (method, p, body, extra = {}) => {
@@ -39,4 +41,8 @@ const core = require(REPO + '/worker/do-core.js');
   r = await call('GET', '/api/bootstrap'); console.log('csv/tasks');
   const c = await call('GET', '/api/export/tasks.csv'); console.log('csv', c.status, c.headers.get('content-type'), String(c.body).length);
   r = await call('POST', '/api/attendance/check', {}); console.log('check-in', r.status, JSON.stringify(r.body).slice(0, 140));
+  // Durable Object được khởi tạo lại trong cùng isolate: storage cũ không còn dùng được
+  st1.kill();
+  app = core.createApp(fakeStorage(DBF), demo ? { SO_DEMO: '1' } : { ADMIN_PASSWORD: 'Thu-Nghiem#2026' });
+  r = await call('GET', '/api/bootstrap'); console.log('re-instantiate', r.status);
 })().catch(e => { console.error('FAIL', e); process.exit(1); });
