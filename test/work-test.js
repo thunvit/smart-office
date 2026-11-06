@@ -19,6 +19,7 @@ async function call(who, method, p, body) {
   const ct = r.headers.get('content-type') || '';
   return { s: r.status, b: ct.includes('json') ? await r.json() : await r.text() };
 }
+const login0 = async (u, pw) => { sessions[u] = ''; const r = await call(u, 'POST', '/api/login', { username: u, password: pw }); if (r.s !== 200) throw new Error('login ' + u + ' ' + r.s); };
 const login = async u => { sessions[u] = ''; const r = await call(u, 'POST', '/api/login', { username: u, password: '123456' }); if (r.s !== 200) throw new Error('login ' + u + ' ' + r.s); };
 
 (async () => {
@@ -219,6 +220,85 @@ const login = async u => { sessions[u] = ''; const r = await call(u, 'POST', '/a
   r = await call('long.hd', 'GET', '/api/projects/1/export.csv');
   ok(r.s === 200 && r.b.includes('Nhãn') && r.b.includes('Bảo mật; Ưu tiên quý IV'), 'CSV có cột Nhãn');
   void cloneId;
+
+  // 15. Lỗi kỳ mục tiêu: mặc định phải là kỳ chứa ngày hôm nay, không phải kỳ có ngày bắt đầu muộn nhất
+  await login0('admin', 'Admin@123');
+  const curCycle = (await call('long.hd', 'GET', '/api/goals')).b.cycle;
+  r = await call('admin', 'POST', '/api/goals/cycles', { name: 'Kỳ tương lai kiểm thử', start_date: T(200), end_date: T(290) });
+  ok(r.s === 200, 'quản trị tạo kỳ mục tiêu tương lai', r.b);
+  r = await call('long.hd', 'GET', '/api/goals');
+  ok(r.b.cycle && r.b.cycle.start_date <= T(0) && r.b.cycle.end_date >= T(0) && r.b.cycle.id === curCycle.id, 'mặc định chọn kỳ chứa ngày hôm nay', r.b.cycle);
+
+  // 16. Công việc phụ thuộc (Base bài 63000283721, 63000283724)
+  const mk = async (title, st, du) => (await call('long.hd', 'POST', '/api/tasks', { project_id: 1, title, assignee_id: 8, start_date: T(st), due_date: T(du) })).b;
+  const A = await mk('PT-A Xây dựng', 0, 2), Bt = await mk('PT-B Sơn', 0, 1), C = await mk('PT-C Bàn giao', 5, 6);
+  ok((await call('long.hd', 'POST', `/api/tasks/${A.id}/deps`, { other_id: Bt.id, type: 'FS' })).s === 400, 'chưa bật phụ thuộc thì không tạo được');
+  r = await call('long.hd', 'PUT', '/api/projects/1/settings', { deps: true, deps_mode: 'keep' });
+  ok(r.s === 200 && r.b.settings.deps === true && r.b.settings.deps_mode === 'keep', 'quản lý bật phụ thuộc, chế độ giữ nguyên thời gian', r.b.settings);
+  r = await call('long.hd', 'POST', `/api/tasks/${A.id}/deps`, { other_id: Bt.id, direction: 'blocks', type: 'FS', lag_days: 1 });
+  let Bn = (await call('long.hd', 'GET', '/api/tasks/' + Bt.id)).b;
+  ok(r.s === 200 && r.b.shifted === 1 && Bn.start_date === T(4) && Bn.due_date === T(5), 'FS + 1 ngày: B bắt đầu sau khi A kết thúc 1 ngày, giữ thời lượng', [r.b.shifted, Bn.start_date, Bn.due_date]);
+  r = await call('long.hd', 'POST', `/api/tasks/${C.id}/deps`, { other_id: Bt.id, direction: 'blocked_by', type: 'FS' });
+  let Cn = (await call('long.hd', 'GET', '/api/tasks/' + C.id)).b;
+  ok(r.s === 200 && Cn.start_date === T(6) && Cn.due_date === T(7), '"bị chặn bởi": C bắt đầu sau B', [Cn.start_date, Cn.due_date]);
+  ok(Cn.deps.blocked_by.length === 1 && Cn.deps.blocked_by[0].id === Bt.id && Cn.deps.warnings.some(w => w.includes('FS')), 'chi tiết hiển thị bị chặn bởi và cảnh báo FS', Cn.deps);
+  r = await call('long.hd', 'POST', `/api/tasks/${C.id}/deps`, { other_id: A.id, direction: 'blocks', type: 'SS' });
+  ok(r.s === 400 && /vòng lặp/.test(r.b.error), 'chặn phụ thuộc vòng lặp C → A', r.b);
+  ok((await call('long.hd', 'POST', `/api/tasks/${A.id}/deps`, { other_id: A.id })).s === 400, 'không tự phụ thuộc chính nó');
+  ok((await call('long.hd', 'POST', `/api/tasks/${Bt.id}/deps`, { other_id: A.id, direction: 'blocks' })).s === 400, 'không tạo trùng hoặc ngược chiều quan hệ đã có');
+  ok((await call('huong.tt', 'POST', `/api/tasks/${A.id}/deps`, { other_id: C.id })).s === 403, 'người ngoài không tạo được phụ thuộc');
+  r = await call('long.hd', 'PUT', '/api/tasks/' + A.id, { due_date: T(5) });
+  Bn = (await call('long.hd', 'GET', '/api/tasks/' + Bt.id)).b; Cn = (await call('long.hd', 'GET', '/api/tasks/' + C.id)).b;
+  ok(r.b.shifted === 2 && Bn.start_date === T(7) && Cn.start_date === T(9), 'dời thời hạn A +3 ngày: B và C dời theo, giữ khoảng cách', [r.b.shifted, Bn.start_date, Cn.start_date]);
+  r = await call('long.hd', 'GET', `/api/projects/1/tasks?from=${T(9)}&to=${T(9)}`);
+  ok(r.s === 200 && r.b.rows.some(t => t.id === C.id) && !r.b.rows.some(t => t.id === A.id), 'lọc theo khoảng ngày cho chế độ xem Lịch', r.b.total);
+  await call('long.hd', 'PUT', '/api/projects/1/settings', { deps_mode: 'none' });
+  r = await call('long.hd', 'PUT', '/api/tasks/' + A.id, { due_date: T(6) });
+  ok(r.b.shifted === 0 && (await call('long.hd', 'GET', '/api/tasks/' + Bt.id)).b.start_date === T(7), 'chế độ "Không": dời A không ảnh hưởng B');
+  r = await call('long.hd', 'DELETE', '/api/task-deps/' + Cn.deps.blocked_by[0].dep_id + '?view=' + C.id);
+  ok(r.s === 200 && r.b.id === C.id && r.b.deps.blocked_by.length === 0, 'gỡ phụ thuộc', r.b.deps);
+  const team = (await call('huy.dq', 'GET', '/api/projects')).b.find(p => p.kind === 'team');
+  await call('huy.dq', 'PUT', `/api/projects/${team.id}/settings`, { deps: true });
+  const tm1 = (await call('huy.dq', 'POST', '/api/tasks', { project_id: team.id, title: 'x1' })).b, tm2 = (await call('huy.dq', 'POST', '/api/tasks', { project_id: team.id, title: 'x2' })).b;
+  ok((await call('huy.dq', 'POST', `/api/tasks/${tm1.id}/deps`, { other_id: tm2.id })).s === 400, 'phòng ban không dùng phụ thuộc (chỉ Dự án)');
+
+  // 17. Mốc dự án (milestone)
+  r = await call('long.hd', 'POST', '/api/projects/1/milestones', { title: 'Nghiệm thu giai đoạn 1', due_date: T(10), owner_id: 9 });
+  ok(r.s === 200 && r.b.milestones.length === 1 && r.b.milestones[0].total === 0, 'quản lý tạo mốc dự án', r.b.milestones);
+  const msId = r.b.milestones[0].id;
+  ok((await call('mai.bt', 'POST', '/api/projects/1/milestones', { title: 'x' })).s === 403, 'thành viên không tạo được mốc');
+  r = await call('long.hd', 'PUT', '/api/tasks/' + A.id, { milestone_id: msId });
+  ok(r.s === 200 && r.b.milestone && r.b.milestone.id === msId, 'gắn công việc vào mốc', r.b.milestone);
+  r = await call('long.hd', 'GET', '/api/projects/1');
+  ok(r.b.milestones[0].total === 1 && r.b.milestones[0].done === 0, 'tiến độ mốc tính theo công việc gắn mốc', r.b.milestones[0]);
+  const ms2 = (await call('huy.dq', 'POST', `/api/projects/${team.id}/milestones`, { title: 'mốc khác' })).b.milestones[0].id;
+  ok((await call('long.hd', 'PUT', '/api/tasks/' + A.id, { milestone_id: ms2 })).s === 400, 'không gắn mốc của dự án khác');
+  r = await call('long.hd', 'DELETE', '/api/milestones/' + msId);
+  ok(r.s === 200 && r.b.milestones.length === 0 && (await call('long.hd', 'GET', '/api/tasks/' + A.id)).b.milestone === null, 'xóa mốc, công việc bỏ gắn mốc');
+
+  // 18. Công việc lặp lại (Base bài 63000268543)
+  r = await call('long.hd', 'POST', '/api/recurrences/preview', { start_date: T(0), rule: { freq: 'week', interval: 1, weekdays: [1, 2, 3, 4, 5, 6, 7] } });
+  ok(r.s === 200 && r.b.dates.length === 10 && r.b.dates[0] === T(0), 'xem trước 10 lần lặp gần nhất', r.b.dates);
+  ok((await call('long.hd', 'POST', '/api/projects/1/recurrences', { title: 'x', assignee_id: 8, start_date: T(0), rule: { freq: 'week', weekdays: [] }, due_hours: 17 })).s === 400, 'quy tắc thiếu thứ trong tuần bị từ chối');
+  r = await call('long.hd', 'POST', '/api/projects/1/recurrences', { title: 'Kiểm tra sao lưu hằng ngày', assignee_id: 8, start_date: T(0), rule: { freq: 'week', interval: 1, weekdays: [1, 2, 3, 4, 5, 6, 7] }, due_hours: 15.5, subtasks: 'Kiểm tra tệp\nGhi sổ', checklist: 'Đối chiếu dung lượng', tags: 'Vận hành', followers: [9] });
+  ok(r.s === 200 && r.b.rule.freq === 'week' && r.b.gen_count >= 1 && r.b.gen_count <= 2, 'tạo công việc lặp lại, sinh ngay lần gần nhất (và lần kế tiếp nếu đã qua 7:00)', r.b);
+  const recId = r.b.id, gen1 = r.b.gen_count;
+  let occ = (await call('long.hd', 'GET', '/api/projects/1/tasks?q=' + encodeURIComponent('Kiểm tra sao lưu hằng ngày'))).b.rows.filter(t => t.recurrence_id === recId);
+  ok(occ.length === gen1 && occ.some(t => t.start_date === T(0)) && occ.every(t => t.start_date <= T(1)), 'lần lặp được sinh đúng ngày, không sinh trước quá 1 lần', occ.map(t => t.start_date));
+  const occFull = (await call('long.hd', 'GET', '/api/tasks/' + occ.find(t => t.start_date === T(0)).id)).b;
+  ok(occFull.subtasks.length === 2 && occFull.checklist.length === 1 && occFull.followers.includes(9) && occFull.tags.includes('Vận hành') && occFull.recurrence.id === recId, 'lần lặp kèm việc con, đầu việc, người theo dõi, nhãn', occFull);
+  r = await call('long.hd', 'PUT', '/api/recurrences/' + recId, { title: 'Kiểm tra sao lưu hằng ngày' });
+  ok(r.s === 200 && r.b.gen_count === gen1, 'sửa không sinh trùng lần lặp', r.b.gen_count);
+  ok((await call('huong.tt', 'GET', '/api/projects/1/recurrences')).s === 403, 'người theo dõi dự án không xem được danh sách công việc lặp lại');
+  ok((await call('mai.bt', 'PUT', '/api/recurrences/' + recId, { title: 'y' })).s === 403, 'thành viên không phải người thiết lập không sửa được');
+  const wd = ((new Date(T(3) + 'T00:00:00Z').getUTCDay() + 6) % 7) + 1;
+  r = await call('long.hd', 'POST', '/api/projects/1/recurrences', { title: 'Họp giao ban tương lai', assignee_id: 8, start_date: T(3), rule: { freq: 'week', interval: 1, weekdays: [wd] }, due_hours: 10 });
+  ok(r.s === 200 && r.b.gen_count === 1 && r.b.last_gen === T(3), 'bắt đầu trong tương lai: chỉ sinh lần đầu tiên, chưa sinh lần tiếp theo', [r.b.gen_count, r.b.last_gen]);
+  r = await call('long.hd', 'GET', '/api/projects/1/recurrences');
+  ok(r.s === 200 && r.b.length === 2 && r.b.every(x => Array.isArray(x.preview)), 'danh sách công việc lặp lại kèm lịch xem trước', r.b.length);
+  r = await call('long.hd', 'DELETE', '/api/recurrences/' + recId);
+  occ = (await call('long.hd', 'GET', '/api/projects/1/tasks?q=' + encodeURIComponent('Kiểm tra sao lưu hằng ngày'))).b.rows.filter(t => !t.parent_id);
+  ok(r.s === 200 && occ.length === gen1 && occ.every(t => t.recurrence_id === null), 'xóa thiết lập lặp lại, giữ các công việc đã sinh', occ.length);
 
   console.log(`work-test: ${pass} đạt, ${fail} không đạt`);
   process.exit(fail ? 1 : 0);

@@ -72,6 +72,44 @@ const SP = process.argv[2], BASE = 'http://localhost:3999';
   await pg.click('[data-act="tk-fileup"]'); await pg.waitForSelector('#modal .w-file a:has-text("bang-du-toan.xlsx")'); ok(true, 'Tải thêm tệp trong chi tiết công việc');
   await pg.click('#modal .modal-f [data-act="close"]'); await pg.selectOption('#w-lt', ''); await pg.waitForTimeout(600);
 
+  // Lập kế hoạch: bật phụ thuộc, mốc dự án, phụ thuộc, Gantt kéo thả, Lịch, Lặp lại
+  await pg.click('[data-wv="settings"]'); await pg.waitForSelector('[data-wset="deps"]');
+  await pg.check('[data-wset="deps"]'); await pg.selectOption('#ps-dm', 'keep'); await pg.click('[data-act="w-pr-save"]'); await pg.waitForTimeout(600);
+  ok(await pg.locator('[data-wset="deps"]').isChecked(), 'Bật công việc phụ thuộc trong Thiết lập');
+  await pg.click('[data-wv="list"]'); await pg.waitForSelector('.w-ms');
+  await pg.click('[data-act="w-msnew"]'); await pg.fill('#ms-t', 'Nghiệm thu thiết kế'); await pg.fill('#ms-d', await pg.evaluate(() => window.SO.addDays(window.SO.TODAY(), 10)));
+  await pg.click('[data-act="ms-save"]'); await pg.waitForSelector('.w-ms-item:has-text("Nghiệm thu thiết kế")'); ok(true, 'Tạo mốc dự án');
+  // Phụ thuộc: "Lập hồ sơ thiết kế hạ tầng" chặn "Lập báo cáo khảo sát" (FS)
+  await pg.click('.t-title:has-text("Lập hồ sơ thiết kế hạ tầng")'); await pg.waitForSelector('#modal [data-act="tk-depadd"]');
+  await pg.selectOption('#tk-ms', await pg.$eval('#tk-ms', s => [...s.options].find(o => o.text.includes('Nghiệm thu thiết kế')).value)); await pg.click('[data-act="tk-save"]'); await pg.waitForTimeout(600);
+  await pg.click('[data-act="tk-depadd"]'); await pg.waitForSelector('#dp-t');
+  const optVal = await pg.$eval('#dp-t', s => [...s.options].find(o => o.text.includes('Lập báo cáo khảo sát')).value); await pg.selectOption('#dp-t', optVal);
+  await pg.click('[data-act="dp-go"]'); await pg.waitForSelector('#modal .w-dep:has-text("Lập báo cáo khảo sát")'); ok(true, 'Thêm phụ thuộc FS trong chi tiết công việc');
+  await pg.click('#modal .modal-f [data-act="close"]'); await pg.waitForTimeout(500);
+  ok((await pg.textContent('.w-ms-item:has-text("Nghiệm thu thiết kế")')).includes('0/1'), 'Mốc dự án tính 1 công việc gắn mốc');
+  // Gantt: có mũi tên phụ thuộc, kéo thanh dời lịch
+  await pg.click('[data-wv="gantt"]'); await pg.waitForSelector('.g-grid');
+  ok(await pg.locator('#g-deps path').count() >= 1, 'Gantt vẽ mũi tên phụ thuộc');
+  ok(await pg.locator('.w-g-dia').count() === 1, 'Gantt hiển thị mốc dự án');
+  const tid = await pg.locator('.g-label:has-text("Lập hồ sơ thiết kế hạ tầng")').getAttribute('data-task');
+  const before = await pg.evaluate(async id => (await (await fetch('/api/tasks/' + id)).json()).due_date, tid);
+  const bb = await pg.locator(`.g-bar[data-task="${tid}"]`).boundingBox();
+  await pg.mouse.move(bb.x + 10, bb.y + bb.height / 2); await pg.mouse.down(); await pg.mouse.move(bb.x + 10 + 32 * 2, bb.y + bb.height / 2, { steps: 6 }); await pg.mouse.up();
+  await pg.waitForTimeout(1200);
+  const after = await pg.evaluate(async id => (await (await fetch('/api/tasks/' + id)).json()).due_date, tid);
+  ok(after === await pg.evaluate(([d]) => window.SO.addDays(d, 2), [before]), `Kéo thanh Gantt dời thời hạn +2 ngày (${before} → ${after})`);
+  ok(await pg.locator('#modal .modal-h').count() === 0, 'Kéo thả không mở nhầm chi tiết công việc');
+  // Lịch
+  await pg.click('[data-wv="calendar"]'); await pg.waitForSelector('.w-cal');
+  ok(await pg.locator('.w-cal-c').count() === 42 && await pg.locator('.w-cal-t').count() >= 1, 'Chế độ xem Lịch tháng có công việc');
+  // Lặp lại
+  await pg.click('[data-wv="recur"]'); await pg.waitForSelector('[data-act="w-recnew"]');
+  await pg.click('[data-act="w-recnew"]'); await pg.waitForSelector('#rc-t'); await pg.fill('#rc-t', 'Báo cáo tuần'); await pg.selectOption('#rc-f', 'month');
+  await pg.fill('#rc-md', '15'); await pg.check('#rc-last'); await pg.click('[data-act="rc-prev"]'); await pg.waitForFunction(() => document.querySelector('#rc-out').textContent.length > 5);
+  ok((await pg.textContent('#rc-out')).split('·').length === 10, 'Xem trước 10 lần lặp: ' + (await pg.textContent('#rc-out')).slice(0, 40) + '…');
+  await pg.click('[data-act="rc-save"]'); await pg.waitForSelector('td:has-text("Hằng tháng: ngày 15, cuối tháng")'); ok(true, 'Tạo công việc lặp lại hằng tháng');
+  await pg.click('[data-wv="list"]'); await pg.waitForSelector('.w-row');
+
   // Mở chi tiết, thêm việc con, checklist, bình luận
     await pg.click('.t-title:has-text("Khảo sát hiện trạng hạ tầng")'); await pg.waitForSelector('#modal .w-status'); await pg.waitForFunction(() => document.activeElement && document.activeElement.id === 'tk-t');
   await pg.fill('#tk-cl', 'Kiểm tra máy chủ'); await pg.press('#tk-cl', 'Enter'); await pg.waitForSelector('.cl-row:has-text("Kiểm tra máy chủ")', {timeout: 3000}); ok(true, 'Thêm đầu việc');

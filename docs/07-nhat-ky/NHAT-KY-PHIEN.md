@@ -92,6 +92,22 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Chưa kiểm chứng trên Cloudflare thật:** tải tệp lên và đo CPU, vì phải ghi dữ liệu thật; cần chủ sở hữu thử một tệp.
 - **Phát hiện:** `/api/goals` chọn kỳ có ngày bắt đầu muộn nhất ("Quý I/2027", chưa có mục tiêu), không phải kỳ hiện hành. Do đó ô "Liên kết mục tiêu" sẽ trống dù kỳ hiện hành có mục tiêu. Đề xuất chọn kỳ chứa ngày hôm nay.
 
+## 06/11/2026 (10:44). Giai đoạn 2, đợt 1: lập kế hoạch (theo tài liệu Base Wework)
+- **Mục tiêu:** đưa các chức năng còn lại trong tài liệu Base Wework vào ứng dụng, chia 3 đợt. Đợt 1 gồm phụ thuộc, lặp lại, mốc dự án, Lịch, kéo thả Gantt.
+- **Căn cứ:** đọc lại 17 bài hướng dẫn Base Wework, trong đó có 63000283721, 63000283724, 63000268543, 63000267947, 63000286115, 63000252575, 63000273296, 63000286778, 63000252615, 63000254750, 63000271457.
+- **Việc đã làm** (nhánh `tinh-nang/lap-ke-hoach`):
+  - Sửa lỗi kỳ mục tiêu mặc định (`server.js` `currentCycleId`). Kiểm thử tái hiện báo lỗi trên mã cũ, đạt trên mã mới.
+  - `work-plan.js` (hàm thuần) và các bảng `task_deps`, `project_milestones`, `task_recurrences`; các API phụ thuộc, mốc, lặp lại; lọc theo khoảng ngày và theo mốc (ADR-006).
+  - Giao diện: thẻ Lịch, Lặp lại; dải mốc dự án; bộ lọc mốc; mục phụ thuộc trong chi tiết công việc; Gantt kéo thả, mũi tên phụ thuộc, mốc; tiêu đề ngày Gantt gọn hơn. `sw.js` lên `so-1.7.0`.
+  - Lỗi phân quyền phát hiện khi kiểm thử và đã sửa trước khi đẩy: người theo dõi dự án xem được danh sách công việc lặp lại.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `work-test`: 123 đạt, 0 không đạt (thêm 33 điều kiện);
+  - `work-plan-test`: 14 đạt, 0 không đạt (ví dụ a–d của Base);
+  - `worker-smoke`: đạt; bản Node: `/healthz` ok, `/api/login` 200;
+  - `work-ui`: 50/50 đạt, 3 lần chạy; không cuộn ngang ở 390 px.
+- **Chưa kiểm chứng:** CPU trên Cloudflare thật với chuỗi phụ thuộc dài; việc sinh công việc lặp lại trên Durable Object thật.
+- **Còn lại:** đợt 2 (trường tùy chỉnh, nhân bản và mẫu dự án, nhân bản sang dự án khác, nhập CSV, xuất Gantt); đợt 3 (tác vụ hàng loạt, ủy quyền, báo cáo hệ thống, dự án ưu tiên, đánh giá theo nhóm, email).
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
 2. **Các việc P0 theo báo cáo rà soát:**

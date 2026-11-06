@@ -545,3 +545,35 @@ tr.voided td{opacity:.5;text-decoration:line-through}
 .w-filepick:focus-within{outline:2px solid var(--accent);outline-offset:2px}
 .field>label.check{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:400;color:var(--muted);align-self:flex-start}
 .field input[type=checkbox],.field input[type=radio]{width:auto;padding:0;flex:none}
+/* Công việc: lập kế hoạch (mốc, phụ thuộc, Gantt kéo thả, Lịch, Lặp lại) */
+.w-ms{margin-bottom:12px}
+.w-ms-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;padding:0 14px 14px}
+.w-ms-item{border:1px solid var(--line);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.w-ms-h{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.w-dep{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 10px;border:1px solid var(--line);border-radius:8px}
+.g-bar[data-drag="1"]{cursor:grab;touch-action:none}
+.g-bar[data-drag="1"]::after{content:"";position:absolute;right:0;top:0;bottom:0;width:7px;cursor:ew-resize;background:rgba(255,255,255,.25)}
+.g-bar.dragging{cursor:grabbing;opacity:.85;box-shadow:0 2px 8px rgba(0,0,0,.25);z-index:3}
+.w-g-svg{position:absolute;left:0;top:0;pointer-events:none;z-index:1;overflow:visible}
+.w-g-ms span{font-weight:600;color:var(--muted)}
+.w-g-dia{position:absolute;top:12px;width:14px;height:14px;background:var(--warn);transform:rotate(45deg);border-radius:2px}
+.w-cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border-top:1px solid var(--line)}
+.w-cal-h{padding:6px 8px;font-size:11.5px;font-weight:600;color:var(--muted);background:var(--sunken);border-bottom:1px solid var(--line);text-align:center}
+.w-cal-c{min-height:104px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);padding:4px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.w-cal-c:nth-child(7n){border-right:0}
+.w-cal-c.out{background:var(--sunken)}
+.w-cal-c.out .w-cal-n{color:var(--faint)}
+.w-cal-c.today .w-cal-n{background:var(--accent);color:#fff;border-radius:10px;padding:0 6px}
+.w-cal-n{font-size:12px;color:var(--muted);align-self:flex-start}
+.w-cal-t{font-size:12px;display:flex;align-items:center;gap:5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:1px 4px;border-radius:4px}
+.w-cal-t:hover{background:var(--sunken)}
+.w-cal-ms{font-size:11.5px;color:var(--warn);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.w-cal-more{align-self:flex-start;padding:0 4px}
+.w-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted)}
+.w-dot.s-doing{background:var(--info)} .w-dot.s-review{background:var(--warn)} .w-dot.s-done{background:var(--ok)} .w-dot.s-failed{background:var(--bad)}
+.w-agenda{display:none;padding:0 14px 14px}
+.w-ag-d{display:flex;flex-direction:column;gap:4px;padding:8px 0;border-bottom:1px solid var(--line)}
+.w-rc-prev{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+@media (max-width:700px){.w-cal{display:none}.w-agenda{display:block}}
+.w-dot.s-todo{background:var(--muted)}
+.g-day b{font-size:10.5px;white-space:nowrap}

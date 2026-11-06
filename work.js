@@ -7,6 +7,7 @@
 const D = require('./db');
 const { db, all, get, run, tx, today, now, addCol } = D;
 const { FILES, saveUpload, sendFile } = require('./files');
+const PLAN = require('./work-plan');
 
 /* ================= Lược đồ ================= */
 db.exec(`
@@ -59,6 +60,31 @@ CREATE INDEX IF NOT EXISTS ix_tfile_task ON task_files(task_id);
 CREATE INDEX IF NOT EXISTS ix_tfile_stored ON task_files(stored_name);
 CREATE INDEX IF NOT EXISTS ix_tasks_goal ON tasks(goal_id);
 `);
+/* Lập kế hoạch: phụ thuộc, mốc dự án, công việc lặp lại (Base Wework bài 63000283721, 63000283724, 63000267947, 63000268543) */
+addCol('tasks', 'milestone_id', 'INTEGER');
+addCol('tasks', 'recurrence_id', 'INTEGER');
+db.exec(`
+CREATE TABLE IF NOT EXISTS task_deps (
+  id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, pred_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  succ_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE, type TEXT NOT NULL DEFAULT 'FS', lag_days INTEGER DEFAULT 0,
+  created_by INTEGER, created_at TEXT, UNIQUE(pred_id, succ_id));
+CREATE INDEX IF NOT EXISTS ix_dep_succ ON task_deps(succ_id);
+CREATE INDEX IF NOT EXISTS ix_dep_proj ON task_deps(project_id);
+CREATE TABLE IF NOT EXISTS project_milestones (
+  id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, title TEXT NOT NULL,
+  due_date TEXT, owner_id INTEGER, description TEXT DEFAULT '', created_by INTEGER, created_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_ms_proj ON project_milestones(project_id);
+CREATE INDEX IF NOT EXISTS ix_tasks_ms ON tasks(milestone_id);
+CREATE TABLE IF NOT EXISTS task_recurrences (
+  id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE, group_id INTEGER,
+  title TEXT NOT NULL, description TEXT DEFAULT '', assignee_id INTEGER, creator_id INTEGER, followers TEXT DEFAULT '[]',
+  tags TEXT DEFAULT '', subtasks TEXT DEFAULT '', checklist TEXT DEFAULT '', priority TEXT DEFAULT 'tb',
+  start_date TEXT NOT NULL, end_date TEXT, rule TEXT NOT NULL, due_hours REAL DEFAULT 17,
+  active INTEGER DEFAULT 1, last_gen TEXT, gen_count INTEGER DEFAULT 0, created_at TEXT, updated_at TEXT);
+CREATE INDEX IF NOT EXISTS ix_rec_proj ON task_recurrences(project_id);
+CREATE INDEX IF NOT EXISTS ix_rec_active ON task_recurrences(active);
+CREATE INDEX IF NOT EXISTS ix_tasks_rec ON tasks(recurrence_id);
+`);
 db.exec(`
 CREATE INDEX IF NOT EXISTS ix_tasks_parent ON tasks(parent_id);
 CREATE INDEX IF NOT EXISTS ix_tasks_group ON tasks(group_id);
@@ -99,7 +125,9 @@ const DEFAULT_SETTINGS = {
   assignee_edit_deadline: true, // Người nhận việc được sửa thời hạn
   assignee_edit_info: true,     // Người nhận việc được sửa thông tin (tên, mô tả, nhóm, ưu tiên)
   creator_delete: true,         // Người tạo được xóa việc
-  deadline_time: false          // Thời hạn theo giờ
+  deadline_time: false,         // Thời hạn theo giờ
+  deps: false,                  // Cho phép công việc phụ thuộc (chỉ áp dụng cho Dự án)
+  deps_mode: 'keep'             // keep: giữ nguyên thời gian phụ thuộc khi dời lịch; none: không ảnh hưởng
 };
 const MAX_DEPTH = 3, PAGE_MAX = 200, MAX_TITLE = 155;
 const isTime = s => /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || ''));
@@ -148,7 +176,8 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     (SELECT COUNT(*) FROM task_checklist c WHERE c.task_id=t.id) cl_total,
     (SELECT COUNT(*) FROM task_checklist c WHERE c.task_id=t.id AND c.done=1) cl_done,
     (SELECT COUNT(*) FROM task_comments c WHERE c.task_id=t.id) cm_count,
-    (SELECT COUNT(*) FROM task_files f WHERE f.task_id=t.id) file_count, t.tags, t.goal_id`;
+    (SELECT COUNT(*) FROM task_files f WHERE f.task_id=t.id) file_count, t.tags, t.goal_id, t.milestone_id, t.recurrence_id,
+    (SELECT COUNT(*) FROM task_deps d WHERE d.succ_id=t.id) dep_in, (SELECT COUNT(*) FROM task_deps d WHERE d.pred_id=t.id) dep_out`;
   /* Danh sách trả về: nhãn dạng mảng */
   const shape = r => { r.tags = tagList(r.tags); return r; };
   const goalOk = id => !!get('SELECT 1 FROM goals WHERE id=?', id);
@@ -171,10 +200,12 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
       members: all('SELECT m.user_id, m.role FROM project_members m JOIN users u ON u.id=m.user_id WHERE m.project_id=? ORDER BY CASE m.role WHEN \'manager\' THEN 0 WHEN \'member\' THEN 1 ELSE 2 END, u.full_name', p.id),
       groups: all('SELECT * FROM task_groups WHERE project_id=? ORDER BY sort, id', p.id),
       stats: projectStats(p.id),
+      milestones: milestonesOf(p.id),
       tags: [...new Set(all("SELECT tags FROM tasks WHERE project_id=? AND tags<>'' LIMIT 2000", p.id).flatMap(r => tagList(r.tags)))].sort((x, y) => x.localeCompare(y, 'vi')).slice(0, 200)
     };
   }
   route('GET', '/api/projects', ({ user, query }) => {
+    recTick();
     const w = [], a = [];
     if (!isOwner(user)) { w.push('EXISTS (SELECT 1 FROM project_members m WHERE m.project_id=p.id AND m.user_id=?)'); a.push(user.id); }
     if (query.status === 'closed') w.push("p.status='closed'"); else if (query.status !== 'all') w.push("p.status<>'closed'");
@@ -229,7 +260,8 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   route('PUT', '/api/projects/:id/settings', ({ user, params, body }) => {
     const p = projectOf(int(params.id)); need(canManage(roleIn(user, p.id)), 'Chỉ quản lý dự án/phòng ban mới được thay đổi thiết lập.');
     const S = settingsOf(p), b = body || {};
-    for (const k of ['allow_percent', 'review', 'allow_failed', 'member_view_all', 'member_create', 'assignee_edit_deadline', 'assignee_edit_info', 'creator_delete', 'deadline_time']) if (k in b) S[k] = !!b[k];
+    for (const k of ['allow_percent', 'review', 'allow_failed', 'member_view_all', 'member_create', 'assignee_edit_deadline', 'assignee_edit_info', 'creator_delete', 'deadline_time', 'deps']) if (k in b) S[k] = !!b[k];
+    if ('deps_mode' in b) { if (!['keep', 'none'].includes(b.deps_mode)) bad('Chế độ phụ thuộc không hợp lệ.'); S.deps_mode = b.deps_mode; }
     if ('reviewer_mode' in b) { if (!['creator', 'list'].includes(b.reviewer_mode)) bad('Chế độ đánh giá không hợp lệ.'); S.reviewer_mode = b.reviewer_mode; }
     if ('reviewers' in b) S.reviewers = (Array.isArray(b.reviewers) ? b.reviewers : []).map(int).filter(userOk).slice(0, 50);
     if ('review_sla_h' in b) S.review_sla_h = Math.min(Math.max(int(b.review_sla_h), 0), 720);
@@ -256,7 +288,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
   route('DELETE', '/api/projects/:id', ({ user, params }) => {
     const p = projectOf(int(params.id)); need(canManage(roleIn(user, p.id)), 'Chỉ quản lý dự án/phòng ban mới được xóa.');
     const blobs = all("SELECT f.stored_name FROM task_files f JOIN tasks t ON t.id=f.task_id WHERE t.project_id=? AND f.kind='file'", p.id).map(r => r.stored_name);
-    tx(() => { run('DELETE FROM task_files WHERE task_id IN (SELECT id FROM tasks WHERE project_id=?)', p.id); run('DELETE FROM tasks WHERE project_id=?', p.id); run('DELETE FROM projects WHERE id=?', p.id); });
+    tx(() => { run('DELETE FROM task_files WHERE task_id IN (SELECT id FROM tasks WHERE project_id=?)', p.id); run('DELETE FROM task_deps WHERE project_id=?', p.id); run('DELETE FROM project_milestones WHERE project_id=?', p.id); run('DELETE FROM task_recurrences WHERE project_id=?', p.id); run('DELETE FROM tasks WHERE project_id=?', p.id); run('DELETE FROM projects WHERE id=?', p.id); });
     releaseBlobs(blobs);
     log(user.id, `xóa <b>${esc(p.name)}</b>`);
     return { ok: true };
@@ -336,6 +368,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     else if (STATUS.includes(q.status)) { w.push('t.status=?'); a.push(q.status); }
   }
   route('GET', '/api/projects/:id/tasks', ({ user, params, query }) => {
+    recTick();
     const p = projectOf(int(params.id)); const role = roleIn(user, p.id);
     const v = visibleFilter(user);
     if (!role) { /* người ngoài dự án chỉ thấy việc mình liên quan */ }
@@ -345,15 +378,20 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     if (query.group) { w.push(query.group === 'none' ? 't.group_id IS NULL' : 't.group_id=?'); if (query.group !== 'none') a.push(int(query.group)); }
     if (query.q) { w.push('t.title LIKE ?'); a.push('%' + str(query.q, 100) + '%'); }
     if (query.tag) { w.push("t.tags LIKE ?"); a.push('%,' + str(query.tag, MAX_TAG_LEN) + ',%'); }
+    if (query.milestone) { w.push('t.milestone_id=?'); a.push(int(query.milestone)); }
+    if (isDate(query.from) && isDate(query.to)) { w.push('COALESCE(t.due_date, t.start_date) >= ? AND COALESCE(t.start_date, t.due_date) <= ?'); a.push(query.from, query.to); }
     const { limit, offset } = pageArgs(query);
     const total = get(`SELECT COUNT(*) n FROM tasks t WHERE ${w.join(' AND ')}`, ...a).n;
     if (!role && !total) need(false, 'Bạn không phải thành viên của dự án/phòng ban này.');
     const rows = all(`SELECT ${TASK_COLS} FROM tasks t WHERE ${w.join(' AND ')}
       ORDER BY COALESCE(t.parent_id, t.id), t.parent_id IS NOT NULL, t.due_date, t.id LIMIT ? OFFSET ?`, ...a, limit, offset).map(shape);
-    return { total, limit, offset, rows };
+    const out = { total, limit, offset, rows };
+    if (query.deps) { const ids = new Set(rows.map(r => r.id)); out.deps = all('SELECT id, pred_id, succ_id, type FROM task_deps WHERE project_id=? LIMIT 2000', p.id).filter(d => ids.has(d.pred_id) && ids.has(d.succ_id)); }
+    return out;
   });
   /* Việc của tôi: assigned | created | following | review | staff */
   route('GET', '/api/tasks', ({ user, query }) => {
+    recTick();
     const scope = query.scope || 'assigned';
     const w = [], a = [];
     if (scope === 'assigned') { w.push('t.assignee_id=?'); a.push(user.id); }
@@ -403,6 +441,10 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     t.groups = all('SELECT id, name, closed FROM task_groups WHERE project_id=? ORDER BY sort, id', p.id);
     t.tags = tagList(t.tags);
     t.goal = t.goal_id ? get('SELECT id, title, unit, target, current, level FROM goals WHERE id=?', t.goal_id) || null : null;
+    t.milestone = t.milestone_id ? get('SELECT id, title, due_date FROM project_milestones WHERE id=?', t.milestone_id) || null : null;
+    t.milestones = all('SELECT id, title, due_date FROM project_milestones WHERE project_id=? ORDER BY due_date IS NULL, due_date, id', p.id);
+    t.deps = depInfo(user, t, p);
+    t.recurrence = t.recurrence_id ? get('SELECT id, title, active FROM task_recurrences WHERE id=?', t.recurrence_id) || null : null;
     t.files = all('SELECT f.id, f.kind, f.doc_id, f.file_name, f.file_size, f.mime, f.uploaded_by, f.created_at, d.title doc_title FROM task_files f LEFT JOIN doc_items d ON d.id=f.doc_id WHERE f.task_id=? ORDER BY f.id', t.id);
     const { view, edit, editInfo, editDeadline, progress, del, fail, review, comment, manage } = acc;
     t.can = { view, edit, editInfo, editDeadline, progress, del, fail, review, comment, manage };
@@ -440,6 +482,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     const followers = [...new Set((Array.isArray(body.followers) ? body.followers : []).map(int).filter(userOk))];
     const tags = normTags(body.tags);
     const goal = body.goal_id ? int(body.goal_id) : null; if (goal && !goalOk(goal)) bad('Mục tiêu liên kết không tồn tại.');
+    const ms = body.milestone_id ? int(body.milestone_id) : null; if (ms && !get('SELECT 1 FROM project_milestones WHERE id=? AND project_id=?', ms, p.id)) bad('Mốc dự án không hợp lệ.');
     const ids = [];
     tx(() => {
       for (const a of assignees) {
@@ -447,6 +490,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
             start_date,due_date,due_time,est_hours,progress,tags,goal_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'todo',?,?,?,?,?,?,?,0,?,?,?,?)`,
           p.id, group_id, parent ? parent.id : null, title, str(body.description, 10000), a, user.id, prio, body.urgent ? 1 : 0, body.important ? 1 : 0,
           start, due, dueTime, est, tags, goal, now(), now()).lastInsertRowid);
+        if (ms) run('UPDATE tasks SET milestone_id=? WHERE id=?', ms, id);
         if (!get('SELECT 1 FROM project_members WHERE project_id=? AND user_id=?', p.id, a)) ensureMember(p.id, a, 'follower');
         for (const f of followers) if (f !== a) { run('INSERT OR IGNORE INTO task_followers(task_id,user_id) VALUES(?,?)', id, f); ensureMember(p.id, f, 'follower'); }
         for (const c of (Array.isArray(body.checklist) ? body.checklist : [])) if (str(c)) run('INSERT INTO task_checklist(task_id,text) VALUES(?,?)', id, str(c, 300));
@@ -464,7 +508,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     if (!acc.open) bad('Dự án/phòng ban đã đóng, không thể sửa công việc.');
     const S = acc.S, set = {}, changed = [];
     const want = k => k in body && body[k] !== undefined;
-    if (want('title') || want('description') || want('priority') || want('urgent') || want('important') || want('group_id') || want('est_hours') || want('tags') || want('goal_id')) {
+    if (want('title') || want('description') || want('priority') || want('urgent') || want('important') || want('group_id') || want('est_hours') || want('tags') || want('goal_id') || want('milestone_id')) {
       need(acc.editInfo, 'Bạn không có quyền sửa thông tin công việc này.');
       if (want('title')) { set.title = str(body.title, MAX_TITLE); if (!set.title) bad('Vui lòng nhập tên công việc.'); }
       if (want('description')) set.description = str(body.description, 10000);
@@ -473,6 +517,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
       if (want('important')) set.important = body.important ? 1 : 0;
       if (want('est_hours')) set.est_hours = Math.max(0, Number(body.est_hours) || 0);
       if (want('tags')) set.tags = normTags(body.tags);
+      if (want('milestone_id')) { set.milestone_id = body.milestone_id ? int(body.milestone_id) : null; if (set.milestone_id && !get('SELECT 1 FROM project_milestones WHERE id=? AND project_id=?', set.milestone_id, p.id)) bad('Mốc dự án không hợp lệ.'); }
       if (want('goal_id')) { set.goal_id = body.goal_id ? int(body.goal_id) : null; if (set.goal_id && !goalOk(set.goal_id)) bad('Mục tiêu liên kết không tồn tại.'); }
       if (want('group_id')) {
         if (body.group_id) { const g = get('SELECT * FROM task_groups WHERE id=? AND project_id=?', int(body.group_id), p.id); if (!g) bad('Nhóm công việc không hợp lệ.'); set.group_id = g.id; if (g.std_hours && !want('est_hours')) set.est_hours = g.std_hours; }
@@ -496,9 +541,16 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     const keys = Object.keys(set); if (!keys.length) bad('Không có thông tin nào thay đổi.');
     for (const k of keys) if (String(set[k] ?? '') !== String(t[k] ?? '')) changed.push(k);
     run(`UPDATE tasks SET ${keys.map(k => k + '=?').join(', ')}, updated_at=? WHERE id=?`, ...keys.map(k => set[k]), now(), t.id);
-    const LBL = { title: 'tên', description: 'mô tả', priority: 'mức ưu tiên', urgent: 'khẩn cấp', important: 'quan trọng', est_hours: 'thời lượng', group_id: 'nhóm công việc', tags: 'nhãn', goal_id: 'mục tiêu liên kết', start_date: 'ngày bắt đầu', due_date: 'thời hạn', due_time: 'giờ hết hạn', assignee_id: 'người nhận việc' };
+    const LBL = { title: 'tên', description: 'mô tả', priority: 'mức ưu tiên', urgent: 'khẩn cấp', important: 'quan trọng', est_hours: 'thời lượng', group_id: 'nhóm công việc', tags: 'nhãn', goal_id: 'mục tiêu liên kết', milestone_id: 'mốc dự án', start_date: 'ngày bắt đầu', due_date: 'thời hạn', due_time: 'giờ hết hạn', assignee_id: 'người nhận việc' };
     if (changed.length) tlog(t.id, user.id, 'update', changed.map(k => LBL[k] || k).join(', '));
-    return taskFull(user, t.id);
+    /* Giữ nguyên thời gian phụ thuộc: dời các công việc bị phụ thuộc theo độ lệch ngày */
+    let shifted = 0;
+    if (depsOn(p, S) && S.deps_mode === 'keep' && ('start_date' in set || 'due_date' in set)) {
+      const dS = t.start_date && set.start_date ? PLAN.dn(set.start_date) - PLAN.dn(t.start_date) : 0;
+      const dE = t.due_date && set.due_date ? PLAN.dn(set.due_date) - PLAN.dn(t.due_date) : 0;
+      if (dS || dE) tx(() => { shifted = cascade(t.id, dS, dE, user.id); });
+    }
+    const out = taskFull(user, t.id); out.shifted = shifted; return out;
   });
   /* Chuyển trạng thái: todo | doing | done | failed */
   route('POST', '/api/tasks/:id/status', ({ user, params, body }) => {
@@ -591,7 +643,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     need(acc.del, 'Bạn không có quyền xóa công việc này.');
     const ids = [t.id]; for (let i = 0; i < ids.length && i < 2000; i++) for (const c of all('SELECT id FROM tasks WHERE parent_id=?', ids[i])) ids.push(c.id);
     const blobs = blobsOf(ids);
-    tx(() => { for (const id of ids.reverse()) { run('DELETE FROM task_files WHERE task_id=?', id); run('DELETE FROM tasks WHERE id=?', id); } });
+    tx(() => { for (const id of ids.reverse()) { run('DELETE FROM task_files WHERE task_id=?', id); run('DELETE FROM task_deps WHERE pred_id=? OR succ_id=?', id, id); run('DELETE FROM tasks WHERE id=?', id); } });
     releaseBlobs(blobs);
     log(user.id, `xóa công việc <b>${esc(t.title)}</b>`);
     return { ok: true, deleted: ids.length };
@@ -607,6 +659,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
         p.id, keep.group === false ? null : s.group_id, parentId, depth === 0 ? (str(body.title, MAX_TITLE) || ('Bản sao: ' + s.title).slice(0, MAX_TITLE)) : s.title,
         keep.description === false ? '' : s.description, keep.assignee === false ? user.id : s.assignee_id, user.id, s.priority, s.urgent, s.important,
         today(), keep.deadline === false || depth > 0 ? null : s.due_date, keep.deadline === false || depth > 0 ? null : s.due_time, s.est_hours, s.tags || '', s.goal_id || null, now(), now()).lastInsertRowid);
+      if (s.milestone_id) run('UPDATE tasks SET milestone_id=? WHERE id=?', s.milestone_id, id);
       if (keep.files !== false) run(`INSERT INTO task_files(task_id,kind,doc_id,file_name,file_size,mime,stored_name,uploaded_by,created_at)
         SELECT ?,kind,doc_id,file_name,file_size,mime,stored_name,?,? FROM task_files WHERE task_id=?`, id, user.id, now(), s.id);
       if (keep.checklist !== false) for (const c of all('SELECT text FROM task_checklist WHERE task_id=?', s.id)) run('INSERT INTO task_checklist(task_id,text) VALUES(?,?)', id, c.text);
@@ -617,6 +670,233 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     let id; tx(() => { id = cloneOne(src, src.parent_id, 0); tlog(id, user.id, 'clone', `từ #${src.id}`); });
     return taskFull(user, id);
   });
+  /* ================= Lập kế hoạch ================= */
+  /* ---------- Mốc dự án (milestone): mục tiêu quan trọng của dự án; tiến độ = số việc gắn mốc đã hoàn thành ---------- */
+  function milestonesOf(pid) {
+    return all(`SELECT m.*, (SELECT COUNT(*) FROM tasks t WHERE t.milestone_id=m.id) total,
+        (SELECT COUNT(*) FROM tasks t WHERE t.milestone_id=m.id AND t.status='done') done
+      FROM project_milestones m WHERE m.project_id=? ORDER BY m.due_date IS NULL, m.due_date, m.id`, pid);
+  }
+  const msInput = (b, old = {}) => {
+    const x = { title: str(b.title ?? old.title, 200), due_date: (b.due_date ?? old.due_date) || null, owner_id: int(b.owner_id ?? old.owner_id) || null, description: str(b.description ?? old.description, 2000) };
+    if (!x.title) bad('Vui lòng nhập tên mốc.');
+    if (x.due_date && !isDate(x.due_date)) bad('Hạn của mốc không hợp lệ.');
+    if (x.owner_id && !userOk(x.owner_id)) bad('Người phụ trách không hợp lệ.');
+    return x;
+  };
+  route('POST', '/api/projects/:id/milestones', ({ user, params, body }) => {
+    const p = projectOf(int(params.id)); need(canManage(roleIn(user, p.id)), 'Chỉ quản lý dự án/phòng ban mới được tạo mốc.');
+    if (p.status === 'closed') bad('Dự án/phòng ban đã đóng.');
+    if (get('SELECT COUNT(*) n FROM project_milestones WHERE project_id=?', p.id).n >= 100) bad('Mỗi dự án tối đa 100 mốc.');
+    const x = msInput(body || {});
+    run('INSERT INTO project_milestones(project_id,title,due_date,owner_id,description,created_by,created_at) VALUES(?,?,?,?,?,?,?)', p.id, x.title, x.due_date, x.owner_id, x.description, user.id, now());
+    if (x.owner_id) ensureMember(p.id, x.owner_id, 'follower');
+    return projectFull(user, projectOf(p.id));
+  });
+  route('PUT', '/api/milestones/:id', ({ user, params, body }) => {
+    const m = get('SELECT * FROM project_milestones WHERE id=?', int(params.id)) || notFound('Mốc không tồn tại.');
+    need(canManage(roleIn(user, m.project_id)), 'Chỉ quản lý dự án/phòng ban mới được sửa mốc.');
+    const x = msInput(body || {}, m);
+    run('UPDATE project_milestones SET title=?, due_date=?, owner_id=?, description=? WHERE id=?', x.title, x.due_date, x.owner_id, x.description, m.id);
+    if (x.owner_id) ensureMember(m.project_id, x.owner_id, 'follower');
+    return projectFull(user, projectOf(m.project_id));
+  });
+  route('DELETE', '/api/milestones/:id', ({ user, params }) => {
+    const m = get('SELECT * FROM project_milestones WHERE id=?', int(params.id)) || notFound('Mốc không tồn tại.');
+    need(canManage(roleIn(user, m.project_id)), 'Chỉ quản lý dự án/phòng ban mới được xóa mốc.');
+    tx(() => { run('UPDATE tasks SET milestone_id=NULL WHERE milestone_id=?', m.id); run('DELETE FROM project_milestones WHERE id=?', m.id); });
+    return projectFull(user, projectOf(m.project_id));
+  });
+
+  /* ---------- Công việc phụ thuộc (chỉ Dự án; quản lý bật trong Thiết lập) ----------
+   * pred chặn succ. FS/FF neo theo thời hạn của pred, SS/SF neo theo ngày bắt đầu của pred;
+   * FS/SS ràng buộc ngày bắt đầu của succ, FF/SF ràng buộc thời hạn của succ. SmartOffice lập lịch theo ngày (lag_days). */
+  const depsOn = (p, S) => p.kind === 'project' && S.deps;
+  const dateOfAnchor = (t, type) => PLAN.anchorIsEnd(type) ? (t.due_date || t.start_date) : t.start_date;
+  /* Dời công việc (giữ nguyên thời lượng) delta ngày; trả về true nếu có thay đổi */
+  const moveTask = (t, delta, uid, why) => {
+    if (!delta || t.status === 'done' || t.status === 'failed') return false;
+    const st = t.start_date ? PLAN.addDaysStr(t.start_date, delta) : null, du = t.due_date ? PLAN.addDaysStr(t.due_date, delta) : null;
+    run('UPDATE tasks SET start_date=?, due_date=?, updated_at=? WHERE id=?', st, du, now(), t.id);
+    tlog(t.id, uid, 'shift', `${delta > 0 ? '+' : ''}${delta} ngày (${why})`);
+    t.start_date = st; t.due_date = du; return true;
+  };
+  /* Lan truyền: công việc cur vừa đổi ngày bắt đầu ds và thời hạn de ngày → dời các công việc bị phụ thuộc (giữ khoảng cách) */
+  function cascade(curId, dS, dE, uid) {
+    let shifted = 0; const seen = new Set([curId]); const queue = [[curId, dS, dE]];
+    while (queue.length && shifted < 500) {
+      const [id, a, b] = queue.shift();
+      for (const d of all('SELECT * FROM task_deps WHERE pred_id=?', id)) {
+        if (seen.has(d.succ_id)) continue;
+        const delta = PLAN.anchorIsEnd(d.type) ? b : a; if (!delta) continue;
+        const succ = taskOf(d.succ_id);
+        if (moveTask(succ, delta, uid, `phụ thuộc #${id}`)) { shifted++; seen.add(succ.id); queue.push([succ.id, delta, delta]); }
+      }
+    }
+    return shifted;
+  }
+  /* Đặt công việc bị phụ thuộc theo ràng buộc (khi tạo phụ thuộc ở chế độ giữ nguyên thời gian) */
+  function applyConstraint(d, uid) {
+    const pred = taskOf(d.pred_id), succ = taskOf(d.succ_id), anchor = dateOfAnchor(pred, d.type);
+    const target = PLAN.targetIsStart(d.type) ? succ.start_date : (succ.due_date || succ.start_date);
+    if (!anchor || !target) return 0;
+    const want = PLAN.addDaysStr(anchor, (d.lag_days || 0) + (d.type === 'FS' ? 1 : 0)); // FS: bắt đầu từ ngày sau khi pred kết thúc
+    const delta = PLAN.dn(want) - PLAN.dn(target);
+    if (!delta) return 0;
+    if (!moveTask(succ, delta, uid, `ràng buộc ${d.type} với #${pred.id}`)) return 0;
+    return 1 + cascade(succ.id, delta, delta, uid);
+  }
+  const reaches = (from, to) => { // có đường đi from → to theo chiều pred→succ?
+    const seen = new Set([from]), st = [from];
+    while (st.length) { const x = st.pop(); if (x === to) return true; for (const r of all('SELECT succ_id FROM task_deps WHERE pred_id=?', x)) if (!seen.has(r.succ_id) && seen.size < 5000) { seen.add(r.succ_id); st.push(r.succ_id); } }
+    return false;
+  };
+  route('POST', '/api/tasks/:id/deps', ({ user, params, body }) => {
+    const me = taskOf(int(params.id)), other = taskOf(int(body.other_id)), p = projectOf(me.project_id), S = settingsOf(p);
+    if (!depsOn(p, S)) bad('Dự án chưa bật tính năng công việc phụ thuộc (chỉ áp dụng cho Dự án).');
+    if (me.id === other.id) bad('Công việc không thể phụ thuộc chính nó.');
+    if (other.project_id !== p.id) bad('Chỉ liên kết được công việc trong cùng dự án.');
+    need(taskAccess(user, me, p).editDeadline && taskAccess(user, other, p).editDeadline, 'Bạn cần quyền sửa thời gian của cả hai công việc để tạo phụ thuộc.');
+    const type = PLAN.DEP_TYPES.includes(body.type) ? body.type : 'FS';
+    const lag = Math.min(Math.max(Math.trunc(Number(body.lag_days) || 0), 0), 365);
+    const [pred, succ] = body.direction === 'blocked_by' ? [other, me] : [me, other];
+    if (get('SELECT 1 FROM task_deps WHERE (pred_id=? AND succ_id=?) OR (pred_id=? AND succ_id=?)', pred.id, succ.id, succ.id, pred.id)) bad('Hai công việc này đã có quan hệ phụ thuộc.');
+    if (reaches(succ.id, pred.id)) bad('Không thể tạo phụ thuộc vòng lặp.');
+    if (get('SELECT COUNT(*) n FROM task_deps WHERE pred_id=? OR succ_id=?', me.id, me.id).n >= 50) bad('Mỗi công việc tối đa 50 quan hệ phụ thuộc.');
+    let shifted = 0;
+    tx(() => {
+      const id = Number(run('INSERT INTO task_deps(project_id,pred_id,succ_id,type,lag_days,created_by,created_at) VALUES(?,?,?,?,?,?,?)', p.id, pred.id, succ.id, type, lag, user.id, now()).lastInsertRowid);
+      tlog(pred.id, user.id, 'dep', `chặn #${succ.id} (${type}${lag ? ', ' + lag + ' ngày' : ''})`);
+      tlog(succ.id, user.id, 'dep', `bị chặn bởi #${pred.id} (${type}${lag ? ', ' + lag + ' ngày' : ''})`);
+      if (S.deps_mode === 'keep') shifted = applyConstraint(get('SELECT * FROM task_deps WHERE id=?', id), user.id);
+    });
+    const t = taskFull(user, me.id); t.shifted = shifted; return t;
+  });
+  route('DELETE', '/api/task-deps/:id', ({ user, params, query }) => {
+    const d = get('SELECT * FROM task_deps WHERE id=?', int(params.id)) || notFound('Quan hệ phụ thuộc không tồn tại.');
+    const p = projectOf(d.project_id), pred = taskOf(d.pred_id), succ = taskOf(d.succ_id);
+    need(taskAccess(user, pred, p).editDeadline || taskAccess(user, succ, p).editDeadline, 'Bạn không có quyền gỡ phụ thuộc này.');
+    run('DELETE FROM task_deps WHERE id=?', d.id);
+    tlog(pred.id, user.id, 'dep_del', `#${succ.id}`); tlog(succ.id, user.id, 'dep_del', `#${pred.id}`);
+    return taskFull(user, int(query.view) === succ.id ? succ.id : pred.id);
+  });
+  /* Cảnh báo theo trạng thái công việc phụ thuộc (không chặn cứng thao tác, theo Base: ràng buộc dựa trên thời gian) */
+  function depInfo(user, t, p) {
+    const map = r => ({ dep_id: r.id, id: r.tid, title: r.title, status: r.status, start_date: r.start_date, due_date: r.due_date, type: r.type, lag_days: r.lag_days });
+    const blocked_by = all('SELECT d.*, t.id tid, t.title, t.status, t.start_date, t.due_date FROM task_deps d JOIN tasks t ON t.id=d.pred_id WHERE d.succ_id=? ORDER BY d.id', t.id).map(map);
+    const blocking = all('SELECT d.*, t.id tid, t.title, t.status, t.start_date, t.due_date FROM task_deps d JOIN tasks t ON t.id=d.succ_id WHERE d.pred_id=? ORDER BY d.id', t.id).map(map);
+    const warn = [];
+    for (const b of blocked_by) {
+      const started = b.status !== 'todo', finished = b.status === 'done';
+      if (b.type === 'FS' && !finished) warn.push(`Chưa nên bắt đầu: “${b.title}” chưa hoàn thành (FS).`);
+      if (b.type === 'SS' && !started) warn.push(`Chưa nên bắt đầu: “${b.title}” chưa bắt đầu (SS).`);
+      if (b.type === 'FF' && !finished) warn.push(`Chưa nên hoàn thành: “${b.title}” chưa hoàn thành (FF).`);
+      if (b.type === 'SF' && !started) warn.push(`Chưa nên hoàn thành: “${b.title}” chưa bắt đầu (SF).`);
+    }
+    return { blocked_by, blocking, warnings: t.status === 'done' || t.status === 'failed' ? [] : warn, enabled: depsOn(p, settingsOf(p)), mode: settingsOf(p).deps_mode };
+  }
+
+  /* ---------- Công việc lặp lại ----------
+   * Sinh tự động: khi thiết lập, sinh ngay lần gần nhất; lần thứ n+1 được sinh lúc 7:00 ngày của lần thứ n (Base).
+   * Chạy "lười" trong các yêu cầu đọc danh sách, tối đa 10 phút/lần (không cần tiến trình nền, chạy được trên Workers). */
+  let lastTick = 0;
+  const recCan = (user, r, p) => { const role = roleIn(user, p.id); return canManage(role) || r.creator_id === user.id; };
+  function recInput(b, p, old = {}) {
+    const v = k => (b[k] !== undefined ? b[k] : old[k]);
+    const title = str(v('title'), MAX_TITLE); if (!title) bad('Vui lòng nhập tên công việc.');
+    const start = v('start_date'), end = v('end_date') || null;
+    if (!isDate(start)) bad('Ngày bắt đầu không hợp lệ.');
+    if (end && (!isDate(end) || end < start)) bad('Ngày kết thúc phải sau ngày bắt đầu.');
+    const nr = PLAN.normalizeRule(b.rule !== undefined ? b.rule : parseJSON(old.rule, {})); if (nr.error) bad(nr.error);
+    const assignee = int(v('assignee_id')); if (!userOk(assignee)) bad('Người nhận việc không hợp lệ.');
+    const group = v('group_id') ? int(v('group_id')) : null;
+    if (group && !get('SELECT 1 FROM task_groups WHERE id=? AND project_id=?', group, p.id)) bad('Nhóm công việc không hợp lệ.');
+    const fol = (b.followers !== undefined ? (Array.isArray(b.followers) ? b.followers : []) : parseJSON(old.followers, [])).map(int).filter(userOk).slice(0, 50);
+    const due = Number(v('due_hours')); if (!(due >= 0 && due <= 24 * 366)) bad('Thời hạn (giờ) không hợp lệ.');
+    return { title, description: str(v('description'), 10000), start, end, rule: JSON.stringify(nr.rule), assignee, group, followers: JSON.stringify([...new Set(fol)]),
+      tags: b.tags !== undefined ? normTags(b.tags) : (old.tags || ''), subtasks: str(v('subtasks'), 5000), checklist: str(v('checklist'), 5000),
+      priority: PRIO.includes(v('priority')) ? v('priority') : 'tb', due_hours: due, active: v('active') === undefined ? 1 : (v('active') ? 1 : 0) };
+  }
+  const recShape = r => { const rule = parseJSON(r.rule, {}); return { ...r, rule, followers: parseJSON(r.followers, []), tags: tagList(r.tags),
+    preview: r.active ? PLAN.nextOccurrences(rule, r.start_date, r.end_date, r.last_gen || today(), 10, !r.last_gen) : [] }; };
+  /* Sinh một lần lặp (việc cha + việc con + đầu việc) */
+  function genOccurrence(r, p, date) {
+    const S = settingsOf(p), d = PLAN.dueFromHours(date, r.due_hours);
+    const ins = (title, parent) => Number(run(`INSERT INTO tasks(project_id,group_id,parent_id,title,description,assignee_id,creator_id,status,priority,start_date,due_date,due_time,progress,tags,recurrence_id,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?,'todo',?,?,?,?,0,?,?,?,?)`, p.id, r.group_id, parent, title, parent ? '' : r.description, r.assignee_id, r.creator_id, r.priority, date, d.due_date, S.deadline_time ? d.due_time : null, parent ? '' : (r.tags || ''), r.id, now(), now()).lastInsertRowid);
+    const id = ins(r.title, null);
+    for (const line of String(r.subtasks || '').split('\n').map(x => x.trim()).filter(Boolean).slice(0, 30)) ins(line.slice(0, MAX_TITLE), id);
+    for (const line of String(r.checklist || '').split('\n').map(x => x.trim()).filter(Boolean).slice(0, 50)) run('INSERT INTO task_checklist(task_id,text) VALUES(?,?)', id, line.slice(0, 300));
+    for (const f of parseJSON(r.followers, [])) if (f !== r.assignee_id) run('INSERT OR IGNORE INTO task_followers(task_id,user_id) VALUES(?,?)', id, f);
+    ensureMember(p.id, r.assignee_id, 'follower');
+    tlog(id, r.creator_id, 'create', `lặp lại ngày ${date.split('-').reverse().join('/')}`);
+    return id;
+  }
+  /* Sinh các lần lặp đến hạn cho một thiết lập; trả về số công việc đã sinh */
+  function recGenerate(r) {
+    const p = get('SELECT * FROM projects WHERE id=?', r.project_id); if (!p || p.status === 'closed' || !r.active) return 0;
+    const rule = parseJSON(r.rule, null); if (!rule) return 0;
+    const T = today(), after7 = D.nowHM() >= '07:00'; let n = 0, last = r.last_gen;
+    while (n < 31) {
+      if (last && (last > T || (last === T && !after7))) break; // lần thứ n+1 chỉ sinh từ 7:00 ngày của lần thứ n
+      const next = PLAN.nextOccurrences(rule, r.start_date, r.end_date, last || T, 1, !last)[0];
+      if (!next) break;
+      genOccurrence(r, p, next); last = next; n++;
+    }
+    if (n) run('UPDATE task_recurrences SET last_gen=?, gen_count=gen_count+?, updated_at=? WHERE id=?', last, n, now(), r.id);
+    return n;
+  }
+  function recTick(force) {
+    if (!force && Date.now() - lastTick < 600000) return 0;
+    lastTick = Date.now(); let n = 0;
+    tx(() => { for (const r of all('SELECT * FROM task_recurrences WHERE active=1 LIMIT 500')) n += recGenerate(r); });
+    return n;
+  }
+  route('GET', '/api/projects/:id/recurrences', ({ user, params }) => {
+    const p = projectOf(int(params.id)), role = roleIn(user, p.id);
+    need(role && role !== 'follower', 'Chỉ quản lý và thành viên dự án/phòng ban mới xem được công việc lặp lại.');
+    return all('SELECT * FROM task_recurrences WHERE project_id=? ORDER BY active DESC, id DESC LIMIT 200', p.id).map(r => ({ ...recShape(r), can_edit: recCan(user, r, p) }));
+  });
+  route('POST', '/api/recurrences/preview', ({ body }) => {
+    const nr = PLAN.normalizeRule(body.rule); if (nr.error) bad(nr.error);
+    if (!isDate(body.start_date)) bad('Ngày bắt đầu không hợp lệ.');
+    return { dates: PLAN.nextOccurrences(nr.rule, body.start_date, isDate(body.end_date) ? body.end_date : null, body.start_date > today() ? body.start_date : today(), 10) };
+  });
+  route('POST', '/api/projects/:id/recurrences', ({ user, params, body }) => {
+    const p = projectOf(int(params.id)), role = roleIn(user, p.id), S = settingsOf(p);
+    need(canManage(role) || (role === 'member' && S.member_create), 'Bạn không có quyền tạo công việc lặp lại trong dự án/phòng ban này.');
+    if (p.status === 'closed') bad('Dự án/phòng ban đã đóng.');
+    if (get('SELECT COUNT(*) n FROM task_recurrences WHERE project_id=?', p.id).n >= 200) bad('Mỗi dự án tối đa 200 công việc lặp lại.');
+    const x = recInput(body || {}, p);
+    let id;
+    tx(() => {
+      id = Number(run(`INSERT INTO task_recurrences(project_id,group_id,title,description,assignee_id,creator_id,followers,tags,subtasks,checklist,priority,start_date,end_date,rule,due_hours,active,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, p.id, x.group, x.title, x.description, x.assignee, user.id, x.followers, x.tags, x.subtasks, x.checklist, x.priority, x.start, x.end, x.rule, x.due_hours, x.active, now(), now()).lastInsertRowid);
+      recGenerate(get('SELECT * FROM task_recurrences WHERE id=?', id)); // sinh ngay lần gần nhất
+    });
+    log(user.id, `thiết lập công việc lặp lại <b>${esc(x.title)}</b>`);
+    return { ...recShape(get('SELECT * FROM task_recurrences WHERE id=?', id)), can_edit: true };
+  });
+  route('PUT', '/api/recurrences/:id', ({ user, params, body }) => {
+    const r = get('SELECT * FROM task_recurrences WHERE id=?', int(params.id)) || notFound('Công việc lặp lại không tồn tại.');
+    const p = projectOf(r.project_id); need(recCan(user, r, p), 'Chỉ quản lý hoặc người thiết lập mới được sửa.');
+    const x = recInput(body || {}, p, r);
+    const ruleChanged = x.rule !== r.rule || x.start !== r.start_date;
+    tx(() => {
+      run(`UPDATE task_recurrences SET group_id=?, title=?, description=?, assignee_id=?, followers=?, tags=?, subtasks=?, checklist=?, priority=?, start_date=?, end_date=?, rule=?, due_hours=?, active=?, updated_at=? WHERE id=?`,
+        x.group, x.title, x.description, x.assignee, x.followers, x.tags, x.subtasks, x.checklist, x.priority, x.start, x.end, x.rule, x.due_hours, x.active, now(), r.id);
+      if (ruleChanged && r.last_gen) run('UPDATE task_recurrences SET last_gen=? WHERE id=?', r.last_gen > today() ? r.last_gen : today(), r.id); // không sinh lại các ngày đã qua
+      recGenerate(get('SELECT * FROM task_recurrences WHERE id=?', r.id));
+    });
+    return { ...recShape(get('SELECT * FROM task_recurrences WHERE id=?', r.id)), can_edit: true };
+  });
+  route('DELETE', '/api/recurrences/:id', ({ user, params }) => {
+    const r = get('SELECT * FROM task_recurrences WHERE id=?', int(params.id)) || notFound('Công việc lặp lại không tồn tại.');
+    need(recCan(user, r, projectOf(r.project_id)), 'Chỉ quản lý hoặc người thiết lập mới được xóa.');
+    tx(() => { run('UPDATE tasks SET recurrence_id=NULL WHERE recurrence_id=?', r.id); run('DELETE FROM task_recurrences WHERE id=?', r.id); });
+    return { ok: true };
+  });
+
   /* ---------- Tệp đính kèm, tài liệu liên kết ----------
    * Quyền thêm: người xem được công việc và có quyền sửa thông tin hoặc cập nhật tiến độ (người giao, người nhận, quản lý).
    * Tài liệu từ kho Tài liệu chỉ lưu liên kết; tải về qua /api/docs/:id/file nên vẫn áp dụng quyền xem của tài liệu đó. */
@@ -715,7 +995,7 @@ function register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc,
     res.end(csv);
   }, { raw: true });
 
-  return { taskAccess, roleIn };
+  return { taskAccess, roleIn, recTick };
 }
 
 /* ================= Chuyển dữ liệu bản 1.x (chạy một lần) ================= */

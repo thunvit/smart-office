@@ -111,3 +111,17 @@ Căn cứ: bài [Base Wework: Cách tạo công việc mới](https://help.base.
 | Người theo dõi | Có | |
 | Liên kết Mục tiêu | **Bổ sung** | Liên kết với phân hệ Mục tiêu – KPI; hiển thị tiến độ mục tiêu trong chi tiết công việc |
 
+## VI. Đợt 1 Giai đoạn 2 (06/11/2026): lập kế hoạch
+
+Căn cứ: các bài Base Wework 63000283721, 63000283724, 63000268543, 63000267947 (đọc ngày 06/11/2026). Quyết định kỹ thuật: ADR-006.
+
+| Nghiệp vụ Base | SmartOffice | Mức độ kiểm chứng |
+|---|---|---|
+| Công việc phụ thuộc: Chặn / Bị chặn bởi; FS, FF, SS, SF; thời gian ràng buộc; chống vòng lặp; chỉ trong cùng dự án; cần quyền sửa thời gian | Có. Thời gian ràng buộc tính theo ngày | Kiểm thử cục bộ |
+| Chế độ "Giữ nguyên thời gian phụ thuộc" / "Không" | Có | Kiểm thử cục bộ |
+| Công việc lặp lại theo ngày, tuần, tháng (ngày trong tháng, thứ trong tuần), quý, năm; vòng lặp; ngày bắt đầu, kết thúc; thời hạn tính theo giờ; người theo dõi, nhãn, việc con, đầu việc; xem trước 10 lần; kích hoạt, vô hiệu hóa | Có | Kiểm thử cục bộ, gồm các ví dụ a–d của Base |
+| Mốc dự án (milestone): tên, hạn, người phụ trách; gắn công việc; tiến độ | Có | Kiểm thử cục bộ |
+| Lịch (Calendar) | Có: lịch tháng; điện thoại hiển thị dạng danh sách theo ngày | Kiểm thử cục bộ |
+| Gantt: kéo thả dời lịch, đổi thời hạn; mũi tên phụ thuộc; mốc | Có | Kiểm thử cục bộ |
+| Thêm công việc vào Google Calendar | Chưa | Cần kết nối Google, để sau |
+

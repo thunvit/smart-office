@@ -215,7 +215,22 @@ Cần làm → Đang làm → (Chờ đánh giá, nếu dự án bật "Yêu c�
 5. Chế độ xem: Danh sách (theo nhóm, việc con thụt lề), Kanban (kéo thẻ giữa Cần làm, Đang làm, Hoàn thành), Gantt (chỉ dự án), Báo cáo (theo người thực hiện, theo nhóm, tỷ lệ đúng hạn).
 6. Xuất dữ liệu: nút "Xuất Excel (CSV)" trong dự án; chỉ gồm công việc người dùng được xem.
 
-### 5. Chưa có trong phiên bản này (Giai đoạn 2)
+### 5. Lập kế hoạch (phiên bản 1.7)
 
-Trường dữ liệu tùy chỉnh, công việc phụ thuộc, việc lặp lại, mốc (milestone), lịch, kéo thả Gantt, mẫu dự án, nhân bản dự án, nhập Excel, bàn giao hàng loạt, ủy quyền giao việc, thông báo email.
+1. **Mốc dự án:** quản lý bấm "+ Mốc" ở đầu chế độ xem Danh sách và nhập tên, hạn, người phụ trách. Để gắn công việc vào mốc, chọn ô "Mốc dự án" trong chi tiết công việc. Tiến độ mốc tính theo số công việc gắn mốc đã hoàn thành.
+2. **Công việc phụ thuộc** (chỉ áp dụng cho Dự án):
+   - Quản lý bật tại Thiết lập > "Cho phép công việc phụ thuộc" và chọn chế độ khi dời lịch.
+   - Trong chi tiết công việc, bấm "+ Thêm phụ thuộc", chọn loại (Chặn / Bị chặn bởi), công việc, quan hệ (FS, FF, SS, SF) và số ngày ràng buộc.
+   - Ở chế độ "Giữ nguyên thời gian phụ thuộc", khi dời lịch một công việc, các công việc bị phụ thuộc tự dời theo.
+3. **Gantt:** kéo thanh công việc để dời lịch; kéo mép phải để đổi thời hạn. Mũi tên thể hiện phụ thuộc, hình thoi ◆ là mốc dự án.
+4. **Lịch:** xem công việc theo tháng, theo thời hạn. Trên điện thoại, lịch hiển thị dạng danh sách theo ngày.
+5. **Lặp lại:** thẻ "Lặp lại" trong dự án > "+ Công việc lặp lại".
+   - Chọn chu kỳ (theo ngày, hằng tuần, hằng tháng, hằng quý, hằng năm), vòng lặp và điều kiện.
+   - Thời hạn tính bằng giờ từ 00:00 ngày lặp: 15.5 là 15:30 cùng ngày; 39.5 là 15:30 ngày hôm sau.
+   - Bấm "Xem trước 10 lần gần nhất" để kiểm tra lịch trước khi tạo.
+   - Hệ thống sinh ngay lần gần nhất; lần kế tiếp được sinh lúc 7:00 ngày của lần trước.
+
+### 6. Chưa có trong phiên bản này
+
+Trường dữ liệu tùy chỉnh, mẫu dự án, nhân bản dự án, nhập Excel, bàn giao hàng loạt, ủy quyền giao việc, thông báo email.
 

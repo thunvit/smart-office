@@ -437,6 +437,14 @@ route('POST', '/api/goals/cycles', ({ body }) => {
   if (!isDate(body.start_date) || !isDate(body.end_date) || body.end_date < body.start_date) bad('Thời gian chu kỳ không hợp lệ.');
   return { id: Number(run('INSERT INTO goal_cycles(name,start_date,end_date) VALUES(?,?,?)', name, body.start_date, body.end_date).lastInsertRowid) };
 }, { admin: true });
+/* Kỳ mặc định: kỳ chứa ngày hôm nay; nếu không có thì kỳ gần nhất đã bắt đầu; cuối cùng là kỳ bất kỳ mới nhất.
+ * (Sửa lỗi 06/11/2026: trước đây chọn kỳ có ngày bắt đầu muộn nhất, kể cả kỳ tương lai chưa có mục tiêu.) */
+function currentCycleId() {
+  const T = today();
+  return (get('SELECT id FROM goal_cycles WHERE start_date<=? AND end_date>=? ORDER BY start_date DESC LIMIT 1', T, T)
+    || get('SELECT id FROM goal_cycles WHERE start_date<=? ORDER BY start_date DESC LIMIT 1', T)
+    || get('SELECT id FROM goal_cycles ORDER BY start_date DESC LIMIT 1') || {}).id;
+}
 function goalTree(cycleId) {
   const rows = all(`SELECT g.*, u.full_name owner_name, u.color owner_color, d.name dept_name FROM goals g
     LEFT JOIN users u ON u.id=g.owner_id LEFT JOIN departments d ON d.id=g.dept_id WHERE cycle_id=? ORDER BY g.id`, cycleId);
@@ -456,7 +464,7 @@ function goalTree(cycleId) {
 }
 const canEditGoal = (u, g) => isAdmin(u) || isDirector(u) || g.owner_id === u.id || (g.dept_id && get('SELECT head_id h FROM departments WHERE id=?', g.dept_id)?.h === u.id);
 route('GET', '/api/goals', ({ user, query }) => {
-  const cyc = int(query.cycle) || (get('SELECT id FROM goal_cycles ORDER BY start_date DESC LIMIT 1') || {}).id;
+  const cyc = int(query.cycle) || currentCycleId();
   if (!cyc) return { cycle: null, goals: [] };
   const tree = goalTree(cyc);
   const mark = g => { g.can_edit = canEditGoal(user, g); g.children.forEach(mark); };

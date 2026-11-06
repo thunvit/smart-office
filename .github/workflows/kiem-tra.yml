@@ -29,3 +29,7 @@ jobs:
         run: |
           node test/work-test.js | tee work.txt
           grep -q "0 không đạt" work.txt
+      - name: Kiểm thử hàm lập kế hoạch (lặp lại, phụ thuộc)
+        run: |
+          node test/work-plan-test.js | tee plan.txt
+          grep -q "0 không đạt" plan.txt
