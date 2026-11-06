@@ -798,7 +798,7 @@ async function handle(req, res) {
   } catch (e) {
     if (e instanceof HttpError) return json(e.status, { error: e.message });
     console.error(new Date().toISOString(), req.method, req.url, (e && e.message) || String(e), e && e.stack);
-    json(500, { error: 'Lỗi hệ thống. Vui lòng thử lại hoặc liên hệ quản trị viên.' });
+    json(500, Object.assign({ error: 'Lỗi hệ thống. Vui lòng thử lại hoặc liên hệ quản trị viên.' }, process.env.SO_DEBUG === '1' ? { detail: String((e && e.stack) || e).slice(0, 600) } : {}));
   }
 }
 
