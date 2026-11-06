@@ -58,6 +58,16 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - **Chưa chạy trên Cloudflare thật.** Chưa đo hiệu năng thật.
 - **Còn dở:** Giai đoạn 2 theo Mục III tài liệu yêu cầu; chờ chủ sở hữu duyệt hợp nhất vào `main` (hợp nhất là triển khai thật).
 
+## 06/11/2026 (09:50). Hợp nhất phân hệ Công việc – Dự án v2 vào `main` (theo yêu cầu của chủ sở hữu)
+- **Việc đã làm:** hợp nhất fast-forward nhánh `tinh-nang/cong-viec-du-an-v2` vào `main` (commit `85e0c8d`), đẩy lên GitHub; Workers Builds tự triển khai.
+- **Kiểm thử trước khi đẩy (cục bộ/mô phỏng):** cú pháp đạt; `work-test` 64 đạt, 0 không đạt; `worker-smoke` có `download 200 true`, `re-instantiate 200`; bản Node `/healthz` ok, `/api/login` 200.
+- **Kiểm tra trên Cloudflare thật** (https://smart-office.thunv-it.workers.dev, qua trình duyệt tích hợp):
+  - `/healthz` ok; `sw.js` = `so-1.6.0`; `/work.js` 200; sau khi kích hoạt service worker mới, `/` có nạp `work.js`, `app.css` có `.s-failed`.
+  - Chưa đăng nhập: `/api/projects`, `/api/tasks`, `/api/work/staff`, `/api/projects/1`, `/report`, `/export.csv`, `/api/tasks/1`, `POST /api/tasks` đều trả 401.
+  - Chuyển dữ liệu 1.x trên Durable Object: dự án "Triển khai Bản đồ số tỉnh Ninh Bình" có 1 quản lý, 14 khóa thiết lập, 1 công việc còn nguyên. Chỉ đọc bằng phiên quản trị có sẵn trong trình duyệt tích hợp, không ghi dữ liệu.
+  - Phát hiện: trình duyệt đã cài bản 1.5.0 vẫn dùng giao diện cũ cho đến khi người dùng bấm "Cập nhật" trên thanh thông báo phiên bản mới; trong thời gian đó màn hình Công việc cũ không tương thích API mới.
+- **Chưa kiểm chứng trên Cloudflare thật:** các thao tác ghi (tạo dự án, giao việc, đánh giá) – mới kiểm thử cục bộ.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
 1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
 2. **Các việc P0 theo báo cáo rà soát:**
@@ -72,4 +82,4 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
    - xuất và sao lưu dữ liệu trên Cloudflare.
 3. **Pháp chế** xác định nơi lưu dữ liệu và hồ sơ pháp lý khi kinh doanh dịch vụ.
 4. **Tên miền** `smartoffice.vnptninhbinh.com.vn` chưa gắn; chờ chọn phương án DNS.
-5. **Phân hệ Công việc – Dự án v2** nằm trên nhánh `tinh-nang/cong-viec-du-an-v2`, chờ duyệt hợp nhất; sau khi hợp nhất phải kiểm tra lại trên địa chỉ thật (việc chuyển dữ liệu `work_v2_migrated` chạy một lần trên Durable Object).
+5. **Phân hệ Công việc – Dự án v2** đã triển khai (06/11/2026). Đề xuất P1: service worker tự kích hoạt bản mới khi API thay đổi không tương thích, tránh giao diện cũ gọi API mới.
