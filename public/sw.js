@@ -5,7 +5,7 @@
  *    giữa các tài khoản dùng chung thiết bị và tránh hiển thị số liệu cũ.
  *  - Đổi VERSION mỗi lần phát hành để trình duyệt nhận bản mới.
  */
-const VERSION = 'so-1.8.0';
+const VERSION = 'so-1.9.0';
 const SHELL = `${VERSION}-shell`;
 const RUNTIME = `${VERSION}-runtime`;
 const PRECACHE = [

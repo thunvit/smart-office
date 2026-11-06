@@ -153,8 +153,33 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Trình duyệt kiểm tra phải kích hoạt service worker mới bằng SKIP_WAITING. Người dùng thật sẽ thấy thanh "Cập nhật" và bấm để dùng bản mới.
 - **Chưa kiểm chứng trên Cloudflare thật:** mọi thao tác ghi (tạo trường, thảo luận, tải tài liệu, nhập Excel, nhân bản, mẫu, tác vụ hàng loạt), vì không ghi vào dữ liệu thật; CPU của nhập 2.000 dòng và xuất 3.000 công việc.
 
+## 06/11/2026 (19:58–21:00). Sửa P0 xác thực (so-1.9.0) và chuẩn bị nhập 91 tài khoản Trung tâm Kinh doanh Giải pháp
+- **Yêu cầu của chủ sở hữu:** nhập dữ liệu Trung tâm Kinh doanh Giải pháp từ tệp `KDGP_Bao_cao_hien_trang_giao_viec_phong_GP.xlsx`.
+- **Nội dung tệp:** danh sách lao động, không có dữ liệu công việc. 91 người gồm Ban Giám đốc 3, Nhóm Tổng hợp 3, Giải pháp 1 là 42, Giải pháp 2 là 20, KHDN Hà Nam 6, Nam Định 10, Ninh Bình 7.
+- **Chủ sở hữu chọn:** nhập toàn Trung tâm; tên đăng nhập theo dạng tên + chữ đầu họ, đệm; **sửa P0 trước rồi mới nhập**.
+- **Việc đã làm (nhánh `sua-loi/p0-xac-thuc`):**
+  - P0-2: `worker-smoke` sửa đường dẫn đổi mật khẩu, có khẳng định và mã thoát.
+  - P0-3: tắt `SO_DEBUG`.
+  - P0-4: khóa đăng nhập bền vững theo tài khoản và theo IP.
+  - P0-5: thu hồi phiên khi đổi mật khẩu.
+  - P0-6: máy chủ ép đổi mật khẩu lần đầu.
+  - P0-7: gỡ `ADMIN_PASSWORD_HASH`; bí mật chỉ áp dụng một lần; bản Node sinh mật khẩu ngẫu nhiên.
+  - P0-8: kiểm tra `SO_DEMO`.
+  - Thêm nhật ký an ninh.
+  - Nhập tài khoản nhận tệp .xlsx và cột Lãnh đạo phòng.
+  - Lập ADR-008, thay ADR-004.
+- **Lỗi phát hiện trong phiên:** `applyAdminSecret` bản đầu đọc cờ qua `getSettings()`, hàm này không trả khóa `admin_bootstrapped`, nên cờ luôn rỗng. Kiểm thử `auth-test` bước b2 đã bắt được lỗi; đã sửa sang đọc trực tiếp bảng `settings`.
+- **Kiểm thử:**
+  - `auth-test` 78/0. Trên mã cũ kiểm thử thất bại.
+  - `worker-smoke` có `KẾT QUẢ: đạt` và `lockout persist 429`. Trên mã cũ có 4 điều kiện không đạt.
+  - `work-test` 125/0, `work-ext-test` 91/0, `work-plan-test` 21/0.
+  - `work-ui-full` 44/0. `work-ui`: lần đầu lỗi chờ phần tử, hai lần chạy lại đều đạt.
+  - Nhập thử tệp 91 tài khoản qua giao diện trên máy chủ cục bộ có CSDL trống: 91 tài khoản, 7 phòng ban, 5 lãnh đạo phòng; đăng nhập tài khoản mới bị buộc đổi mật khẩu, API nghiệp vụ trả 403.
+- **Chưa làm:** P0-9 sao lưu trên Cloudflare; P0-10 gói Paid, đo CPU; P0-11 workerd trong CI; P0-12 pháp chế.
+- **Nhập 91 tài khoản trên hệ thống thật:** chủ sở hữu tự thực hiện. Trợ lý AI không tạo tài khoản và không nhập mật khẩu (CLAUDE.md 4.3).
+
 ## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
-1. **`SO_DEBUG=1` đang bật** trong `wrangler.jsonc`, phải tắt sau khi xác nhận đổi mật khẩu thành công.
+1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
 2. **Các việc P0 theo báo cáo rà soát:**
    - sửa khóa đăng nhập sai (`server.js:88`) và lưu bộ đếm bền vững;
    - thu hồi phiên khi đổi mật khẩu;

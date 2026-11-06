@@ -1,7 +1,7 @@
 # ADR-004. Mật khẩu quản trị ban đầu trên Cloudflare
 
 - Ngày: 06/11/2026
-- Trạng thái: **Tạm thời, phải thay thế** (thuộc danh sách P0 của báo cáo rà soát 06/11/2026).
+- Trạng thái: **Đã thay thế bởi ADR-008** (06/11/2026). Cơ chế `ADMIN_PASSWORD_HASH` đã gỡ.
 
 ## Bối cảnh
 Bản công khai trên Cloudflare không được dùng mật khẩu mặc định. Phương án đầu tiên là bí mật `ADMIN_PASSWORD`, nhưng chủ sở hữu chưa thao tác được trên Cloudflare.

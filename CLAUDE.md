@@ -85,7 +85,7 @@ Mọi thay đổi phải đáp ứng ba tiêu chuẩn và danh mục kiểm tra 
    - Bí mật đặt trong *Variables and Secrets* của Cloudflare, hoặc biến môi trường của máy chủ.
 2. **Không tạo mật khẩu mặc định cho bản công khai.**
    - Mật khẩu `Admin@123` và `123456` chỉ dành cho bản chạy cục bộ có dữ liệu mẫu.
-   - Mã băm `ADMIN_PASSWORD_HASH` trong `wrangler.jsonc` là giải pháp tạm, nằm trong danh sách P0 cần gỡ. Không thêm cơ chế tương tự.
+   - Cơ chế mã băm `ADMIN_PASSWORD_HASH` trong `wrangler.jsonc` đã gỡ (ADR-008). Bí mật `ADMIN_PASSWORD` chỉ áp dụng một lần khi khởi tạo. Không thêm cơ chế tương tự.
 3. **Trợ lý AI không tự nhập mật khẩu, token hay thông tin thanh toán** vào bất kỳ trang nào, và không tự đăng nhập tài khoản của chủ sở hữu.
 4. **Mọi chức năng xác thực mới phải có kiểm thử tự động.** Phạm vi tối thiểu: đăng nhập đúng/sai, khóa khi sai nhiều lần, đổi mật khẩu, thu hồi phiên, phân quyền.
 5. **Chế độ hiển thị lỗi chi tiết:** `SO_DEBUG=1` chỉ bật khi chẩn đoán và phải tắt ngay sau đó. Ghi việc bật và tắt vào nhật ký phiên.
@@ -94,12 +94,13 @@ Mọi thay đổi phải đáp ứng ba tiêu chuẩn và danh mục kiểm tra 
 
 Chạy và xác nhận đạt toàn bộ:
 1. `for f in *.js public/*.js worker/*.js test/*.js; do node --check "$f"; done`
-2. `node test/worker-smoke.js`: phải có `download 200 true` và `re-instantiate 200`. Thêm điều kiện cho chức năng mới.
+2. `node test/worker-smoke.js`: phải có `KẾT QUẢ: đạt`, `download 200 true`, `re-instantiate 200`, `lockout persist 429`. Kịch bản trả mã thoát 1 khi có bước sai. Thêm điều kiện cho chức năng mới.
 3. Khởi động bản Node với `DATA_DIR` tạm và gọi `/healthz`, `/api/login`.
 3a. `node test/work-test.js`: phải in `0 không đạt` (phân quyền và luồng trạng thái phân hệ Công việc – Dự án).
 3b. `node test/work-plan-test.js`: phải in `0 không đạt` (quy tắc công việc lặp lại theo các ví dụ của Base Wework).
 3c. `node test/work-ext-test.js`: phải in `0 không đạt` (trường tùy chỉnh, mẫu, nhân bản, nhập/xuất, báo cáo, tác vụ hàng loạt; ADR-007). `node test/worker-smoke.js` phải có thêm `work-template 200 3` và `work-post 200`.
 3d. Thay đổi giao diện phân hệ Công việc: chạy cục bộ `node test/work-ui.js` và `node test/work-ui-full.js` (Playwright, cần máy chủ Node cổng 3999 với `DATA_DIR` tạm).
+3e. `node test/auth-test.js`: phải in `0 không đạt` (xác thực theo mục 4.4: đăng nhập, khóa khi sai nhiều lần, đổi mật khẩu, thu hồi phiên, ép đổi mật khẩu lần đầu, phân quyền, nhật ký an ninh, mật khẩu ban đầu một lần; ADR-008).
 4. **Sửa lỗi:** mỗi lỗi phải kèm kiểm thử tái hiện. Kiểm thử đó phải báo lỗi trên mã cũ và đạt trên mã mới.
 5. **Giới hạn của bản mô phỏng:** `test/fake-do.js` chỉ mô phỏng Durable Object, không thay được Cloudflare thật. Sau khi triển khai, kiểm tra lại trên địa chỉ thật và ghi rõ kết quả.
 

@@ -151,9 +151,10 @@ async function boot() {
       <div class="dd user-dd"><button class="dd-btn user-btn" data-act="dd" aria-haspopup="true" aria-expanded="false">${av(B.me.id)}<span class="u-name">${esc(B.me.full_name)}</span><svg class="caret" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg></button>
         <div class="dd-menu right"><div class="dd-head"><b>${esc(B.me.full_name)}</b><small>${esc(B.me.title || '')} · ${esc(Dp(B.me.dept_id).name)}</small></div><a href="#tai-khoan">Tài khoản của tôi</a><a href="#tien-luong">Phiếu lương của tôi</a><button data-act="install-app" class="install-item" hidden>Cài ứng dụng lên thiết bị</button><button data-act="logout">Đăng xuất</button></div></div>
     </div></div></header><main id="main"></main></div>`;
+  /* P0-6: máy chủ chặn API nghiệp vụ khi chưa đổi mật khẩu lần đầu, nên giao diện chưa tải nội dung cho đến khi đổi xong */
+  if (B.me.must_change_pw) { $('#main').innerHTML = '<div class="empty">Vui lòng đổi mật khẩu lần đầu để bắt đầu sử dụng hệ thống.</div>'; passwordModal(true); return; }
   render();
   refreshClock();
-  if (B.me.must_change_pw) passwordModal(true);
 }
 function renderOffline(msg) {
   $('#root').innerHTML = `<div class="offline-screen"><div class="brand-mark big">SO</div><h1>Chưa kết nối được SmartOffice</h1><p>${esc(msg)}</p><button class="btn primary" data-act="retry-boot">Thử lại</button></div>`;
@@ -618,9 +619,9 @@ function userForm(u) {
 }
 function importForm() {
   openModal(`${mh('Nhập danh sách người dùng')}<div class="modal-b">
-    <p class="notice info">Trong Excel, lập bảng với 6 cột theo đúng thứ tự: <b>Tên đăng nhập, Họ và tên, Chức danh, Phòng ban, Email, Điện thoại</b> (dòng đầu là tiêu đề). Chọn <i>Lưu thành › CSV UTF-8</i>, rồi chọn tệp bên dưới. Phòng ban chưa có sẽ được tạo mới.</p>
-    <div class="field"><label for="im-file">Tệp CSV</label><input type="file" id="im-file" accept=".csv,text/csv"></div>
-    <div class="field"><label for="im-pw">Mật khẩu khởi tạo chung</label><input id="im-pw" type="text" placeholder="Tối thiểu 8 ký tự"><span class="hint">Mọi tài khoản phải đổi mật khẩu khi đăng nhập lần đầu.</span></div>
+    <p class="notice info">Lập bảng với các cột theo đúng thứ tự: <b>Tên đăng nhập, Họ và tên, Chức danh, Phòng ban, Email, Điện thoại, Lãnh đạo phòng</b> (dòng đầu là tiêu đề; cột Lãnh đạo phòng ghi “Có” cho người đứng đầu phòng, có thể bỏ trống). Chọn tệp Excel (.xlsx) hoặc CSV UTF-8. Phòng ban chưa có sẽ được tạo mới.</p>
+    <div class="field"><label for="im-file">Tệp Excel hoặc CSV</label><input type="file" id="im-file" accept=".xlsx,.csv,text/csv"></div>
+    <div class="field"><label for="im-pw">Mật khẩu khởi tạo chung</label><input id="im-pw" type="text" autocomplete="off" placeholder="Tối thiểu 8 ký tự, gồm chữ và số"><span class="hint">Mọi tài khoản phải đổi mật khẩu khi đăng nhập lần đầu.</span></div>
     <div id="im-prev" class="hint"></div><p class="err" id="im-err" hidden></p></div>
   <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="m-imp">Nhập dữ liệu</button></div>`, {
     'm-imp': btn => busy(btn, async () => {
@@ -636,11 +637,17 @@ function importForm() {
   let rows = [];
   $('#im-file').addEventListener('change', async e => {
     const f = e.target.files[0]; if (!f) return;
+    const toRow = c => ({ username: String(c[0] ?? '').trim(), full_name: String(c[1] ?? '').trim(), title: String(c[2] ?? '').trim(), department: String(c[3] ?? '').trim(), email: String(c[4] ?? '').trim(), phone: String(c[5] ?? '').trim(), is_head: /^(có|co|x|1|yes)$/i.test(String(c[6] ?? '').trim()) });
+    const show = () => { $('#im-prev').innerHTML = `Đọc được <b>${rows.length}</b> dòng, ${rows.filter(r => r.is_head).length} lãnh đạo phòng, ${new Set(rows.map(r => r.department)).size} phòng ban. Ví dụ: ${rows.slice(0, 3).map(r => esc(r.full_name + ' (' + r.username + ')')).join(', ')}`; };
+    if (/\.xlsx$/i.test(f.name)) {
+      try { const sh = await window.XLSX_LITE.read(f); rows = sh[0].rows.slice(1).filter(c => c.some(x => String(x ?? '').trim())).map(toRow); show(); } catch (er) { showErr('#im-err', 'Không đọc được tệp Excel: ' + er.message); }
+      return;
+    }
     const text = (await f.text()).replace(/^﻿/, '');
     const delim = (text.split('\n')[0].match(/;/g) || []).length > (text.split('\n')[0].match(/,/g) || []).length ? ';' : ',';
     const parse = line => { const out = []; let cur = '', q = false; for (let i = 0; i < line.length; i++) { const c = line[i]; if (q) { if (c === '"' && line[i + 1] === '"') { cur += '"'; i++; } else if (c === '"') q = false; else cur += c; } else if (c === '"') q = true; else if (c === delim) { out.push(cur); cur = ''; } else cur += c; } out.push(cur); return out.map(s => s.trim()); };
-    rows = text.split(/\r?\n/).slice(1).filter(l => l.trim()).map(parse).map(c => ({ username: c[0], full_name: c[1], title: c[2], department: c[3], email: c[4], phone: c[5] }));
-    $('#im-prev').innerHTML = `Đọc được <b>${rows.length}</b> dòng. Ví dụ: ${rows.slice(0, 3).map(r => esc(r.full_name + ' (' + r.username + ')')).join(', ')}`;
+    rows = text.split(/\r?\n/).slice(1).filter(l => l.trim()).map(parse).map(toRow);
+    show();
   });
 }
 function deptForm(d) {
@@ -671,7 +678,7 @@ function passwordModal(force) {
   <div class="modal-f">${force ? '<button class="btn" data-act="logout">Đăng xuất</button>' : '<button class="btn" data-act="close">Hủy</button>'}<button class="btn primary" data-act="m-save">Đổi mật khẩu</button></div>`, {
     'm-save': btn => busy(btn, async () => {
       if ($('#pw-n').value !== $('#pw-c').value) return showErr('#pw-err', 'Mật khẩu nhập lại không khớp.');
-      try { await PUT('/api/me/password', { old_password: $('#pw-o').value, new_password: $('#pw-n').value }); B.me.must_change_pw = false; closeModal(); toast('Đã đổi mật khẩu'); } catch (e) { showErr('#pw-err', e); }
+      try { await PUT('/api/me/password', { old_password: $('#pw-o').value, new_password: $('#pw-n').value }); const first = B.me.must_change_pw; B.me.must_change_pw = false; closeModal(); toast('Đã đổi mật khẩu. Các phiên đăng nhập trên thiết bị khác đã bị đăng xuất.'); if (first) { render(); refreshClock(); } } catch (e) { showErr('#pw-err', e); }
     })
   });
   $('#modal').dataset.force = force ? '1' : '';

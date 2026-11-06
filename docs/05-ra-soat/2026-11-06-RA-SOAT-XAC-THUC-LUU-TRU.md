@@ -2,7 +2,8 @@
 
 > **Tình trạng xử lý sau báo cáo** (cập nhật 06/11/2026):
 > - Lỗi "Cannot perform I/O on behalf of a different Durable Object" (mục V): **đã sửa** tại commit `5fdff58`; đã bổ sung kiểm thử khởi tạo lại Durable Object vào `test/worker-smoke.js` và CI.
-> - Các việc P0 còn lại tại mục VII: **chưa thực hiện**. Theo dõi tại `docs/07-nhat-ky/NHAT-KY-PHIEN.md`.
+> - Cập nhật 06/11/2026 (tối), ADR-008: P0-2, P0-3, P0-4, P0-5, P0-6, P0-7, P0-8 **đã sửa trong mã và kiểm thử cục bộ/mô phỏng** (`test/auth-test.js` 78 điều kiện, `test/worker-smoke.js` có khẳng định và mã thoát). Kết quả trên Cloudflare thật xem nhật ký phiên.
+> - **Chưa thực hiện:** P0-9 (sao lưu, xuất dữ liệu trên Cloudflare), P0-10 (gói Workers Paid, đo CPU), P0-11 (kiểm thử trên workerd trong CI), P0-12 (pháp lý nơi lưu dữ liệu, do pháp chế). Theo dõi tại `docs/07-nhat-ky/NHAT-KY-PHIEN.md`.
 > - Kịch bản kiểm thử dùng trong báo cáo được lưu tại `docs/05-ra-soat/2026-11-06-kich-ban-kiem-thu/` (đường dẫn trong mã kịch bản là đường dẫn tạm lúc rà soát, cần chỉnh khi chạy lại).
 
 - Đối tượng: kho `thunvit/smart-office`, nhánh `main`, commit `e79ef92` (06/11/2026 07:49 giờ Việt Nam). 

@@ -63,7 +63,26 @@ function route(method, pattern, handler, opts = {}) {
 }
 
 /* ================= Phiên đăng nhập ================= */
-const loginFails = new Map();
+/* P0-4: đếm đăng nhập sai lưu bền vững trong bảng login_attempts (không mất khi tiến trình hoặc Durable Object khởi động lại).
+ * Khóa riêng theo tài khoản (5 lần sai trong 15 phút → khóa 5 phút) và theo IP (20 lần sai trong 15 phút → khóa 5 phút).
+ * Kiểm tra khóa trước khi băm mật khẩu để không tốn CPU scrypt khi đang bị khóa. */
+const LOCK = { user: 5, ip: 20, window: 15 * 60e3, lock: 5 * 60e3 };
+const secLog = (event, { user_id = null, username = '', ip = '', detail = '' } = {}) =>
+  run('INSERT INTO security_log(at,event,user_id,username,ip,detail) VALUES(?,?,?,?,?,?)', now(), event, user_id, String(username).slice(0, 60), String(ip).slice(0, 64), String(detail).slice(0, 300));
+function lockedUntil(keys) { const t = Date.now(); let m = 0; for (const k of keys) { const r = get('SELECT until_at FROM login_attempts WHERE key=?', k); if (r && r.until_at > t) m = Math.max(m, r.until_at); } return m; }
+function addFail(key, limit) {
+  const t = Date.now(), r = get('SELECT n, first_at, until_at FROM login_attempts WHERE key=?', key);
+  const fresh = !r || t - r.first_at > LOCK.window || (r.until_at && r.until_at <= t);
+  const n = fresh ? 1 : r.n + 1, until = n >= limit ? t + LOCK.lock : 0;
+  run('INSERT INTO login_attempts(key,n,first_at,until_at) VALUES(?,?,?,?) ON CONFLICT(key) DO UPDATE SET n=excluded.n, first_at=excluded.first_at, until_at=excluded.until_at', key, n, fresh ? t : r.first_at, until);
+  return until;
+}
+let DUMMY_HASH = null; // so sánh với mã băm giả khi tài khoản không tồn tại, để thời gian phản hồi không lộ tên đăng nhập
+function newSession(res, req, uid) {
+  const tok = crypto.randomBytes(32).toString('hex');
+  run('INSERT INTO sessions(token,user_id,expires) VALUES(?,?,?)', tok, uid, addDays(today(), SESSION_DAYS) + ' 23:59:59');
+  res.setHeader('Set-Cookie', `sid=${tok}; ${cookieAttrs(req)}; Max-Age=${SESSION_DAYS * 86400}`);
+}
 function parseCookies(h) { const o = {}; (h || '').split(';').forEach(p => { const i = p.indexOf('='); if (i > 0) o[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim()); }); return o; }
 function userFromReq(req) {
   const tok = parseCookies(req.headers.cookie).sid;
@@ -80,21 +99,21 @@ let BIZAPI = { isFinance: () => false, canPost: () => false, canManageAssets: ()
 const publicUser = u => u && ({ id: u.id, username: u.username, full_name: u.full_name, title: u.title, dept_id: u.dept_id, role: u.role, email: u.email, phone: u.phone, color: u.color, must_change_pw: !!u.must_change_pw, is_hr: isHR(u), is_director: isDirector(u), is_payroll: HR2API.isPayroll(u), is_finance: BIZAPI.isFinance(u), can_post: BIZAPI.canPost(u), can_assets: BIZAPI.canManageAssets(u), can_recruit: EXTAPI.canRecruit(u), is_lead: EXTAPI.isLead(u) });
 
 route('POST', '/api/login', ({ body, res, req }) => {
-  const username = str(body.username, 60), pw = String(body.password || '');
-  const key = username.toLowerCase() + '|' + clientIp(req);
-  const f = loginFails.get(key);
-  if (f && f.until > Date.now()) throw new HttpError(429, 'Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 5 phút.');
+  const username = str(body.username, 60).toLowerCase(), pw = String(body.password || ''), ip = clientIp(req);
+  const ku = 'u:' + username, ki = 'ip:' + ip;
+  if (lockedUntil([ku, ki])) throw new HttpError(429, 'Đăng nhập sai quá nhiều lần. Vui lòng thử lại sau 5 phút.');
   const u = get('SELECT * FROM users WHERE username=? AND active=1', username);
-  if (!u || !D.verifyPw(pw, u.pass_hash)) {
-    const n = (f && f.until <= Date.now() ? 0 : (f ? f.n : 0)) + 1;
-    loginFails.set(key, { n, until: n >= 5 ? Date.now() + 5 * 60e3 : 0 });
+  const ok = u ? D.verifyPw(pw, u.pass_hash) : (D.verifyPw(pw, DUMMY_HASH || (DUMMY_HASH = D.hashPw(crypto.randomBytes(16).toString('hex')))), false);
+  if (!ok) {
+    const lu = addFail(ku, LOCK.user), li = addFail(ki, LOCK.ip);
+    run('DELETE FROM login_attempts WHERE first_at < ? AND until_at < ?', Date.now() - 86400e3, Date.now());
+    secLog(lu || li ? 'login_locked' : 'login_fail', { user_id: u ? u.id : null, username, ip, detail: lu ? 'khóa tài khoản 5 phút' : li ? 'khóa địa chỉ IP 5 phút' : '' });
     throw new HttpError(401, 'Tên đăng nhập hoặc mật khẩu không đúng.');
   }
-  loginFails.delete(key);
-  const tok = crypto.randomBytes(32).toString('hex');
+  run('DELETE FROM login_attempts WHERE key=?', ku);
   run('DELETE FROM sessions WHERE expires < ?', now());
-  run('INSERT INTO sessions(token,user_id,expires) VALUES(?,?,?)', tok, u.id, addDays(today(), SESSION_DAYS) + ' 23:59:59');
-  res.setHeader('Set-Cookie', `sid=${tok}; ${cookieAttrs(req)}; Max-Age=${SESSION_DAYS * 86400}`);
+  newSession(res, req, u.id);
+  secLog('login_ok', { user_id: u.id, username, ip });
   return { user: publicUser(u) };
 }, { public: true });
 
@@ -105,14 +124,24 @@ route('POST', '/api/logout', ({ req, res }) => {
   return { ok: true };
 }, { public: true });
 
-route('PUT', '/api/me/password', ({ user, body }) => {
+route('PUT', '/api/me/password', ({ user, body, req, res }) => {
   const u = get('SELECT pass_hash FROM users WHERE id=?', user.id);
   if (!D.verifyPw(body.old_password, u.pass_hash)) bad('Mật khẩu hiện tại không đúng.');
   const np = String(body.new_password || '');
   if (np.length < 8 || !/[A-Za-z]/.test(np) || !/\d/.test(np)) bad('Mật khẩu mới phải có tối thiểu 8 ký tự, gồm cả chữ và số.');
+  if (D.verifyPw(np, u.pass_hash)) bad('Mật khẩu mới phải khác mật khẩu hiện tại.');
+  /* P0-5: đổi mật khẩu thì thu hồi mọi phiên của người dùng (kể cả trên thiết bị khác) và cấp phiên mới cho thiết bị đang dùng */
   run('UPDATE users SET pass_hash=?, must_change_pw=0 WHERE id=?', D.hashPw(np), user.id);
+  const n = get('SELECT COUNT(*) n FROM sessions WHERE user_id=?', user.id).n; run('DELETE FROM sessions WHERE user_id=?', user.id);
+  newSession(res, req, user.id);
+  secLog('password_change', { user_id: user.id, username: user.username, ip: clientIp(req), detail: `thu hồi ${n} phiên` });
   return { ok: true };
 });
+route('GET', '/api/admin/security-log', ({ query }) => {
+  const lim = Math.min(200, Math.max(1, int(query.limit) || 100)), off = Math.max(0, int(query.offset) || 0);
+  const ev = str(query.event, 30);
+  return all(`SELECT * FROM security_log ${ev ? 'WHERE event=?' : ''} ORDER BY id DESC LIMIT ? OFFSET ?`, ...(ev ? [ev] : []), lim, off);
+}, { admin: true });
 
 /* ================= Dữ liệu dùng chung ================= */
 route('GET', '/api/bootstrap', ({ user }) => {
@@ -533,12 +562,13 @@ route('POST', '/api/admin/users', ({ user, body }) => {
   log(user.id, `tạo tài khoản <b>${esc(full)}</b>`);
   return { id };
 }, { admin: true });
-route('POST', '/api/admin/users/import', ({ user, body }) => {
+route('POST', '/api/admin/users/import', ({ user, body, req }) => {
   const rows = Array.isArray(body.rows) ? body.rows : []; if (!rows.length) bad('Không có dữ liệu để nhập.');
   if (rows.length > 2000) bad('Mỗi lần nhập tối đa 2.000 dòng.');
   const pw = String(body.password || ''); if (pw.length < 8) bad('Mật khẩu khởi tạo tối thiểu 8 ký tự.');
   const deps = new Map(all('SELECT id, name FROM departments').map(d => [d.name.toLowerCase().trim(), d.id]));
-  const hash = D.hashPw(pw), errors = []; let ok = 0;
+  if (!/[A-Za-z]/.test(pw) || !/\d/.test(pw)) bad('Mật khẩu khởi tạo phải gồm cả chữ và số.');
+  const hash = D.hashPw(pw), errors = [], heads = new Map(); let ok = 0;
   tx(() => rows.forEach((r, i) => {
     const line = i + 2, username = str(r.username, 60).toLowerCase(), full = str(r.full_name, 120);
     if (!/^[a-z0-9._-]{3,60}$/.test(username)) return errors.push(`Dòng ${line}: tên đăng nhập không hợp lệ`);
@@ -547,25 +577,28 @@ route('POST', '/api/admin/users/import', ({ user, body }) => {
     let dep = deps.get(str(r.department).toLowerCase());
     if (!dep && str(r.department)) { dep = Number(run('INSERT INTO departments(name) VALUES(?)', str(r.department, 120)).lastInsertRowid); deps.set(str(r.department).toLowerCase(), dep); }
     if (!dep) return errors.push(`Dòng ${line}: thiếu phòng ban`);
-    run(`INSERT INTO users(username,pass_hash,full_name,title,dept_id,email,phone,color,must_change_pw,created_at) VALUES(?,?,?,?,?,?,?,?,1,?)`,
-      username, hash, full, str(r.title, 120), dep, str(r.email, 120), str(r.phone, 30), D.COLORS[(ok + i) % D.COLORS.length], now());
+    const uid = Number(run(`INSERT INTO users(username,pass_hash,full_name,title,dept_id,email,phone,color,must_change_pw,created_at) VALUES(?,?,?,?,?,?,?,?,1,?)`,
+      username, hash, full, str(r.title, 120), dep, str(r.email, 120), str(r.phone, 30), D.COLORS[(ok + i) % D.COLORS.length], now()).lastInsertRowid);
+    if (r.is_head === true) { if (heads.has(dep)) errors.push(`Dòng ${line}: phòng ban đã có lãnh đạo khác trong tệp, lấy người sau cùng`); heads.set(dep, uid); run('UPDATE departments SET head_id=? WHERE id=?', uid, dep); }
     ok++;
   }));
   log(user.id, `nhập ${ok} tài khoản từ tệp`);
-  return { ok, errors };
+  secLog('users_import', { user_id: user.id, username: user.username, ip: clientIp(req), detail: `${ok} tài khoản, ${heads.size} lãnh đạo phòng` });
+  return { ok, heads: heads.size, errors };
 }, { admin: true });
-route('PUT', '/api/admin/users/:id', ({ user, params, body }) => {
+route('PUT', '/api/admin/users/:id', ({ user, params, body, req }) => {
   const u = get('SELECT * FROM users WHERE id=?', params.id) || notFound();
   if (u.id === user.id && (body.active === false || body.role === 'user')) bad('Không thể tự khóa hoặc tự hạ quyền tài khoản đang đăng nhập.');
   if (body.dept_id !== undefined && !get('SELECT 1 FROM departments WHERE id=?', int(body.dept_id))) bad('Phòng ban không hợp lệ.');
   run('UPDATE users SET full_name=?, title=?, dept_id=?, role=?, email=?, phone=?, active=? WHERE id=?',
     str(body.full_name ?? u.full_name, 120) || u.full_name, str(body.title ?? u.title, 120), int(body.dept_id ?? u.dept_id),
     (body.role ?? u.role) === 'admin' ? 'admin' : 'user', str(body.email ?? u.email, 120), str(body.phone ?? u.phone, 30), (body.active ?? !!u.active) ? 1 : 0, u.id);
-  if (body.active === false) run('DELETE FROM sessions WHERE user_id=?', u.id);
+  if (body.active === false) { run('DELETE FROM sessions WHERE user_id=?', u.id); secLog('account_disabled', { user_id: u.id, username: u.username, ip: clientIp(req), detail: 'bởi ' + user.username }); }
   if (body.password) {
     if (String(body.password).length < 8) bad('Mật khẩu tối thiểu 8 ký tự.');
     run('UPDATE users SET pass_hash=?, must_change_pw=1 WHERE id=?', D.hashPw(body.password), u.id);
     run('DELETE FROM sessions WHERE user_id=?', u.id);
+    secLog('password_reset', { user_id: u.id, username: u.username, ip: clientIp(req), detail: 'quản trị đặt lại, ' + user.username });
   }
   return { ok: true };
 }, { admin: true });
@@ -675,6 +708,7 @@ function readBody(req, limit = 5e6) {
     req.on('error', reject);
   });
 }
+const MUST_CHANGE_OK = new Set(['/api/bootstrap', '/api/me/password', '/api/logout']);
 async function handle(req, res) {
   const url = new URL(req.url, 'http://x');
   securityHeaders(req, res);
@@ -688,6 +722,8 @@ async function handle(req, res) {
     if (req.method !== 'GET' && !originAllowed(req)) throw new HttpError(403, 'Yêu cầu không hợp lệ.');
     const user = userFromReq(req);
     if (!rt.public && !user) throw new HttpError(401, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
+    /* P0-6: tài khoản phải đổi mật khẩu lần đầu chỉ được gọi các API tối thiểu để đổi mật khẩu */
+    if (user && user.must_change_pw && !rt.public && !MUST_CHANGE_OK.has(url.pathname)) forbid('Vui lòng đổi mật khẩu lần đầu trước khi sử dụng hệ thống.');
     if (rt.admin && !isAdmin(user)) forbid('Chức năng dành cho quản trị viên.');
     const params = {}; rt.keys.forEach((k, i) => params[k] = decodeURIComponent(m[i + 1]));
     const body = ['POST', 'PUT', 'DELETE'].includes(req.method) ? await readBody(req, (url.pathname.startsWith('/api/docs') ? 30e6 : /^\/api\/(tasks\/\d+\/(files|results)|projects\/\d+\/(files|import))$/.test(url.pathname) ? 15e6 : 5e6)) : {};
@@ -706,14 +742,18 @@ BIZ.seedBiz();
 EXT.seedExt();
 WORK.migrate();
 
-/* Cloudflare: đặt lại mật khẩu quản trị ban đầu theo bí mật ADMIN_PASSWORD (chỉ khi tài khoản admin chưa đổi mật khẩu). */
+/* Cloudflare: đặt mật khẩu quản trị ban đầu theo bí mật ADMIN_PASSWORD.
+ * P0-7: chỉ áp dụng MỘT LẦN (cờ admin_bootstrapped trong settings) và chỉ khi tài khoản admin chưa đổi mật khẩu.
+ * Đã bỏ cơ chế mã băm ADMIN_PASSWORD_HASH trong wrangler.jsonc (ADR-004 sửa đổi). */
 function applyAdminSecret() {
-  // Ưu tiên bí mật ADMIN_PASSWORD; nếu không có, dùng mã băm ADMIN_PASSWORD_HASH (chỉ lưu mã băm, không lưu mật khẩu).
-  const pw = process.env.ADMIN_PASSWORD, ph = process.env.ADMIN_PASSWORD_HASH;
-  if (!pw && !/^scrypt\$[0-9a-f]{32}\$[0-9a-f]{128}$/.test(ph || '')) return false;
+  const flag = get("SELECT value FROM settings WHERE key='admin_bootstrapped'"); // không dùng getSettings(): hàm này chỉ trả các khóa cấu hình công khai
+  if (flag && flag.value === '1') return false;
   const a = get("SELECT id, must_change_pw FROM users WHERE username='admin'");
-  if (!a || !a.must_change_pw) return false;
-  run('UPDATE users SET pass_hash=? WHERE id=?', pw ? D.hashPw(pw) : ph, a.id);
+  if (!a) return false;
+  if (!a.must_change_pw) { D.setSetting('admin_bootstrapped', '1'); return false; }
+  const pw = process.env.ADMIN_PASSWORD; if (!pw) return false;
+  tx(() => { run('UPDATE users SET pass_hash=? WHERE id=?', D.hashPw(pw), a.id); D.setSetting('admin_bootstrapped', '1'); });
+  secLog('admin_bootstrap', { user_id: a.id, username: 'admin', detail: 'áp dụng bí mật ADMIN_PASSWORD (một lần)' });
   return true;
 }
 module.exports = { handle, applyAdminSecret };

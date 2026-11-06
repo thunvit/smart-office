@@ -22,7 +22,10 @@ jobs:
           echo "Đạt."
       - name: Kiểm thử lõi Cloudflare (mô phỏng Durable Object)
         run: |
+          set -o pipefail
           node test/worker-smoke.js | tee out.txt
+          grep -q "KẾT QUẢ: đạt" out.txt
+          grep -q "lockout persist 429" out.txt
           grep -q "download 200 true" out.txt
           grep -q "re-instantiate 200" out.txt
           grep -q "work-template 200 3" out.txt
@@ -39,3 +42,8 @@ jobs:
         run: |
           node test/work-ext-test.js | tee ext.txt
           grep -q "0 không đạt" ext.txt
+      - name: Kiểm thử xác thực (đăng nhập, khóa khi sai nhiều lần, đổi mật khẩu, thu hồi phiên, ép đổi mật khẩu, phân quyền, nhật ký an ninh)
+        run: |
+          set -o pipefail
+          node test/auth-test.js | tee auth.txt
+          grep -q "0 không đạt" auth.txt

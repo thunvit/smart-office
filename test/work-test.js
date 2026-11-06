@@ -224,6 +224,7 @@ const login = async u => { sessions[u] = ''; const r = await call(u, 'POST', '/a
 
   // 15. Lỗi kỳ mục tiêu: mặc định phải là kỳ chứa ngày hôm nay, không phải kỳ có ngày bắt đầu muộn nhất
   await login0('admin', 'Admin@123');
+  ok((await call('admin', 'PUT', '/api/me/password', { old_password: 'Admin@123', new_password: 'Quan-tri#2026' })).s === 200, 'admin đổi mật khẩu lần đầu (P0-6)');
   const curCycle = (await call('long.hd', 'GET', '/api/goals')).b.cycle;
   r = await call('admin', 'POST', '/api/goals/cycles', { name: 'Kỳ tương lai kiểm thử', start_date: T(200), end_date: T(290) });
   ok(r.s === 200, 'quản trị tạo kỳ mục tiêu tương lai', r.b);

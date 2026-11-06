@@ -129,10 +129,15 @@ Quản trị viên thay đổi ngưỡng tiền, người duyệt tại **Quản
 ## VII. ĐƯA VÀO SỬ DỤNG CHÍNH THỨC (DỮ LIỆU THẬT)
 
 1. Dừng phần mềm; xóa (hoặc đổi tên) thư mục `data`.
-2. Chạy tệp **`Khoi-tao-du-lieu-trong.bat`**: phần mềm tạo cơ sở dữ liệu mới chỉ gồm 01 tài khoản `admin` / `Admin@123`, không có dữ liệu mẫu.
+2. Chạy tệp **`Khoi-tao-du-lieu-trong.bat`**: phần mềm tạo cơ sở dữ liệu mới chỉ gồm 01 tài khoản `admin`, không có dữ liệu mẫu. Từ bản 1.9, mật khẩu ban đầu của `admin` được sinh ngẫu nhiên và hiện **một lần** trên cửa sổ dòng lệnh (hoặc lấy theo biến môi trường `ADMIN_PASSWORD` nếu có). Ghi lại để đăng nhập lần đầu.
 3. Đăng nhập `admin`, đổi mật khẩu; vào **Quản trị** lần lượt:
    - Khai báo **Phòng ban** và Lãnh đạo phòng;
-   - **Nhập người dùng từ Excel**: lập bảng 6 cột *Tên đăng nhập, Họ và tên, Chức danh, Phòng ban, Email, Điện thoại*, lưu dạng *CSV UTF-8*; đặt mật khẩu khởi tạo chung (người dùng bắt buộc đổi ở lần đăng nhập đầu);
+   - **Nhập người dùng từ Excel** (Quản trị › Người dùng › Nhập danh sách):
+     - bảng 7 cột *Tên đăng nhập, Họ và tên, Chức danh, Phòng ban, Email, Điện thoại, Lãnh đạo phòng*;
+     - cột Lãnh đạo phòng ghi "Có" cho người đứng đầu phòng;
+     - chọn tệp `.xlsx` hoặc CSV UTF-8; phòng ban chưa có được tạo mới;
+     - đặt mật khẩu khởi tạo chung, tối thiểu 8 ký tự, gồm chữ và số;
+     - mọi tài khoản phải đổi mật khẩu khi đăng nhập lần đầu; máy chủ chặn mọi chức năng cho đến khi đổi xong;
    - **Cấu hình duyệt**: chọn Kế toán trưởng, Giám đốc, người duyệt nghỉ phép, phòng phụ trách nhân sự;
    - **Chấm công & tiền lương**: giờ làm việc, ngày nghỉ lễ, mức lương tối thiểu vùng nơi đơn vị hoạt động;
    - Tại Nhân sự › Tiền lương › **Hồ sơ lương**: khai báo lương chính, lương đóng bảo hiểm, phụ cấp, số người phụ thuộc của từng người;
@@ -151,7 +156,12 @@ Quản trị viên thay đổi ngưỡng tiền, người duyệt tại **Quản
 
 ## IX. BẢO MẬT VÀ LƯU Ý
 
-1. Mật khẩu được mã hóa một chiều (scrypt), không lưu dạng đọc được. Đăng nhập sai 05 lần liên tiếp sẽ bị tạm khóa 05 phút.
+1. Mật khẩu được mã hóa một chiều (scrypt), không lưu dạng đọc được.
+   - Đăng nhập sai 05 lần trong 15 phút: tài khoản bị tạm khóa 05 phút, áp dụng cho mọi máy.
+   - Một địa chỉ IP sai 20 lần trong 15 phút: IP đó bị tạm khóa 05 phút.
+   - Khóa vẫn giữ khi máy chủ khởi động lại.
+   - Đổi mật khẩu sẽ đăng xuất mọi thiết bị khác.
+   - Quản trị xem nhật ký an ninh (đăng nhập, khóa, đổi và đặt lại mật khẩu, nhập tài khoản) qua `GET /api/admin/security-log`.
 2. Thông tin cá nhân (ngày sinh, địa chỉ, hợp đồng, ngày phép) chỉ hiển thị cho chính nhân sự và phòng phụ trách nhân sự, phù hợp yêu cầu bảo vệ dữ liệu cá nhân. Đơn vị cần rà soát, đối chiếu với quy định hiện hành về bảo vệ dữ liệu cá nhân trước khi lưu trữ dữ liệu thật.
 3. Khi nhân sự nghỉ việc: **khóa tài khoản** (Quản trị › Người dùng), không xóa, để giữ nguyên lịch sử công việc và phê duyệt.
 4. Phiên bản này phục vụ **chạy thử trong mạng nội bộ**, truy cập qua giao thức HTTP. Không mở cổng ra Internet.

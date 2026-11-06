@@ -64,6 +64,11 @@ const addDays = (s, n) => { const d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d
 /* ---------------- Lược đồ ---------------- */
 db.exec(`
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS login_attempts (
+  key TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0, first_at INTEGER NOT NULL, until_at INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS security_log (
+  id INTEGER PRIMARY KEY, at TEXT NOT NULL, event TEXT NOT NULL, user_id INTEGER, username TEXT, ip TEXT, detail TEXT);
+CREATE INDEX IF NOT EXISTS idx_seclog_at ON security_log(at);
 CREATE TABLE IF NOT EXISTS departments (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, head_id INTEGER, sort INTEGER DEFAULT 0);
 CREATE TABLE IF NOT EXISTS users (
@@ -340,11 +345,19 @@ function seedDemo() {
   });
 }
 
+/* P0-7c: không dùng mật khẩu mặc định cho bản không có dữ liệu mẫu. Ưu tiên ADMIN_PASSWORD; nếu không có thì sinh ngẫu nhiên.
+ * Bản Node in mật khẩu ra màn hình một lần; trên Cloudflare không in (quản trị đặt bí mật ADMIN_PASSWORD trước khi khởi tạo). */
+function initialAdminPw() {
+  if (process.env.ADMIN_PASSWORD) return process.env.ADMIN_PASSWORD;
+  const pw = crypto.randomBytes(9).toString('base64').replace(/[+/=]/g, 'x') + '#7';
+  if (!IS_WORKER) console.log(`\n  Mật khẩu ban đầu của tài khoản admin (chỉ hiển thị một lần, phải đổi khi đăng nhập): ${pw}\n`);
+  return pw;
+}
 function seedEmpty() {
   tx(() => {
     const dep = Number(run('INSERT INTO departments(name) VALUES(?)', 'Ban Giám đốc').lastInsertRowid);
     const id = Number(run(`INSERT INTO users(username,pass_hash,full_name,title,dept_id,role,must_change_pw,created_at)
-      VALUES('admin',?,?,?,?, 'admin', 1, ?)`, hashPw(process.env.ADMIN_PASSWORD || (IS_WORKER ? crypto.randomBytes(24).toString('hex') : 'Admin@123')), 'Quản trị hệ thống', 'Quản trị viên', dep, now()).lastInsertRowid);
+      VALUES('admin',?,?,?,?, 'admin', 1, ?)`, hashPw(initialAdminPw()), 'Quản trị hệ thống', 'Quản trị viên', dep, now()).lastInsertRowid);
     run('UPDATE departments SET head_id=? WHERE id=?', id, dep);
     setSetting('director_id', id); setSetting('accountant_id', id); setSetting('hr_approver_id', id);
     setSetting('org_name', 'Đơn vị của tôi');
