@@ -286,6 +286,7 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Giao diện, trình duyệt tích hợp, cổng 3100: khung trợ lý báo chưa cấu hình và dẫn sang Tài khoản; đổi nhà cung cấp đổi gợi ý mô hình, ẩn/hiện mức suy luận; lưu khóa giả chỉ hiện `••••0000`, phản hồi không chứa khóa, tiêu đề khung đổi theo tên trợ lý; xóa khóa. Đã xóa khóa giả, trả dữ liệu thử về trạng thái chưa cấu hình.
 - **Bản chạy thử cho chủ sở hữu:** Node cổng 3100, dữ liệu mẫu trong thư mục tạm của phiên, trợ lý đã bật sẵn (ghi trực tiếp `ai_enabled=1` vào CSDL thử), không có khóa chung.
 - **Chưa kiểm chứng:** gọi nhà cung cấp thật (chờ chủ sở hữu tự nhập khóa trên bản chạy thử); Cloudflare thật.
+- **Đẩy lên GitHub (theo yêu cầu của chủ sở hữu, 07/11/2026):** `sua-loi/trung-duong-dan-bang-tin` (`260a75a`) và `tinh-nang/tro-ly-ai-ca-nhan`. `main` giữ nguyên `2c05e18`; không có workflow nào chạy (CI chỉ chạy khi đẩy `main` hoặc mở PR), chưa triển khai.
 
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
