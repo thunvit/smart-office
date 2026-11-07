@@ -19,8 +19,22 @@ const MODELS = { anthropic: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-hai
 const MODEL_PH = { anthropic: 'Để trống = claude-opus-5-5', openai: 'Bắt buộc, theo tài liệu của OpenAI', gemini: 'Bắt buộc, theo tài liệu của Google' };
 const goConfig = () => { toggle(false); if (location.hash !== '#tai-khoan') location.hash = 'tai-khoan'; else render(); setTimeout(() => { const el = document.getElementById('ai-me'); if (el) el.scrollIntoView({ block: 'start' }); }, 300); };
 
-/* Văn bản trả lời: chỉ thoát HTML, giữ xuống dòng, đậm **...**, mã #123 → mở công việc */
-const fmt = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[\s(])#(\d{1,7})\b/g, '$1<button type="button" class="ai-link" data-task="$2">#$2</button>').replace(/\n/g, '<br>');
+/* <ai-fmt> Văn bản trả lời: chỉ thoát HTML, giữ xuống dòng, đậm **...**, mã #123 → mở công việc,
+ * [tên](loai:mã) → nút mở chi tiết; [tên](man_hinh:ma-man-hinh) → nút chuyển màn hình. Loại đối tượng theo danh sách cố định,
+ * mã chỉ gồm chữ số; liên kết được thay bằng ký hiệu giữ chỗ trước khi xử lý #123 để không lồng nút trong nút. */
+const LINK_KINDS = ['cong_viec', 'du_an', 'de_xuat', 'quy_trinh', 'nhan_su', 'cuoc_hop', 'tai_lieu', 'ban_tin', 'khach_hang', 'tai_san', 'ung_vien', 'khoa_hoc'];
+const LINK_RE = /\[([^\[\]\n]{1,160})\]\((man_hinh:[a-z][a-z-]{1,30}|[a-z_]{4,12}:[1-9]\d{0,8})\)/g;
+const fmt = t => {
+  const keep = [], hold = h => '\u0000' + (keep.push(h) - 1) + '\u0000';
+  let s = esc(String(t == null ? '' : t).replace(/\u0000/g, '')).replace(LINK_RE, (m, label, ref) => {
+    const [k, v] = ref.split(':');
+    if (k !== 'man_hinh' && !LINK_KINDS.includes(k)) return label;
+    return hold(`<button type="button" class="ai-link" data-act="ai-open" data-k="${k}" data-v="${v}">${label.replace(/\*\*/g, '')}</button>`);
+  });
+  s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[\s(])#(\d{1,7})\b/g, '$1<button type="button" class="ai-link" data-task="$2">#$2</button>').replace(/\n/g, '<br>');
+  return s.replace(/\u0000(\d+)\u0000/g, (m, i) => keep[Number(i)]);
+};
+/* </ai-fmt> */
 
 /* Nguồn tham khảo từ Internet: chỉ liên kết http(s), mở tab mới, không gửi Referer */
 const safeUrl = u => /^https?:\/\//i.test(String(u || '')) ? String(u) : '';
@@ -134,7 +148,7 @@ let voice = (() => { try { return localStorage.getItem('so-ai-voice') === '1'; }
 function voiceBtn() { const b = $('#ai-voice'); if (!b) return; b.setAttribute('aria-pressed', String(voice)); b.textContent = voice ? '🔊' : '🔈'; b.title = voice ? 'Đang đọc to câu trả lời (bấm để tắt)' : 'Đọc to câu trả lời'; }
 function speak(text) {
   if (!('speechSynthesis' in window)) return;
-  const t = String(text || '').replace(/\*\*/g, '').replace(/https?:\/\/\S+/g, '').replace(/(^|\s)#(\d+)/g, '$1số $2').replace(/^[\s•*-]+/gm, '').replace(/₫/g, ' đồng').slice(0, 3000);
+  const t = String(text || '').replace(/\[([^\[\]\n]{1,160})\]\([a-z_]+:[\w-]+\)/g, '$1').replace(/\*\*/g, '').replace(/https?:\/\/\S+/g, '').replace(/(^|\s)#(\d+)/g, '$1số $2').replace(/^[\s•*-]+/gm, '').replace(/₫/g, ' đồng').slice(0, 3000);
   speechSynthesis.cancel();
   const vs = speechSynthesis.getVoices(), v = vs.find(x => /^vi(-|_|$)/i.test(x.lang));
   if (!v && vs.length && !warnedVoice) { warnedVoice = true; toast('Thiết bị chưa có giọng đọc tiếng Việt. Hãy cài giọng nói tiếng Việt cho hệ điều hành, hoặc dùng trình duyệt Edge.', true); }
@@ -266,6 +280,7 @@ Object.assign(ACTIONS, {
   'ai-hist-back': () => { histMode = false; draw(); },
   'ai-thread': b => { if (!busy) loadThread(Number(b.dataset.id)); },
   'ai-thread-del': b => { if (!S.armed(b, 'Bấm lần nữa để xóa')) return; S.busy(b, async () => { try { await DEL('/api/ai/threads/' + Number(b.dataset.id)); if (Number(b.dataset.id) === curThread) { setThread(null); items = []; hist = []; } threads = (threads || []).filter(t => t.id !== Number(b.dataset.id)); draw(); toast('Đã xóa cuộc trò chuyện'); } catch (e) { toast(e.message, true); } }); },
+  'ai-open': b => { const k = b.dataset.k, v = b.dataset.v; uiDo(k === 'man_hinh' ? { op: 'navigate', route: v } : k === 'du_an' ? { kind: 'du_an', id: v } : { op: 'open', kind: k, id: v }).catch(e => toast(e.message, true)); },
   'ai-sug': b => send(b.textContent),
   'ai-ok': b => decide(Number(b.dataset.id), true),
   'ai-no': b => decide(Number(b.dataset.id), false),

@@ -90,6 +90,7 @@ Yêu cầu: trợ lý được tra cứu hết các API nghiệp vụ (cấm ngh
 4. **Điều khiển giao diện** (`risk: 'ui'`): `mo_man_hinh` (21 màn hình, không có Quản trị) và `mo_chi_tiet` (12 loại đối tượng).
    - Máy chủ chỉ gửi sự kiện `ui` cho trình duyệt, không thay đổi dữ liệu, không qua cơ chế xác nhận.
    - Giao diện kiểm tra `routeOk` trước khi chuyển màn hình, rồi mở chi tiết qua đúng bộ xử lý nhấp chuột sẵn có. Dữ liệu tải về vẫn qua kiểm tra quyền của API.
+   - Liên kết trong câu trả lời (so-1.15.3, theo yêu cầu của chủ sở hữu): mô hình viết `[tên](loai:mã)` hoặc `[tên](man_hinh:ma-man-hinh)` (lời nhắc quy tắc 8). Giao diện chỉ tạo nút khi loại thuộc danh sách cố định, trùng 12 loại của `mo_chi_tiet`, và mã chỉ gồm chữ số; tên hiển thị được thoát HTML. Không dùng thẻ `<a href>`, nên không mở được địa chỉ ngoài. Bấm nút dùng cùng đường xử lý với `mo_chi_tiet`/`mo_man_hinh`, không tốn thêm token. Mã do mô hình lấy từ dữ liệu đã tra; mô hình có thể ghi sai mã, nhưng quyền xem vẫn do API kiểm tra.
 5. **Nghe – nói** (giao diện):
    - Nút micro trong khung trợ lý dùng bộ ghi âm sẵn có (`Recorder`, mục 2B): Anthropic dùng nhận dạng của trình duyệt, tự gửi sau khoảng 1,6 giây im lặng; OpenAI/Gemini chuyển giọng nói tại máy chủ, bấm micro lần nữa để gửi.
    - Đọc câu trả lời bằng `speechSynthesis` của trình duyệt (`vi-VN`), không gửi văn bản ra máy chủ khác. Tự đọc khi câu hỏi được nói; nút 🔈 bật đọc cho mọi câu trả lời (lưu ở trình duyệt).

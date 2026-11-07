@@ -471,6 +471,16 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Ghi nhận thêm từ ảnh:** thanh menu ở 1006 px bị chồng chữ "Kinh doanh" và "Quản trị"; chưa xử lý.
 - **Định hướng của chủ sở hữu:** tìm Internet không phải điểm bán hàng chính; trợ lý định vị là trợ lý ảo hỗ trợ cá nhân.
 
+## 07/11/2026. Liên kết xem chi tiết trong câu trả lời của trợ lý (so-1.15.3)
+- **Yêu cầu của chủ sở hữu:** dữ liệu trong câu trả lời có liên kết để bấm xem chi tiết.
+- **Việc đã làm:**
+  - lời nhắc thêm quy tắc 8: viết `[tên](loai:mã)` cho 12 loại đối tượng, `[tên](man_hinh:ma)` cho màn hình; hồ sơ nhân sự dùng mã người dùng, không dùng mã hợp đồng; không chắc mã thì không tạo liên kết;
+  - giao diện (`fmt` trong `public/ai.js`) đổi cú pháp trên thành nút; bấm nút mở chi tiết qua `uiDo`. Nội dung đọc to chỉ đọc tên. Cuộc trò chuyện mở lại từ lịch sử cũng có liên kết.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 250 đạt, 0 không đạt (phần G thêm 10 điều kiện: định dạng nút; không tạo liên kết cho `javascript:`, địa chỉ web, loại lạ, mã sai; thoát HTML tên hiển thị; không lồng nút; loại liên kết khớp `mo_chi_tiet`; lời nhắc có quy tắc);
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Chưa kiểm chứng:** với mô hình thật (mô hình có ghi đúng cú pháp, đúng mã không); hiển thị trên trình duyệt thật.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

@@ -678,6 +678,30 @@ function uiScope() {
     for (const n of names) if (!own.has(n) && new RegExp('(^|[^.\\w$\'"-])' + n.replace(/\$/g, '\\$') + '\\s*[(.\\[]').test(src)) bad.push(f + ': ' + n);
   }
   ok(files.includes('ai.js') && bad.length === 0, 'G: tệp giao diện không gọi hàm, biến của app.js ngoài window.SO (' + files.length + ' tệp)', bad);
+
+  // Liên kết đối tượng trong câu trả lời (yêu cầu chủ sở hữu 07/11/2026: "dữ liệu được lấy ra nên có hyper link kích vào để xem chi tiết")
+  const aiSrc = fs.readFileSync(path.join(PUB, 'ai.js'), 'utf8');
+  const blk = aiSrc.match(/\/\* <ai-fmt>[\s\S]*?\/\* <\/ai-fmt> \*\//), escLine = app.match(/^const esc = .*$/m);
+  ok(!!blk && !!escLine, 'G: có hàm hiển thị câu trả lời (khối ai-fmt) để kiểm thử');
+  if (!blk || !escLine) return;
+  const F = new Function(escLine[0] + '\n' + blk[0] + '\nreturn { fmt, LINK_KINDS };')();
+  const fmt = F.fmt, btns = h => (h.match(/<button/g) || []).length;
+  let h = F.fmt('Hợp đồng của [Bùi Thị Mai](nhan_su:12) sắp hết hạn.');
+  ok(h === 'Hợp đồng của <button type="button" class="ai-link" data-act="ai-open" data-k="nhan_su" data-v="12">Bùi Thị Mai</button> sắp hết hạn.', 'G: [tên](nhan_su:12) → nút mở hồ sơ nhân sự', h);
+  h = fmt('Xem [Lịch họp](man_hinh:lich-hop) và [dự án A](du_an:3)');
+  ok(/data-k="man_hinh" data-v="lich-hop">Lịch họp</.test(h) && /data-k="du_an" data-v="3">dự án A</.test(h) && btns(h) === 2, 'G: liên kết chuyển màn hình và mở dự án', h);
+  h = fmt('[bấm](javascript:alert(1)) [x](https://evil.example) [y](hack_kind:5) [z](nhan_su:0) [w](nhan_su:12a)');
+  ok(btns(h) === 0 && !/href|javascript:alert\(1\)"/.test(h) && h.includes('y') && !h.includes('hack_kind'), 'G: không tạo liên kết cho javascript:, địa chỉ web, loại lạ, mã không hợp lệ', h);
+  h = fmt('[<img src=x onerror=alert(1)>](nhan_su:3) <script>x</script> [a" onclick="b](cong_viec:4)');
+  ok(!/<img|<script|onclick="b"/.test(h) && h.includes('&lt;img') && h.includes('a&quot; onclick=&quot;b') && btns(h) === 2, 'G: tên hiển thị được thoát HTML, không chèn được thẻ hay thuộc tính', h);
+  h = fmt('[Việc #12 gấp](cong_viec:12) và #45');
+  ok(btns(h) === 2 && /data-v="12">Việc #12 gấp<\/button>/.test(h) && /data-task="45">#45/.test(h), 'G: không lồng nút trong nút; mã #45 vẫn mở công việc', h);
+  h = fmt('**[Mai](nhan_su:1)**\n\u00000\u0000 [b](de_xuat:9)');
+  ok(h.startsWith('<b><button') && h.includes('<br>') && btns(h) === 2 && !h.includes('\u0000'), 'G: in đậm quanh liên kết; ký hiệu giữ chỗ giả trong văn bản bị loại', h);
+  const { DETAILS } = require(path.join(__dirname, '..', 'ai-tools.js'));
+  ok(JSON.stringify([...F.LINK_KINDS].sort()) === JSON.stringify(Object.keys(DETAILS).sort()), 'G: loại liên kết khớp loại đối tượng của mo_chi_tiet', F.LINK_KINDS);
+  ok(/\n8\. Liên kết để người dùng bấm xem chi tiết: .*\[tên hiển thị\]\(loai:mã\)/.test(AI.SYSTEM) && F.LINK_KINDS.every(k => AI.SYSTEM.includes(k)) && /nhan_su dùng mã người dùng/.test(AI.SYSTEM), 'G: lời nhắc hướng dẫn cú pháp liên kết và mã đúng cho hồ sơ nhân sự');
+  ok(/'ai-open': b =>/.test(aiSrc) && /\.replace\(\/\\\[\(\[\^\\\[\\\]\\n\]\{1,160\}\)\\\]\\\(\[a-z_\]\+:\[\\w-\]\+\\\)\/g, '\$1'\)/.test(aiSrc), 'G: bấm liên kết mở chi tiết; đọc to chỉ đọc tên hiển thị');
 }
 
 async function oneShot(U) {
