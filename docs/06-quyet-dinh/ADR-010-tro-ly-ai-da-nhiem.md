@@ -63,6 +63,31 @@ Kế hoạch phát triển có Phiên 16 "Trợ lý AI" với tiêu chí: dữ l
 
 `GET /api/ai/me/usage` trả số liệu của chính người đang đăng nhập: token hôm nay so với hạn mức, số còn lại, thống kê theo ngày 30 ngày gần nhất (lượt, token vào, token ra, lượt tìm Internet). Hiển thị tại Tài khoản › Trợ lý AI của tôi. Không trả số liệu của người khác; quản trị viên vẫn xem thống kê toàn đơn vị tại Quản trị › Trợ lý AI.
 
+## 2E. Bổ sung 07/11/2026: tra cứu toàn bộ nghiệp vụ, lịch sử hoạt động, nghe – nói, điều khiển giao diện (theo yêu cầu của chủ sở hữu)
+
+Yêu cầu: trợ lý được tra cứu hết các API nghiệp vụ (cấm nghiệp vụ phân quyền) và lịch sử hoạt động, theo phân quyền hiện tại của người dùng, để lãnh đạo nắm toàn bộ tình hình mà không phải thao tác; nghe và nói được; điều khiển giao diện để chuyển màn hình, mở chi tiết.
+
+1. **Công cụ `doc_du_lieu`:** gọi một API GET trong danh mục cho phép (`CATALOG` trong `ai-tools.js`, khoảng 58 mẫu đường dẫn ở 18 phân hệ).
+   - Đường dẫn phải khớp đúng một mẫu, mã số là số nguyên dương; chặn `..`, `%2e`, `%2f`, `\`, `#`, địa chỉ tuyệt đối.
+   - Tham số truy vấn chỉ giữ tên có trong danh mục, giá trị được dựng lại.
+   - **Không có trong danh mục:** quản trị (`/api/admin/*`), phân quyền và thành viên/vai trò (`/api/work/members`, `/api/work/bulk/*`, `/api/work/config`), tài khoản và nhật ký an ninh, sao lưu/khôi phục, cấu hình trợ lý AI, xuất tệp và tải tệp, tiền lương (`/api/payroll/*`), nội dung tin nhắn (vì đọc sẽ đánh dấu đã đọc).
+   - Quyền trên từng đối tượng vẫn do API nghiệp vụ kiểm tra, vì lời gọi mang cookie của người dùng (mục 2.4).
+2. **Công cụ `bao_cao_tinh_hinh`:** gọi song song 9 API đọc (tổng quan, đề xuất đang chờ, hồ sơ quy trình đang xử lý, báo cáo công việc toàn hệ thống, lịch họp hôm nay, hoạt động gần đây, thu chi, chấm công, lịch hẹn khách hàng). Phần không có quyền ghi chú là không có quyền xem, không làm hỏng cả báo cáo. Mỗi phần tối đa 6.000 ký tự, đã che dữ liệu cá nhân.
+3. **Lịch sử hoạt động `GET /api/activity`** (mới, `server.js`):
+   - quản trị, giám đốc xem toàn đơn vị; người khác xem hoạt động của người cùng phòng và của chính mình;
+   - lọc theo người, khoảng ngày, từ khóa; tối đa 200 dòng mỗi trang; bỏ thẻ HTML;
+   - thêm chỉ mục `idx_activity_user`.
+
+   Công cụ `lich_su_hoat_dong` dùng API này.
+4. **Điều khiển giao diện** (`risk: 'ui'`): `mo_man_hinh` (21 màn hình, không có Quản trị) và `mo_chi_tiet` (12 loại đối tượng).
+   - Máy chủ chỉ gửi sự kiện `ui` cho trình duyệt, không thay đổi dữ liệu, không qua cơ chế xác nhận.
+   - Giao diện kiểm tra `routeOk` trước khi chuyển màn hình, rồi mở chi tiết qua đúng bộ xử lý nhấp chuột sẵn có. Dữ liệu tải về vẫn qua kiểm tra quyền của API.
+5. **Nghe – nói** (giao diện):
+   - Nút micro trong khung trợ lý dùng bộ ghi âm sẵn có (`Recorder`, mục 2B): Anthropic dùng nhận dạng của trình duyệt, tự gửi sau khoảng 1,6 giây im lặng; OpenAI/Gemini chuyển giọng nói tại máy chủ, bấm micro lần nữa để gửi.
+   - Đọc câu trả lời bằng `speechSynthesis` của trình duyệt (`vi-VN`), không gửi văn bản ra máy chủ khác. Tự đọc khi câu hỏi được nói; nút 🔈 bật đọc cho mọi câu trả lời (lưu ở trình duyệt).
+6. **Tự báo cáo tình hình:** tùy chọn cá nhân `ai_user_config.auto_brief` (mặc định tắt). Khi bật, lần đầu vào hệ thống mỗi ngày trên trình duyệt đó, khung trợ lý tự mở và báo cáo. Mỗi lần báo cáo tốn token.
+7. **Chi phí:** mô tả 22 công cụ khoảng 15.600 ký tự, gửi kèm mỗi bước, được lưu bộ đệm lời nhắc. Hạn mức ngày đang tính cả token đọc từ bộ đệm, nên lãnh đạo dùng nhiều cần hạn mức cao hơn mặc định 200.000.
+
 ## 3. Hệ quả
 
 - Có thể đổi nhà cung cấp bằng cấu hình, không sửa mã.

@@ -28,16 +28,20 @@ function ensurePanel() {
   <button class="ai-fab" id="ai-fab" data-act="ai-toggle" aria-controls="ai-panel" aria-expanded="false" title="Trợ lý AI (Ctrl + /)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg><span>Trợ lý</span></button>
   <aside class="ai-panel" id="ai-panel" role="dialog" aria-modal="false" aria-labelledby="ai-title" hidden>
     <header class="ai-head"><h2 id="ai-title">Trợ lý AI</h2><span class="spacer"></span>
+      <button class="btn sm ai-x" id="ai-voice" data-act="ai-voice" aria-pressed="false" aria-label="Đọc to câu trả lời" title="Đọc to câu trả lời">🔈</button>
       <button class="btn sm ai-x" data-act="ai-config" aria-label="Cấu hình trợ lý của tôi" title="Cấu hình trợ lý của tôi">⚙</button>
       <button class="btn sm" data-act="ai-new" title="Bắt đầu cuộc trò chuyện mới">Cuộc trò chuyện mới</button>
       <button class="btn sm ai-x" data-act="ai-toggle" aria-label="Đóng trợ lý">✕</button></header>
     <div class="ai-log" id="ai-log" aria-live="polite"></div>
     <form class="ai-form" id="ai-form"><label for="ai-in" class="sr-only">Nhập yêu cầu cho trợ lý</label>
-      <textarea id="ai-in" rows="2" maxlength="4000" placeholder="Ví dụ: Giao Lan báo cáo tuần, hạn thứ Sáu…"></textarea>
+      <textarea id="ai-in" rows="2" maxlength="4000" placeholder="Hỏi hoặc bấm micro để nói. Ví dụ: Tình hình hôm nay thế nào?"></textarea>
+      <button class="btn ai-mic" type="button" id="ai-mic" data-act="ai-mic" aria-pressed="false" aria-label="Nói với trợ lý" title="Nói với trợ lý"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
       <button class="btn primary" type="submit" id="ai-send">Gửi</button></form>
+    <p class="ai-heard" id="ai-heard" aria-live="polite" hidden></p>
     <p class="ai-note">Trợ lý có thể sai; hãy kiểm tra trước khi xác nhận. Nội dung bạn nhập và dữ liệu tra cứu (đã ẩn thông tin cá nhân theo cấu hình) được gửi tới nhà cung cấp AI.</p>
   </aside>`);
   $('#ai-form').addEventListener('submit', e => { e.preventDefault(); send($('#ai-in').value); });
+  voiceBtn();
   $('#ai-in').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send($('#ai-in').value); } });
   draw();
 }
@@ -46,6 +50,7 @@ function draw() {
   const log = $('#ai-log'); if (!log) return;
   log.innerHTML = items.length ? items.map(it => {
     if (it.k === 'user') return `<div class="ai-msg me"><div class="ai-bub">${esc(it.text).replace(/\n/g, '<br>')}</div></div>`;
+    if (it.k === 'ui') return `<div class="ai-msg"><p class="hint ai-ui">↗ ${esc(it.text)}</p></div>`;
     if (it.k === 'bot') return `<div class="ai-msg"><div class="ai-bub">${fmt(it.text)}</div></div>` + (it.src && it.src.length ? srcHtml(it.src) : '');
     if (it.k === 'err') return `<div class="ai-msg"><div><p class="err" role="alert">${esc(it.text)}</p>${it.cfg ? '<button class="btn sm" data-act="ai-config" style="margin-top:6px">Cấu hình trợ lý của tôi</button>' : ''}</div></div>`;
     if (it.k === 'act') return `<div class="ai-act ${it.st}" data-aid="${it.id}"><div class="ai-act-h">Đề nghị: ${esc(it.label)}</div><p>${esc(it.summary)}</p>
@@ -54,13 +59,14 @@ function draw() {
     return '';
   }).join('') + (busy ? `<div class="ai-msg"><div class="ai-bub ai-wait"><span class="ai-dots" aria-hidden="true"></span> ${esc(busy === true ? 'Đang xử lý…' : busy)}</div></div>` : '')
     : !status.configured ? `<div class="ai-empty"><p class="notice info">Bạn chưa cấu hình trợ lý AI. Mỗi người dùng một trợ lý riêng: chọn nhà cung cấp (Anthropic, OpenAI hoặc Google Gemini), mô hình và nhập khóa API của bạn.</p><div class="actions" style="margin-top:10px"><button class="btn primary sm" data-act="ai-config">Cấu hình trợ lý của tôi</button></div></div>`
-    : `<div class="ai-empty"><p>${status.assistant_name ? '<b>' + esc(status.assistant_name) + '</b> sẵn sàng. ' : ''}Tôi có thể tra cứu công việc, đề xuất, lịch họp, tài liệu và lập đề nghị giao việc, gửi đề xuất, đặt lịch họp để bạn xác nhận.</p><div class="ai-sug">${SUGGEST.map(s => `<button class="chip" data-act="ai-sug">${esc(s)}</button>`).join('')}<button class="chip" data-act="ai-draft">✍ Soạn văn bản…</button></div><p class="hint" style="margin-top:10px">Ghi âm, lập biên bản và kết luận: mở cuộc họp tại Lịch họp › Trợ lý cuộc họp.</p>${status.web_search ? `<p class="hint" style="margin-top:6px">Tra cứu được văn bản, thông tin đấu thầu trên: ${esc((status.web_domains || []).join(', '))}. Câu trả lời có dẫn nguồn.</p>` : ''}</div>`;
+    : `<div class="ai-empty"><p>${status.assistant_name ? '<b>' + esc(status.assistant_name) + '</b> sẵn sàng. ' : ''}Tôi tổng hợp được tình hình công việc, đề xuất, quy trình, nhân sự, lịch họp, khách hàng, thu chi… theo quyền của bạn; mở màn hình, chi tiết cho bạn; lập đề nghị giao việc, gửi đề xuất, đặt lịch họp để bạn xác nhận. Bấm micro để nói.</p><div class="ai-sug"><button class="chip" data-act="ai-sug">Tình hình hôm nay</button>${SUGGEST.map(s => `<button class="chip" data-act="ai-sug">${esc(s)}</button>`).join('')}<button class="chip" data-act="ai-draft">✍ Soạn văn bản…</button></div><p class="hint" style="margin-top:10px">Ghi âm, lập biên bản và kết luận: mở cuộc họp tại Lịch họp › Trợ lý cuộc họp.</p>${status.web_search ? `<p class="hint" style="margin-top:6px">Tra cứu được văn bản, thông tin đấu thầu trên: ${esc((status.web_domains || []).join(', '))}. Câu trả lời có dẫn nguồn.</p>` : ''}</div>`;
   log.scrollTop = log.scrollHeight;
   const b = $('#ai-send'); if (b) b.disabled = !!busy;
 }
 
-async function send(text) {
+async function send(text, viaVoice) {
   text = String(text || '').trim(); if (!text || busy) return;
+  spoken = !!viaVoice; if ('speechSynthesis' in window) speechSynthesis.cancel();
   $('#ai-in').value = '';
   hist.push({ role: 'user', text }); items.push({ k: 'user', text }); busy = true; draw();
   let answered = false;
@@ -80,10 +86,75 @@ async function send(text) {
   function onEvent(ev) {
     if (ev.type === 'status') { busy = ev.text + '…'; draw(); }
     else if (ev.type === 'action') { items.push({ k: 'act', id: ev.id, label: ev.label, summary: ev.summary, st: 'pending' }); draw(); }
-    else if (ev.type === 'text') { items.push({ k: 'bot', text: ev.text }); hist.push({ role: 'assistant', text: ev.text }); draw(); }
+    else if (ev.type === 'text') { items.push({ k: 'bot', text: ev.text }); hist.push({ role: 'assistant', text: ev.text }); draw(); if (voice || spoken) speak(ev.text); }
+    else if (ev.type === 'ui') { items.push({ k: 'ui', text: 'Đã mở ' + ev.label }); draw(); uiDo(ev).catch(e => toast(e.message, true)); }
     else if (ev.type === 'sources') { const last = [...items].reverse().find(x => x.k === 'bot'); if (last && Array.isArray(ev.items)) { last.src = ev.items.slice(0, 20); draw(); } }
     else if (ev.type === 'error') { items.push({ k: 'err', text: ev.message, cfg: ev.status === 412 || /Khóa API/.test(ev.message) }); if (ev.status === 403 || ev.status === 401 || ev.status === 412) check(); draw(); }
   }
+}
+
+/* ---------- Điều khiển giao diện theo lệnh của trợ lý: chỉ chuyển màn hình, mở chi tiết; quyền vẫn do máy chủ kiểm tra khi tải dữ liệu ---------- */
+const DETAIL_ATTR = { cong_viec: ['data-task', null], de_xuat: ['data-req', 'phe-duyet'], quy_trinh: ['data-run', 'quy-trinh'], nhan_su: ['data-emp', 'nhan-su'], cuoc_hop: ['data-meeting', 'lich-hop'], tai_lieu: ['data-doc', 'tai-lieu'], ban_tin: ['data-post', 'bang-tin'], khach_hang: ['data-cus', 'khach-hang'], tai_san: ['data-asset', 'tai-san'], ung_vien: ['data-cand', 'tuyen-dung'], khoa_hoc: ['data-course', 'dao-tao'] };
+const pause = ms => new Promise(r => setTimeout(r, ms));
+async function uiDo(ev) {
+  const id = Number(ev.id || ev.project) || 0;
+  if (ev.op === 'navigate' || ev.kind === 'du_an') {
+    const route = ev.kind === 'du_an' ? 'cong-viec' : String(ev.route || '');
+    if (!routeOk(route)) throw new Error('Bạn không có quyền mở màn hình này.');
+    if (!$('#overlay').hidden) closeModal();
+    const h = route + (route === 'cong-viec' && id ? '?p=' + id : '');
+    if (location.hash.slice(1) === h) render(); else location.hash = h;
+  } else if (ev.op === 'open') {
+    const [attr, route] = DETAIL_ATTR[ev.kind] || []; if (!attr || !(id > 0)) return;
+    if (route && routeOk(route) && current() !== route) { location.hash = route; await pause(500); }
+    if (!$('#overlay').hidden) closeModal();
+    const el = document.createElement('span'); el.setAttribute(attr, String(id)); el.hidden = true; document.body.appendChild(el); el.click(); el.remove();
+  }
+  if (window.innerWidth <= 600 && open) toggle(false); // điện thoại: khung trợ lý che toàn màn hình, đóng lại để người dùng xem
+}
+
+/* ---------- Nghe và nói ---------- */
+let voice = (() => { try { return localStorage.getItem('so-ai-voice') === '1'; } catch (e) { return false; } })(), spoken = false, mic = null, micTimer = null, warnedVoice = false;
+function voiceBtn() { const b = $('#ai-voice'); if (!b) return; b.setAttribute('aria-pressed', String(voice)); b.textContent = voice ? '🔊' : '🔈'; b.title = voice ? 'Đang đọc to câu trả lời (bấm để tắt)' : 'Đọc to câu trả lời'; }
+function speak(text) {
+  if (!('speechSynthesis' in window)) return;
+  const t = String(text || '').replace(/\*\*/g, '').replace(/https?:\/\/\S+/g, '').replace(/(^|\s)#(\d+)/g, '$1số $2').replace(/^[\s•*-]+/gm, '').replace(/₫/g, ' đồng').slice(0, 3000);
+  speechSynthesis.cancel();
+  const vs = speechSynthesis.getVoices(), v = vs.find(x => /^vi(-|_|$)/i.test(x.lang));
+  if (!v && vs.length && !warnedVoice) { warnedVoice = true; toast('Thiết bị chưa có giọng đọc tiếng Việt. Hãy cài giọng nói tiếng Việt cho hệ điều hành, hoặc dùng trình duyệt Edge.', true); }
+  /* Chia câu ngắn: một số trình duyệt dừng đọc với đoạn dài */
+  const parts = []; let cur = '';
+  for (const seg of t.split(/(?<=[.!?;:])\s+|\n+/)) { if ((cur + ' ' + seg).length > 220 && cur) { parts.push(cur); cur = seg; } else cur = cur ? cur + ' ' + seg : seg; }
+  if (cur.trim()) parts.push(cur);
+  for (const p of parts) { const u = new SpeechSynthesisUtterance(p); u.lang = 'vi-VN'; if (v) u.voice = v; u.rate = 1.05; speechSynthesis.speak(u); }
+}
+function micUi(st) {
+  const b = $('#ai-mic'), h = $('#ai-heard'); if (!b) return;
+  const on = !!(st && st.active);
+  b.setAttribute('aria-pressed', String(on)); b.classList.toggle('on', on);
+  b.title = on ? 'Đang nghe… bấm để dừng và gửi' : 'Nói với trợ lý';
+  if (h) { h.hidden = !on && !(st && st.pending); h.textContent = on ? (st.kind === 'browser' ? 'Đang nghe… nói xong sẽ tự gửi.' : 'Đang ghi âm… bấm micro lần nữa để gửi.') : st && st.pending ? 'Đang chuyển giọng nói thành chữ…' : ''; }
+}
+async function micStop(sendIt) {
+  if (!mic) return; clearTimeout(micTimer);
+  const r = mic; mic = null; await r.stop();
+  micUi(null);
+  if (sendIt && $('#ai-in').value.trim()) send($('#ai-in').value, true);
+}
+async function micToggle() {
+  if (busy) return;
+  if (mic) return micStop(true);
+  const O = window.SO_AI_OFFICE; if (!O) return;
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+  const inp = $('#ai-in');
+  const r = O.Recorder({
+    onText: t => { inp.value += (inp.value && !/\s$/.test(inp.value) ? ' ' : '') + t; if (r.kind === 'browser') { clearTimeout(micTimer); micTimer = setTimeout(() => micStop(true), 1600); } },
+    onInterim: t => { const h = $('#ai-heard'); if (h && t) { h.hidden = false; h.textContent = '… ' + t; } if (t) clearTimeout(micTimer); },
+    onState: st => { if (mic === r) micUi(st); },
+    onError: e => { toast(e.message, true); micStop(false); }
+  });
+  mic = r;
+  try { await r.start(); } catch (e) { mic = null; micUi(null); toast(e.message, true); }
 }
 
 async function decide(id, ok) {
@@ -105,6 +176,15 @@ function toggle(force) {
   if (open) setTimeout(() => $('#ai-in') && $('#ai-in').focus(), 30); else if (!$('#ai-fab').hidden) $('#ai-fab').focus();
 }
 
+/* Lãnh đạo bật "Tự động báo cáo tình hình": lần đầu vào hệ thống mỗi ngày, trợ lý tự mở và báo cáo, không cần thao tác */
+function autoBrief() {
+  if (!enabled || !status.configured || !status.auto_brief || busy || items.length) return;
+  let last = ''; try { last = localStorage.getItem('so-ai-brief') || ''; } catch (e) {}
+  if (last === TODAY()) return;
+  try { localStorage.setItem('so-ai-brief', TODAY()); } catch (e) {}
+  toggle(true); send('Báo cáo tình hình hôm nay cho tôi: điểm nóng, việc cần chỉ đạo.');
+}
+
 async function check() {
   const before = enabled;
   try { status = await GET('/api/ai/status'); enabled = !!status.enabled; } catch (e) { enabled = false; status = {}; }
@@ -114,11 +194,14 @@ async function check() {
   const t = $('#ai-title'); if (t) t.textContent = status.assistant_name || 'Trợ lý AI';
   draw();
   const fab = $('#ai-fab'); if (fab) fab.hidden = !enabled;
+  autoBrief();
   if (!enabled && open) { open = false; const p = $('#ai-panel'); if (p) p.hidden = true; document.body.classList.remove('ai-open'); }
 }
 
 Object.assign(ACTIONS, {
   'ai-toggle': () => toggle(),
+  'ai-mic': () => micToggle(),
+  'ai-voice': () => { voice = !voice; try { localStorage.setItem('so-ai-voice', voice ? '1' : '0'); } catch (e) {} voiceBtn(); if (!voice && 'speechSynthesis' in window) speechSynthesis.cancel(); else if (voice) speak('Đã bật đọc câu trả lời.'); },
   'ai-config': () => goConfig(),
   'ai-me-save': btn => S.busy(btn, async () => { try { await saveMe(false); toast('Đã lưu cấu hình trợ lý của bạn'); } catch (e) { showErr('#aime-err', e); } }),
   'ai-me-clear': btn => { if (!S.armed(btn, 'Bấm lần nữa để xóa khóa')) return; S.busy(btn, async () => { try { await saveMe(true); toast('Đã xóa khóa API'); } catch (e) { showErr('#aime-err', e); } }); },
@@ -130,7 +213,7 @@ Object.assign(ACTIONS, {
       out.className = r.ok ? 'notice ok' : 'err'; out.textContent = r.ok ? `Kết nối thành công: ${r.provider} · ${r.model}${r.source === 'org' ? ' (đang dùng khóa chung của đơn vị)' : ''}. Trả lời thử: “${r.reply}”` : (r.error || 'Kết nối không thành công.');
     } catch (e) { out.className = 'err'; out.textContent = e.message; }
   }),
-  'ai-new': () => { if (busy) return; hist = []; items = []; draw(); $('#ai-in').focus(); },
+  'ai-new': () => { if (busy) return; hist = []; items = []; if ('speechSynthesis' in window) speechSynthesis.cancel(); draw(); $('#ai-in').focus(); },
   'ai-sug': b => send(b.textContent),
   'ai-ok': b => decide(Number(b.dataset.id), true),
   'ai-no': b => decide(Number(b.dataset.id), false),
@@ -162,6 +245,7 @@ async function mountAccount(el) {
         <span class="hint">${m.can_store_key ? 'Không chia sẻ khóa cho người khác. Chi phí sử dụng tính vào tài khoản của khóa này.' : 'Máy chủ chưa khai báo AI_KEY_SECRET nên chưa lưu được khóa. Liên hệ quản trị hệ thống.'}</span></div>
       <div class="field" id="aime-ef"><label for="aime-e">Mức suy luận (Anthropic)</label><select id="aime-e">${opt({ '': 'Mặc định (vừa)', low: 'Thấp – nhanh, rẻ', medium: 'Vừa', high: 'Cao – kỹ hơn, chậm hơn' }, m.effort)}</select></div>
       <div class="field"><label for="aime-n">Tên trợ lý</label><input id="aime-n" maxlength="40" value="${esc(m.assistant_name)}" placeholder="Ví dụ: Trợ lý của Long"></div>
+      <div class="field full"><label class="check"><input type="checkbox" id="aime-ab" ${m.auto_brief ? 'checked' : ''}> Tự động báo cáo tình hình khi tôi vào hệ thống lần đầu mỗi ngày (dành cho lãnh đạo; mỗi lần báo cáo tốn token)</label></div>
       <div class="field full"><label for="aime-i">Cách trả lời mong muốn</label><textarea id="aime-i" maxlength="1000" rows="3" placeholder="Ví dụ: trả lời ngắn gọn, gạch đầu dòng; luôn nêu hạn hoàn thành.">${esc(m.instructions)}</textarea></div>
     </div>
     <p class="err" id="aime-err" hidden></p><div id="aime-test" aria-live="polite"></div></div>
@@ -193,7 +277,7 @@ function provChanged() {
   if (ME && ME.has_key && p !== ME.provider) $('#aime-k').placeholder = 'Đổi nhà cung cấp: nhập khóa API của nhà cung cấp mới';
 }
 async function saveMe(clear) {
-  const body = { provider: $('#aime-p').value, model: $('#aime-m').value.trim(), effort: $('#aime-e').value, assistant_name: $('#aime-n').value, instructions: $('#aime-i').value };
+  const body = { provider: $('#aime-p').value, model: $('#aime-m').value.trim(), effort: $('#aime-e').value, assistant_name: $('#aime-n').value, instructions: $('#aime-i').value, auto_brief: $('#aime-ab').checked };
   if (clear) body.clear_key = true; else if ($('#aime-k').value.trim()) body.api_key = $('#aime-k').value.trim();
   await PUT('/api/ai/me', body);
   $('#aime-k').value = '';

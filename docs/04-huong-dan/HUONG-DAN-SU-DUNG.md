@@ -285,7 +285,7 @@ Cần làm → Đang làm → (Chờ đánh giá, nếu dự án bật "Yêu c�
 
 Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hình nền dự án.
 
-## XII. TRỢ LÝ AI (PHIÊN BẢN 1.11–1.13, KHI QUẢN TRỊ VIÊN ĐÃ BẬT)
+## XII. TRỢ LÝ AI (PHIÊN BẢN 1.11–1.14, KHI QUẢN TRỊ VIÊN ĐÃ BẬT)
 
 0. **Cấu hình trợ lý của bạn (lần đầu):** mỗi người một trợ lý riêng. Vào **Tài khoản › Trợ lý AI của tôi** (hoặc bấm ⚙ trong khung trợ lý):
    - chọn **Nhà cung cấp**: Anthropic (Claude), OpenAI hoặc Google Gemini;
@@ -320,5 +320,17 @@ Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hìn
    - Trong lúc xử lý, khung trợ lý hiện câu tìm kiếm và trang đang đọc. Câu trả lời kèm mục **Nguồn tham khảo trên Internet**; bấm để mở trang gốc.
    - Thông tin từ Internet chỉ để tham khảo: luôn mở nguồn kiểm tra hiệu lực văn bản trước khi sử dụng.
    - **Quản trị viên:** Quản trị › Trợ lý AI › đánh dấu **Cho phép trợ lý tìm kiếm trên Internet**, sửa danh sách tên miền (mỗi dòng một tên miền, không nhập `http://`, đường dẫn hay ký tự `*`), bấm **Lưu cấu hình**. Mỗi lần tìm, đọc trang được nhà cung cấp tính phí riêng ngoài token; bảng thống kê có cột "Lượt tìm Internet".
-9. **Xem token AI bạn đã dùng:** Tài khoản › Trợ lý AI của tôi › mục **Token AI tôi đã dùng**: số token hôm nay so với hạn mức, số còn lại (tính lại lúc 0 giờ, giờ Việt Nam), bảng theo ngày trong 30 ngày gần nhất (số lượt, token vào, token ra, lượt tìm Internet). Mỗi người chỉ xem được số liệu của mình. Chi phí thực tế xem tại trang quản lý tài khoản của nhà cung cấp.
+9. **Nắm tình hình không cần thao tác (phiên bản 1.14):**
+   - Hỏi "Tình hình hôm nay thế nào?" hoặc bấm gợi ý **Tình hình hôm nay**. Trợ lý tổng hợp các nguồn bạn có quyền xem: công việc, việc quá hạn, tải công việc theo người, đề xuất tồn đọng, hồ sơ quy trình, lịch họp, hoạt động gần đây, thu chi, chấm công, lịch hẹn khách hàng. Sau đó nêu điểm nóng và việc cần chỉ đạo.
+   - Hỏi sâu bất kỳ phân hệ nào: "Phòng Kinh doanh tuần này hoàn thành bao nhiêu việc?", "Ai đang có nhiều việc quá hạn nhất?", "Hôm qua anh Long đã làm những gì?", "Hồ sơ quy trình nào đang chậm?".
+   - Trợ lý chỉ xem được dữ liệu bạn có quyền xem. Trợ lý không tra cứu phân quyền, tài khoản người dùng, nhật ký an ninh, tiền lương, sao lưu, nội dung tin nhắn.
+   - **Tự báo cáo mỗi ngày:** Tài khoản › Trợ lý AI của tôi › đánh dấu **Tự động báo cáo tình hình khi tôi vào hệ thống lần đầu mỗi ngày**. Khung trợ lý sẽ tự mở và báo cáo.
+10. **Nói và nghe:**
+   - Bấm biểu tượng micro cạnh nút Gửi rồi nói.
+     - Anthropic (Claude): dùng nhận dạng giọng nói của Chrome/Edge, nói xong khoảng 2 giây sẽ tự gửi.
+     - OpenAI/Gemini: bấm micro lần nữa để gửi.
+   - Hỏi bằng giọng nói thì trợ lý tự đọc câu trả lời. Bấm 🔈 ở đầu khung để luôn đọc câu trả lời.
+   - Giọng đọc dùng sẵn của trình duyệt. Nếu máy chưa có giọng tiếng Việt, cài giọng nói tiếng Việt cho Windows hoặc dùng Edge.
+11. **Trợ lý mở màn hình cho bạn:** nói hoặc gõ "Mở đề xuất số 12", "Chuyển đến dự án Triển khai văn phòng số", "Cho tôi xem hồ sơ nhân sự của Lan". Trợ lý chuyển màn hình và mở cửa sổ chi tiết. Trên điện thoại, khung trợ lý tự đóng để bạn xem.
+12. **Xem token AI bạn đã dùng:** Tài khoản › Trợ lý AI của tôi › mục **Token AI tôi đã dùng**: số token hôm nay so với hạn mức, số còn lại (tính lại lúc 0 giờ, giờ Việt Nam), bảng theo ngày trong 30 ngày gần nhất (số lượt, token vào, token ra, lượt tìm Internet). Mỗi người chỉ xem được số liệu của mình. Chi phí thực tế xem tại trang quản lý tài khoản của nhà cung cấp.
 

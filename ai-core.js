@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS ai_user_config (user_id INTEGER PRIMARY KEY REFERENCE
 `);
 const KEY = require('./ai-key');
 D.addCol('ai_user_config', 'stt_model', "TEXT DEFAULT ''"); // mô hình chuyển giọng nói (OpenAI), bổ sung 07/11/2026
-D.addCol('ai_log', 'web_requests', 'INTEGER DEFAULT 0'); // số lần tìm kiếm/đọc trang Internet trong lượt (nhà cung cấp tính phí riêng)
+D.addCol('ai_log', 'web_requests', 'INTEGER DEFAULT 0');
+D.addCol('ai_user_config', 'auto_brief', 'INTEGER DEFAULT 0'); // tự báo cáo tình hình khi vào hệ thống lần đầu mỗi ngày (lãnh đạo) // số lần tìm kiếm/đọc trang Internet trong lượt (nhà cung cấp tính phí riêng)
 /* Mỗi người dùng một cấu hình AI riêng (nhà cung cấp, mô hình, khóa API, cách trả lời). Khóa chỉ lưu dạng mã hóa. */
 const PROVIDERS = { anthropic: 'Anthropic (Claude)', openai: 'OpenAI', gemini: 'Google Gemini' };
 const MODEL_RE = /^[A-Za-z0-9._:\/@-]{1,80}$/;
@@ -32,7 +33,7 @@ const myConfig = uid => get('SELECT * FROM ai_user_config WHERE user_id=?', uid)
 const orgProvider = () => String(process.env.SO_AI_ORG_PROVIDER || process.env.AI_PROVIDER || 'anthropic').toLowerCase();
 /* Nhà cung cấp thực dùng cho người dùng: khóa cá nhân → khóa chung; Anthropic không nhận âm thanh nên giao diện dùng nhận dạng của trình duyệt */
 const effectiveProvider = c => c && c.key_enc ? c.provider : orgKeyAvailable() ? orgProvider() : null;
-const publicConfig = c => ({ stt_model: c ? c.stt_model || '' : '', provider: c ? c.provider : 'anthropic', model: c ? c.model : '', effort: c ? c.effort : '', assistant_name: c ? c.assistant_name : '', instructions: c ? c.instructions : '', has_key: !!(c && c.key_enc), key_hint: c && c.key_enc ? c.key_hint : '', updated_at: c ? c.updated_at : null });
+const publicConfig = c => ({ stt_model: c ? c.stt_model || '' : '', provider: c ? c.provider : 'anthropic', model: c ? c.model : '', effort: c ? c.effort : '', assistant_name: c ? c.assistant_name : '', instructions: c ? c.instructions : '', has_key: !!(c && c.key_enc), key_hint: c && c.key_enc ? c.key_hint : '', updated_at: c ? c.updated_at : null, auto_brief: !!(c && c.auto_brief) });
 
 const PENDING_MS = 10 * 60e3;
 const DEFAULT_QUOTA = 200000;
@@ -91,7 +92,7 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
   route('GET', '/api/ai/status', ({ user }) => {
     const s = aiSettings(), c = myConfig(user.id);
     return { enabled: s.enabled, allow_pii: s.allow_pii, quota_left: Math.max(0, s.daily_tokens - usedToday(user.id)), configured: !!(c && c.key_enc) || orgKeyAvailable(), personal: !!(c && c.key_enc), org_key: orgKeyAvailable(), assistant_name: c && c.assistant_name || '', provider: effectiveProvider(c), audio_server: ['openai', 'gemini'].includes(effectiveProvider(c)),
-      web_search: s.web_search && s.web_domains.length > 0 && effectiveProvider(c) === 'anthropic', web_domains: s.web_search ? s.web_domains : [] };
+      web_search: s.web_search && s.web_domains.length > 0 && effectiveProvider(c) === 'anthropic', web_domains: s.web_search ? s.web_domains : [], auto_brief: !!(c && c.auto_brief) };
   });
 
   /* Cấu hình AI cá nhân: mỗi người tự chọn nhà cung cấp, mô hình, khóa API, tên và cách trả lời của trợ lý. */
@@ -112,9 +113,9 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
       keyHint = KEY.hint(k); keyEvent = 'ai_key_set';
     }
     if (old && old.provider !== provider && keyEnc && !keyEvent) bad('Đổi nhà cung cấp thì cần nhập khóa API của nhà cung cấp mới (hoặc xóa khóa cũ).');
-    run(`INSERT INTO ai_user_config(user_id,provider,model,key_enc,key_hint,effort,assistant_name,instructions,stt_model,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)
-      ON CONFLICT(user_id) DO UPDATE SET provider=excluded.provider, model=excluded.model, key_enc=excluded.key_enc, key_hint=excluded.key_hint, effort=excluded.effort, assistant_name=excluded.assistant_name, instructions=excluded.instructions, stt_model=excluded.stt_model, updated_at=excluded.updated_at`,
-      user.id, provider, model, keyEnc, keyHint, effort, str(body.assistant_name, 40), str(body.instructions, 1000), stt, now());
+    run(`INSERT INTO ai_user_config(user_id,provider,model,key_enc,key_hint,effort,assistant_name,instructions,stt_model,auto_brief,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(user_id) DO UPDATE SET provider=excluded.provider, model=excluded.model, key_enc=excluded.key_enc, key_hint=excluded.key_hint, effort=excluded.effort, assistant_name=excluded.assistant_name, instructions=excluded.instructions, stt_model=excluded.stt_model, auto_brief=excluded.auto_brief, updated_at=excluded.updated_at`,
+      user.id, provider, model, keyEnc, keyHint, effort, str(body.assistant_name, 40), str(body.instructions, 1000), stt, body.auto_brief ? 1 : 0, now());
     if (keyEvent) secLog(keyEvent, { user_id: user.id, username: user.username, ip: clientIp(req), detail: keyEvent === 'ai_key_set' ? `${provider} ${keyHint}` : provider }); // không ghi khóa
     return { ...publicConfig(myConfig(user.id)), providers: PROVIDERS, org_key: orgKeyAvailable(), enabled: aiSettings().enabled, can_store_key: !!KEY.getSecret() };
   });

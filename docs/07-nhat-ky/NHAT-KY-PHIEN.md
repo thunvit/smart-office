@@ -328,6 +328,40 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - OpenAI, Gemini: chưa làm tìm Internet.
 - **Dọn dẹp:** tắt máy chủ thử 3999, máy chủ giả lập 3997, và máy chủ 3988 còn sót từ đầu phiên (PID 83064). Khởi động lại 3100 bằng mã mới; dữ liệu thử của chủ sở hữu giữ nguyên.
 
+## 07/11/2026 (chiều, tiếp). Trợ lý AI tra cứu toàn bộ nghiệp vụ, lịch sử hoạt động, nghe – nói, điều khiển giao diện (so-1.14.0)
+- **Yêu cầu của chủ sở hữu:** AI tra cứu hết các API nghiệp vụ (cấm nghiệp vụ phân quyền) và lịch sử hoạt động theo phân quyền hiện tại, để lãnh đạo nắm toàn bộ tình hình mà không phải thao tác; nghe và nói được; điều khiển web để chuyển màn hình, mở chi tiết.
+- **Việc đã làm (ADR-010 mục 2E):**
+  - `ai-tools.js`:
+    - danh mục 58 API đọc ở 18 phân hệ; `safeApiPath` chỉ nhận đường dẫn khớp mẫu và tham số có trong danh mục;
+    - công cụ `doc_du_lieu`, `bao_cao_tinh_hinh` (9 nguồn song song), `lich_su_hoat_dong`, `mo_man_hinh`, `mo_chi_tiet`.
+    - Danh mục không có: quản trị, phân quyền và thành viên, tài khoản, nhật ký an ninh, sao lưu, cấu hình, xuất/tải tệp, tiền lương, nội dung tin nhắn.
+  - `server.js`: `GET /api/activity` (lãnh đạo xem toàn đơn vị, người khác xem phòng mình; lọc; phân trang 200; bỏ thẻ HTML); chỉ mục `idx_activity_user`.
+  - `ai.js`: thực hiện công cụ tổng hợp và công cụ giao diện; lời nhắc hướng dẫn báo cáo cho lãnh đạo, cấm tra cứu phân quyền.
+  - `ai-core.js`: tùy chọn cá nhân `auto_brief`.
+  - `public/ai.js`, `public/app.css`:
+    - thực hiện lệnh chuyển màn hình, mở chi tiết (kiểm tra `routeOk`, dùng bộ xử lý nhấp chuột sẵn có);
+    - micro trong khung trợ lý (nhận dạng của trình duyệt tự gửi sau 1,6 giây im lặng, hoặc chuyển giọng nói tại máy chủ);
+    - đọc câu trả lời bằng `speechSynthesis` vi-VN;
+    - gợi ý "Tình hình hôm nay"; tự báo cáo lần đầu mỗi ngày.
+  - `public/sw.js`: so-1.14.0. Hướng dẫn sử dụng mục XII.9–11.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 183 đạt, 0 không đạt. Phần X mới:
+    - chặn 19 đường dẫn cấm hoặc giả mạo;
+    - dựng lại tham số;
+    - quyền theo người dùng: báo cáo toàn hệ thống so khớp với lời gọi trực tiếp;
+    - lịch sử hoạt động theo phòng, có phân trang, trả 401 khi chưa đăng nhập;
+    - báo cáo tình hình đủ phần, bỏ qua phần không có quyền, vẫn che thư điện tử;
+    - lệnh giao diện hợp lệ và bị từ chối;
+    - công cụ giao diện không lập được đề nghị ghi;
+    - bật/tắt tự báo cáo.
+  - `worker-smoke` đạt (đủ các dòng bắt buộc, `ai 403 200 200`); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+  - Máy chủ 3100 khởi động lại với so-1.14.0: `/healthz` 200; `/api/activity` khi chưa đăng nhập 401; `/api/login` sai 401.
+- **Chưa kiểm chứng:**
+  - Giao diện micro, đọc câu trả lời, chuyển màn hình và mở chi tiết trên trình duyệt: chưa xem được, vì thao tác nhập mật khẩu vào trang thử bị hệ thống chặn.
+  - Giọng đọc tiếng Việt phụ thuộc thiết bị.
+  - Chất lượng báo cáo với mô hình thật; Cloudflare thật.
+- **Lưu ý chi phí:** mô tả 22 công cụ khoảng 15.600 ký tự, gửi kèm mỗi bước (có bộ đệm lời nhắc). Hạn mức ngày đang tính cả token đọc từ bộ đệm; lãnh đạo dùng nhiều nên được nâng hạn mức.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

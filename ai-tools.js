@@ -19,8 +19,107 @@ const RTYPES = { thanhtoan: 'Đề nghị thanh toán', mua: 'Đề xuất mua s
 const TST = { todo: 'Cần làm', doing: 'Đang làm', done: 'Hoàn thành', failed: 'Thất bại' };
 const PRIO = { cao: 'Cao', tb: 'Trung bình', thap: 'Thấp' };
 
+/* ---------- Danh mục API đọc nghiệp vụ cho công cụ doc_du_lieu ----------
+ * Chỉ GET. Đường dẫn phải khớp đúng một mẫu dưới đây (mã số là số nguyên dương); tham số truy vấn chỉ nhận tên có trong danh mục, giá trị được dựng lại.
+ * Cố ý KHÔNG có: quản trị, phân quyền và thành viên/vai trò, tài khoản người dùng, nhật ký an ninh, sao lưu/khôi phục, cấu hình,
+ * xuất tệp, tải tệp, tiền lương, nội dung tin nhắn (đọc sẽ đánh dấu đã đọc), cấu hình trợ lý AI. Quyền xem từng đối tượng do API nghiệp vụ kiểm tra. */
+const CATALOG = [
+  ['/api/dashboard', 'Tổng quan: việc của tôi, tải công việc theo người (lãnh đạo: toàn đơn vị; trưởng phòng: phòng mình), tổng số việc/quá hạn, đề xuất và hồ sơ quy trình chờ tôi, hoạt động gần đây, hợp đồng sắp hết hạn'],
+  ['/api/activity', 'Lịch sử hoạt động trên hệ thống (lãnh đạo: toàn đơn vị; người khác: phòng mình). user=mã người, from/to=YYYY-MM-DD, q=từ khóa', 'user,from,to,q,limit,offset'],
+  ['/api/tasks', 'Công việc. scope: assigned|created|marked|following|review|staff (nhân viên tôi quản lý); status: open|late|todo|doing|review|done|failed; assignee=mã người', 'scope,status,assignee,q,tag,limit,offset'],
+  ['/api/tasks/:id', 'Chi tiết công việc: mô tả, người làm, hạn, việc con, trao đổi, lịch sử'],
+  ['/api/work/staff', 'Nhân viên tôi quản lý và số việc của từng người'],
+  ['/api/projects', 'Dự án/phòng ban. scope: mine|dept|fav|all (all chỉ với quản trị, giám đốc); status: open|closed|all; kind: project|team', 'scope,health,dept,status,kind,q'],
+  ['/api/projects/:id', 'Thông tin dự án'],
+  ['/api/projects/:id/tasks', 'Công việc của dự án', 'status,assignee,group,q,tag,milestone,from,to,sort,limit,offset'],
+  ['/api/projects/:id/report', 'Báo cáo dự án: tiến độ, theo người, theo trạng thái'],
+  ['/api/projects/:id/sidebar', 'Tóm tắt dự án: tiến độ, việc cần lưu ý, mốc, hoạt động gần đây'],
+  ['/api/projects/:id/activity', 'Lịch sử hoạt động của dự án', 'offset'],
+  ['/api/projects/:id/posts', 'Thảo luận của dự án'],
+  ['/api/project-posts/:id', 'Chi tiết một thảo luận dự án'],
+  ['/api/projects/:id/files', 'Danh sách tệp, tài liệu của dự án'],
+  ['/api/projects/:id/recurrences', 'Công việc lặp lại của dự án'],
+  ['/api/projects/:id/fields', 'Trường dữ liệu tùy chỉnh của dự án'],
+  ['/api/work/templates', 'Mẫu dự án'],
+  ['/api/work/members/:id/report', 'Báo cáo công việc của một người. basis: due|created; status', 'from,to,project,basis,status'],
+  ['/api/work/system-report', 'Báo cáo công việc toàn hệ thống (quản trị, giám đốc)', 'from,to,basis,dept,sub,status'],
+  ['/api/requests', 'Đề xuất phê duyệt. box: inbox (chờ tôi duyệt)|sent|done|all; status: pending|approved|rejected; type', 'box,type,status'],
+  ['/api/requests/:id', 'Chi tiết đề xuất, các bước duyệt'],
+  ['/api/requests/route', 'Xem trước tuyến duyệt của một loại đề xuất', 'type,amount,from,to'],
+  ['/api/wf/templates', 'Mẫu quy trình'],
+  ['/api/wf/runs', 'Hồ sơ quy trình (văn bản đến/đi, xử lý theo bước). box: mine (chờ tôi)|involved|all; status: running|done|cancelled', 'box,status'],
+  ['/api/wf/runs/:id', 'Chi tiết hồ sơ quy trình'],
+  ['/api/hr/employees', 'Hồ sơ nhân sự. active: 1|0; dept=mã phòng', 'active,dept,q'],
+  ['/api/hr/employees/:id', 'Hồ sơ một nhân viên: hợp đồng, ngày phép, quá trình'],
+  ['/api/attendance/today', 'Chấm công hôm nay'],
+  ['/api/attendance/sheet', 'Bảng công tháng. month=YYYY-MM', 'month,mine,dept'],
+  ['/api/goals/cycles', 'Kỳ mục tiêu'],
+  ['/api/goals', 'Mục tiêu – KPI', 'cycle'],
+  ['/api/goals/:id/updates', 'Cập nhật tiến độ một mục tiêu'],
+  ['/api/posts', 'Bảng tin nội bộ', 'category,q'],
+  ['/api/posts/:id', 'Chi tiết bản tin', 'kind'],
+  ['/api/rooms', 'Phòng họp'],
+  ['/api/meetings', 'Lịch họp. from/to=YYYY-MM-DD; mine=1', 'from,to,mine'],
+  ['/api/meetings/:id', 'Chi tiết cuộc họp, thành phần, biên bản'],
+  ['/api/docs', 'Kho tài liệu, văn bản', 'category,q'],
+  ['/api/docs/:id', 'Nội dung tài liệu'],
+  ['/api/crm/customers', 'Khách hàng', 'status,q'],
+  ['/api/crm/customers/:id', 'Chi tiết khách hàng, lịch sử chăm sóc'],
+  ['/api/crm/deals', 'Cơ hội kinh doanh'],
+  ['/api/crm/agenda', 'Lịch hẹn khách hàng sắp tới'],
+  ['/api/fin/summary', 'Tổng hợp thu chi – ngân sách theo năm', 'year'],
+  ['/api/fin/tx', 'Giao dịch thu chi. month=YYYY-MM; kind: thu|chi', 'month,kind,q'],
+  ['/api/assets', 'Tài sản', 'mine,status,category,q'],
+  ['/api/assets/:id', 'Chi tiết tài sản'],
+  ['/api/visitors', 'Khách đến cơ quan', 'from,to,mine'],
+  ['/api/recruit/jobs', 'Tin tuyển dụng'],
+  ['/api/recruit/jobs/:id', 'Chi tiết tin tuyển dụng, ứng viên'],
+  ['/api/recruit/candidates/:id', 'Chi tiết ứng viên'],
+  ['/api/courses', 'Khóa đào tạo'],
+  ['/api/courses/:id', 'Chi tiết khóa đào tạo'],
+  ['/api/reviews/cycles', 'Kỳ đánh giá năng lực'],
+  ['/api/reviews', 'Đánh giá năng lực', 'cycle'],
+  ['/api/cases', 'Khen thưởng – kỷ luật', 'kind'],
+  ['/api/chat/conversations', 'Danh sách cuộc trò chuyện và số tin chưa đọc (không đọc nội dung tin nhắn)']
+].map(([pattern, desc, params]) => ({ pattern, desc, params: params ? params.split(',') : [], re: new RegExp('^' + pattern.replace(/:id/g, '[1-9][0-9]{0,8}') + '$') }));
+/** Kiểm tra và dựng lại đường dẫn API đọc: chỉ nhận đường dẫn trong danh mục; tham số truy vấn lọc theo danh mục. */
+function safeApiPath(input) {
+  const raw = String(input || '').trim();
+  if (!raw || raw.length > 400 || /[\\#\s]|\.\.|%2e|%2f/i.test(raw)) throw new Error('Đường dẫn không hợp lệ.');
+  const [p, q = ''] = raw.split('?');
+  const path = p.replace(/\/+$/, '');
+  const c = CATALOG.find(x => x.re.test(path));
+  if (!c) throw new Error(`Đường dẫn ${path.slice(0, 80)} không có trong danh mục dữ liệu trợ lý được phép đọc.`);
+  const src = new URLSearchParams(q), out = new URLSearchParams();
+  for (const k of c.params) { const v = src.get(k); if (v != null && v !== '') out.set(k, v.slice(0, 100)); }
+  if (c.params.includes('limit') && !out.get('limit')) out.set('limit', '50');
+  const s = out.toString();
+  return path + (s ? '?' + s : '');
+}
+const CATALOG_TEXT = CATALOG.map(c => `${c.pattern}${c.params.length ? ' ?' + c.params.join(',') : ''}: ${c.desc}`).join('\n');
+
+/* ---------- Màn hình và loại chi tiết trợ lý được mở trên giao diện (không thay đổi dữ liệu) ---------- */
+const SCREENS = { 'tong-quan': 'Tổng quan', 'cong-viec': 'Công việc – Dự án', 'phe-duyet': 'Phê duyệt', 'quy-trinh': 'Quy trình', 'nhan-su': 'Hồ sơ nhân sự', 'cham-cong': 'Chấm công – Bảng công', 'tien-luong': 'Tiền lương', 'muc-tieu': 'Mục tiêu – KPI', 'bang-tin': 'Bảng tin', 'lich-hop': 'Lịch họp', 'tai-lieu': 'Tài liệu', 'khach-hang': 'Khách hàng', 'thu-chi': 'Thu chi – Ngân sách', 'tai-san': 'Tài sản', 'nhan-tin': 'Nhắn tin', 'khach-den': 'Đăng ký khách đến', 'tuyen-dung': 'Tuyển dụng', 'dao-tao': 'Đào tạo', 'danh-gia': 'Đánh giá năng lực', 'khen-thuong': 'Khen thưởng – Kỷ luật', 'tai-khoan': 'Tài khoản' };
+const DETAILS = { cong_viec: 'công việc', du_an: 'dự án', de_xuat: 'đề xuất', quy_trinh: 'hồ sơ quy trình', nhan_su: 'hồ sơ nhân sự', cuoc_hop: 'cuộc họp', tai_lieu: 'tài liệu', ban_tin: 'bản tin', khach_hang: 'khách hàng', tai_san: 'tài sản', ung_vien: 'ứng viên', khoa_hoc: 'khóa đào tạo' };
+
 const TOOLS = [
   /* ---------- Chỉ đọc ---------- */
+  { name: 'bao_cao_tinh_hinh', risk: 'read', label: 'Tổng hợp tình hình',
+    description: 'Tổng hợp một lần toàn bộ tình hình nghiệp vụ người dùng được xem: tổng quan và tải công việc, đề xuất đang chờ duyệt, hồ sơ quy trình đang xử lý, báo cáo công việc toàn hệ thống (lãnh đạo), lịch họp hôm nay, hoạt động gần đây, thu chi, chấm công hôm nay, lịch hẹn khách hàng. Phần không có quyền sẽ bị bỏ qua. Dùng ĐẦU TIÊN khi được hỏi "tình hình", "báo cáo hôm nay", "có gì cần chỉ đạo".',
+    input: obj({}),
+    multi: (a, ctx) => [
+      ['tong_quan', '/api/dashboard'], ['de_xuat_dang_cho', '/api/requests?box=all&status=pending'], ['quy_trinh_dang_xu_ly', '/api/wf/runs?box=all&status=running'],
+      ['bao_cao_cong_viec_toan_he_thong', '/api/work/system-report'], ['lich_hop_hom_nay', `/api/meetings?from=${ctx.today}&to=${ctx.today}`],
+      ['hoat_dong_gan_day', '/api/activity?limit=30'], ['thu_chi_nam', '/api/fin/summary'], ['cham_cong_hom_nay', '/api/attendance/today'], ['lich_hen_khach_hang', '/api/crm/agenda']
+    ] },
+  { name: 'doc_du_lieu', risk: 'read', label: 'Tra cứu dữ liệu',
+    description: 'Gọi MỘT API ĐỌC bất kỳ trong danh mục dưới đây, theo đúng quyền của người dùng (không có quyền sẽ nhận lỗi 403). Dùng khi các công cụ khác chưa đủ. duong_dan dạng /api/... kèm tham số, ví dụ /api/requests?box=all&status=pending hoặc /api/projects/12/report. Thay :id bằng mã số. Danh mục:\n' + CATALOG_TEXT,
+    input: obj({ duong_dan: S('Đường dẫn API trong danh mục, kèm tham số truy vấn nếu cần') }, ['duong_dan']),
+    req: a => ({ method: 'GET', path: safeApiPath(a.duong_dan) }) },
+  { name: 'lich_su_hoat_dong', risk: 'read', label: 'Xem lịch sử hoạt động',
+    description: 'Lịch sử hoạt động trên hệ thống (ai làm gì, lúc nào): giao việc, hoàn thành, duyệt, gửi đề xuất, bình luận... Lãnh đạo xem toàn đơn vị, người khác xem phòng mình. Lọc theo người, khoảng ngày, từ khóa.',
+    input: obj({ user_id: I('Mã người (tùy chọn)'), from: S(DATE), to: S(DATE), q: S('Từ khóa'), limit: I('Số dòng, tối đa 200') }),
+    req: a => ({ method: 'GET', path: '/api/activity' + qs({ user: a.user_id, from: a.from, to: a.to, q: a.q, limit: Math.min(200, Number(a.limit) || 50) }) }) },
   { name: 'xem_tong_quan', risk: 'read', label: 'Xem tổng quan',
     description: 'Tổng quan của người dùng hiện tại: công việc đang mở của tôi, đề xuất chờ tôi duyệt, hồ sơ quy trình chờ tôi xử lý, tải công việc theo người, hoạt động gần đây. Dùng khi người dùng hỏi "hôm nay tôi cần làm gì", "có gì mới".',
     input: obj({}), req: () => ({ method: 'GET', path: '/api/dashboard' }) },
@@ -60,6 +159,16 @@ const TOOLS = [
     description: 'Đọc nội dung văn bản của một tài liệu theo mã (để trả lời câu hỏi về quy chế, quy định). Trích dẫn số hiệu, tên tài liệu khi trả lời.',
     input: obj({ doc_id: I('Mã tài liệu') }, ['doc_id']), req: a => ({ method: 'GET', path: '/api/docs/' + id(a.doc_id) }),
     out: d => ({ id: d.id, title: d.title, number: d.number, issued_date: d.issued_date, issuer: d.issuer, description: d.description, body: String(d.body || '').slice(0, 12000), file_name: d.file_name }) },
+
+  /* ---------- Điều khiển giao diện: chỉ chuyển màn hình, mở chi tiết trên trình duyệt của người dùng; không thay đổi dữ liệu ---------- */
+  { name: 'mo_man_hinh', risk: 'ui', label: 'Mở màn hình',
+    description: 'Chuyển giao diện của người dùng tới một màn hình (khi người dùng bảo "mở", "chuyển đến", "cho tôi xem"). du_an_id: mở thẳng một dự án (chỉ với cong-viec). Màn hình: ' + Object.entries(SCREENS).map(([k, v]) => `${k} (${v})`).join(', ') + '.',
+    input: obj({ man_hinh: S('Mã màn hình', { enum: Object.keys(SCREENS) }), du_an_id: I('Mã dự án (tùy chọn, với cong-viec)') }, ['man_hinh']),
+    ui: a => { if (!SCREENS[a.man_hinh]) throw new Error('Màn hình không hợp lệ.'); const pid = a.man_hinh === 'cong-viec' && a.du_an_id ? id(a.du_an_id) : null; return { op: 'navigate', route: a.man_hinh, project: pid, label: SCREENS[a.man_hinh] + (pid ? ` › dự án #${pid}` : '') }; } },
+  { name: 'mo_chi_tiet', risk: 'ui', label: 'Mở chi tiết',
+    description: 'Mở cửa sổ chi tiết một đối tượng trên giao diện của người dùng (công việc, dự án, đề xuất, hồ sơ quy trình, hồ sơ nhân sự, cuộc họp, tài liệu, bản tin, khách hàng, tài sản, ứng viên, khóa đào tạo) theo mã. Dùng khi người dùng muốn xem tận mắt, xử lý tiếp. Giao diện vẫn kiểm tra quyền.',
+    input: obj({ loai: S('Loại đối tượng', { enum: Object.keys(DETAILS) }), id: I('Mã đối tượng') }, ['loai', 'id']),
+    ui: a => { if (!DETAILS[a.loai]) throw new Error('Loại đối tượng không hợp lệ.'); return { op: 'open', kind: a.loai, id: id(a.id), label: `${DETAILS[a.loai]} #${id(a.id)}` }; } },
 
   /* ---------- Ghi: cần người dùng xác nhận ---------- */
   { name: 'tao_cong_viec', risk: 'write', label: 'Tạo công việc',
@@ -116,4 +225,4 @@ function shapeResult(tool, data, allowPii) {
   return s.length > 14000 ? s.slice(0, 14000) + '…(đã cắt bớt)' : s;
 }
 
-module.exports = { TOOLS, BY_NAME, shapeResult, compact, redactText, RTYPES };
+module.exports = { TOOLS, BY_NAME, shapeResult, compact, redactText, RTYPES, CATALOG, safeApiPath, SCREENS, DETAILS };

@@ -196,6 +196,21 @@ route('GET', '/api/dashboard', ({ user }) => {
   return { loads, totals: tot, mine, inbox, wf, activity, contracts, scope: scopeAll ? 'all' : 'dept', counts: counts(user) };
 });
 
+/* ================= Lịch sử hoạt động (07/11/2026, cho trợ lý AI và lãnh đạo) =================
+ * Quản trị, giám đốc: toàn đơn vị. Người khác: hoạt động của người cùng phòng và của chính mình. Phân trang tối đa 200. */
+D.db.exec('CREATE INDEX IF NOT EXISTS idx_activity_user ON activity(user_id, id)');
+route('GET', '/api/activity', ({ user, query }) => {
+  const w = [], p = [], scopeAll = isAdmin(user) || isDirector(user);
+  if (!scopeAll) { w.push('(a.user_id=? OR a.user_id IN (SELECT id FROM users WHERE dept_id=?))'); p.push(user.id, int(user.dept_id)); }
+  if (query.user) { w.push('a.user_id=?'); p.push(int(query.user)); }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(query.from || '')) { w.push('a.created_at>=?'); p.push(query.from); }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(query.to || '')) { w.push('a.created_at<?'); p.push(addDays(query.to, 1)); }
+  if (query.q) { w.push('a.text LIKE ?'); p.push('%' + str(query.q, 100) + '%'); }
+  const limit = Math.min(200, Math.max(1, int(query.limit) || 50)), offset = Math.max(0, int(query.offset) || 0);
+  const rows = all(`SELECT a.id, a.user_id, u.full_name, a.text, a.created_at FROM activity a LEFT JOIN users u ON u.id=a.user_id ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY a.id DESC LIMIT ? OFFSET ?`, ...p, limit + 1, offset);
+  return { scope: scopeAll ? 'all' : 'dept', rows: rows.slice(0, limit).map(r => ({ ...r, text: String(r.text || '').replace(/<[^>]*>/g, '') })), has_more: rows.length > limit };
+});
+
 /* ================= Dự án, công việc: xem work.js (phân hệ Công việc – Dự án v2) ================= */
 
 /* ================= Phê duyệt đề xuất ================= */
