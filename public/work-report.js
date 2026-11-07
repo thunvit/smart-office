@@ -151,15 +151,15 @@ SO.ACTIONS['ps-new'] = () => openModal(`${mh('Thêm thảo luận mới', esc(W.
   <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="pn-go">Đăng</button></div>`, {
   'pn-go': b => busy(b, async () => { try { await POST(`/api/projects/${W.pj().id}/posts`, { title: $('#pn-t').value, body: $('#pn-b').value }); closeModal(); toast('Đã đăng thảo luận'); render(); } catch (e) { showErr('#pn-err', e); } }) });
 async function openPost(id) {
-  let x; try { x = await GET('/api/posts/' + id); } catch (e) { return toast(e.message, true); }
+  let x; try { x = await GET('/api/project-posts/' + id); } catch (e) { return toast(e.message, true); }
   const draw = () => openModal(`${mh(esc(x.title), `${esc(userName(x.user_id))} · ${fmtDT(x.created_at)}`)}<div class="modal-b"><p class="w-post-full">${esc(x.body || '')}</p>
     <h3 class="sec-t">Bình luận (${x.comments.length})</h3><div class="cmts">${x.comments.map(c => `<div class="cmt">${av(c.user_id)}<div><b>${esc(userName(c.user_id))}</b><time>${fmtDT(c.created_at)}</time><p>${esc(c.body)}</p>${c.user_id === B().me.id || x.can_edit ? `<button class="btn ghost sm" data-act="pc-del" data-id="${c.id}">Xóa</button>` : ''}</div></div>`).join('') || '<span class="hint">Chưa có bình luận.</span>'}</div>
     <div class="inline-add"><input id="pc-b" placeholder="Viết bình luận…" aria-label="Viết bình luận"><button class="btn sm" data-act="pc-add">Gửi</button></div><p class="err" id="pc-err" hidden></p></div>
     <div class="modal-f">${x.can_edit ? '<button class="btn danger" data-act="po-del" style="margin-right:auto">Xóa thảo luận</button>' : ''}${x.can_edit && W.pj() && W.pj().can_manage ? `<button class="btn" data-act="po-pin">${x.pinned ? 'Bỏ ghim' : 'Ghim lên đầu'}</button>` : ''}<button class="btn" data-act="close">Đóng</button></div>`, {
-    'pc-add': b => busy(b, async () => { const v = $('#pc-b').value.trim(); if (!v) return; try { x = await POST(`/api/posts/${x.id}/comments`, { body: v }); draw(); } catch (e) { showErr('#pc-err', e); } }),
-    'pc-del': async b => { if (!armed(b, 'Xóa?')) return; try { await DEL('/api/post-comments/' + b.dataset.id); x = await GET('/api/posts/' + x.id); draw(); } catch (e) { showErr('#pc-err', e); } },
-    'po-pin': b => busy(b, async () => { try { x = await PUT('/api/posts/' + x.id, { pinned: !x.pinned }); draw(); render(); } catch (e) { showErr('#pc-err', e); } }),
-    'po-del': async b => { if (!armed(b, 'Xóa thảo luận? Bấm lần nữa')) return; try { await DEL('/api/posts/' + x.id); closeModal(); toast('Đã xóa thảo luận'); render(); } catch (e) { showErr('#pc-err', e); } } });
+    'pc-add': b => busy(b, async () => { const v = $('#pc-b').value.trim(); if (!v) return; try { x = await POST(`/api/project-posts/${x.id}/comments`, { body: v }); draw(); } catch (e) { showErr('#pc-err', e); } }),
+    'pc-del': async b => { if (!armed(b, 'Xóa?')) return; try { await DEL('/api/post-comments/' + b.dataset.id); x = await GET('/api/project-posts/' + x.id); draw(); } catch (e) { showErr('#pc-err', e); } },
+    'po-pin': b => busy(b, async () => { try { x = await PUT('/api/project-posts/' + x.id, { pinned: !x.pinned }); draw(); render(); } catch (e) { showErr('#pc-err', e); } }),
+    'po-del': async b => { if (!armed(b, 'Xóa thảo luận? Bấm lần nữa')) return; try { await DEL('/api/project-posts/' + x.id); closeModal(); toast('Đã xóa thảo luận'); render(); } catch (e) { showErr('#pc-err', e); } } });
   draw();
 }
 SO.ACTIONS['ps-open'] = el => openPost(Number(el.dataset.id));
