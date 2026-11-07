@@ -310,15 +310,15 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .user-btn{display:flex;align-items:center;gap:8px;background:none;border:0;color:inherit;cursor:pointer;padding:4px 6px;border-radius:8px}
 .user-btn:hover{background:rgba(255,255,255,.07)}
 .u-name{max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
-.clock-btn{border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#fff;border-radius:20px;padding:6px 14px;cursor:pointer;font-weight:500;white-space:nowrap}
+.clock-btn{flex:none;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.06);color:#fff;border-radius:20px;padding:6px 14px;cursor:pointer;font-weight:500;white-space:nowrap}
 .clock-btn:hover{background:rgba(255,255,255,.12)}
 .clock-btn.in{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
 .clock-btn.done{opacity:.8}
 .menu-btn{display:none;background:none;border:0;color:#fff;padding:6px;cursor:pointer;margin-left:auto}
 .menu-btn svg{width:24px;height:24px}
 main{max-width:1480px;margin:0 auto}
-@media (max-width:1100px){.u-name{display:none}.top-link{padding:8px 9px}}
-@media (max-width:900px){
+@media (max-width:1320px){.u-name{display:none}.top-link{padding:8px 9px}}
+@media (max-width:1100px){
   .topbar-in{flex-wrap:wrap;height:auto;padding-block:10px;gap:10px}
   .menu-btn{display:block}
   .top-right{order:2}
