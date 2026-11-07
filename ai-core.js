@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS ai_user_config (user_id INTEGER PRIMARY KEY REFERENCE
 `);
 const KEY = require('./ai-key');
 D.addCol('ai_user_config', 'stt_model', "TEXT DEFAULT ''"); // mô hình chuyển giọng nói (OpenAI), bổ sung 07/11/2026
+D.addCol('ai_log', 'web_requests', 'INTEGER DEFAULT 0'); // số lần tìm kiếm/đọc trang Internet trong lượt (nhà cung cấp tính phí riêng)
 /* Mỗi người dùng một cấu hình AI riêng (nhà cung cấp, mô hình, khóa API, cách trả lời). Khóa chỉ lưu dạng mã hóa. */
 const PROVIDERS = { anthropic: 'Anthropic (Claude)', openai: 'OpenAI', gemini: 'Google Gemini' };
 const MODEL_RE = /^[A-Za-z0-9._:\/@-]{1,80}$/;
@@ -35,11 +36,31 @@ const publicConfig = c => ({ stt_model: c ? c.stt_model || '' : '', provider: c 
 
 const PENDING_MS = 10 * 60e3;
 const DEFAULT_QUOTA = 200000;
+/* Tìm kiếm Internet (Anthropic web_search/web_fetch): chỉ trong danh sách tên miền do quản trị viên duyệt.
+ * Danh sách mặc định theo chủ sở hữu ngày 07/11/2026. Tên miền tự bao gồm tên miền con (quy tắc của Anthropic). */
+const DEFAULT_WEB_DOMAINS = ['chinhphu.vn', 'vanban.chinhphu.vn', 'congbao.chinhphu.vn', 'muasamcong.mof.gov.vn', 'dauthau.asia'];
+const DOMAIN_RE = /^(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+/** Chuẩn hóa danh sách tên miền: bỏ http(s)://, dấu / cuối; chỉ nhận tên miền ASCII (chống giả mạo ký tự Unicode), không ký tự đại diện. */
+function parseDomains(v) {
+  const raw = (Array.isArray(v) ? v : String(v == null ? '' : v).split(/[\s,;]+/)).map(x => String(x).trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/+$/, '')).filter(Boolean);
+  const bad = raw.filter(d => !DOMAIN_RE.test(d));
+  return { domains: [...new Set(raw.filter(d => DOMAIN_RE.test(d)))], bad };
+}
 function aiSettings() {
-  const s = {}; for (const r of all("SELECT key, value FROM settings WHERE key IN ('ai_enabled','ai_allow_pii','ai_daily_tokens')")) s[r.key] = r.value;
-  return { enabled: s.ai_enabled === '1', allow_pii: s.ai_allow_pii === '1', daily_tokens: Number(s.ai_daily_tokens || DEFAULT_QUOTA) };
+  const s = {}; for (const r of all("SELECT key, value FROM settings WHERE key IN ('ai_enabled','ai_allow_pii','ai_daily_tokens','ai_web_search','ai_web_domains')")) s[r.key] = r.value;
+  const web_domains = s.ai_web_domains == null ? DEFAULT_WEB_DOMAINS.slice() : parseDomains(s.ai_web_domains).domains;
+  return { enabled: s.ai_enabled === '1', allow_pii: s.ai_allow_pii === '1', daily_tokens: Number(s.ai_daily_tokens || DEFAULT_QUOTA), web_search: s.ai_web_search === '1', web_domains };
 }
 const usedToday = uid => get('SELECT COALESCE(SUM(tokens_in + tokens_out),0) n FROM ai_log WHERE user_id=? AND day=?', uid, D.today()).n;
+/** Token AI của chính người dùng: hôm nay (so với hạn mức) và 30 ngày gần nhất theo ngày. Chỉ trả số liệu của người đang đăng nhập. */
+function myUsage(uid) {
+  const s = aiSettings(), from = D.addDays(D.today(), -29);
+  const days = all('SELECT day, COUNT(*) turns, COALESCE(SUM(tokens_in),0) tokens_in, COALESCE(SUM(tokens_out),0) tokens_out, COALESCE(SUM(web_requests),0) web_requests FROM ai_log WHERE user_id=? AND day>=? GROUP BY day ORDER BY day DESC', uid, from);
+  const today = days.find(d => d.day === D.today()) || { day: D.today(), turns: 0, tokens_in: 0, tokens_out: 0, web_requests: 0 };
+  const sum = k => days.reduce((a, d) => a + Number(d[k] || 0), 0);
+  return { quota: s.daily_tokens, used_today: Number(today.tokens_in) + Number(today.tokens_out), quota_left: Math.max(0, s.daily_tokens - Number(today.tokens_in) - Number(today.tokens_out)), today,
+    total_30d: { turns: sum('turns'), tokens_in: sum('tokens_in'), tokens_out: sum('tokens_out'), web_requests: sum('web_requests') }, days };
+}
 
 /* Mô tả để người dùng xác nhận: sinh từ tham số và dữ liệu trong CSDL, KHÔNG dùng lời văn của mô hình (chống prompt injection). */
 const ctxNames = () => ({
@@ -60,6 +81,7 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
     const dept = get('SELECT name FROM departments WHERE id=?', user.dept_id);
     const c = myConfig(user.id);
     const out = { user: { id: user.id, full_name: user.full_name, title: user.title, dept: dept ? dept.name : '' }, org_name: D.getSettings().org_name, today: D.today(), now: D.now().slice(0, 16), allow_pii: s.allow_pii, quota_left: s.daily_tokens - used,
+      web: s.web_search && s.web_domains.length ? { domains: s.web_domains } : null,
       personal: c ? { provider: c.provider, model: c.model, stt_model: c.stt_model || '', effort: c.effort, assistant_name: c.assistant_name, instructions: c.instructions, has_key: !!c.key_enc } : null };
     /* Khóa đã giải mã CHỈ trả cho cổng AI: bản Node gọi nội bộ (req.soInternal), Cloudflare có mã nội bộ x-so-ai-internal do Worker tính từ AI_KEY_SECRET */
     const internal = req.soInternal === true || KEY.safeEqual(req.headers['x-so-ai-internal'], KEY.internalToken());
@@ -68,11 +90,13 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
   });
   route('GET', '/api/ai/status', ({ user }) => {
     const s = aiSettings(), c = myConfig(user.id);
-    return { enabled: s.enabled, allow_pii: s.allow_pii, quota_left: Math.max(0, s.daily_tokens - usedToday(user.id)), configured: !!(c && c.key_enc) || orgKeyAvailable(), personal: !!(c && c.key_enc), org_key: orgKeyAvailable(), assistant_name: c && c.assistant_name || '', provider: effectiveProvider(c), audio_server: ['openai', 'gemini'].includes(effectiveProvider(c)) };
+    return { enabled: s.enabled, allow_pii: s.allow_pii, quota_left: Math.max(0, s.daily_tokens - usedToday(user.id)), configured: !!(c && c.key_enc) || orgKeyAvailable(), personal: !!(c && c.key_enc), org_key: orgKeyAvailable(), assistant_name: c && c.assistant_name || '', provider: effectiveProvider(c), audio_server: ['openai', 'gemini'].includes(effectiveProvider(c)),
+      web_search: s.web_search && s.web_domains.length > 0 && effectiveProvider(c) === 'anthropic', web_domains: s.web_search ? s.web_domains : [] };
   });
 
   /* Cấu hình AI cá nhân: mỗi người tự chọn nhà cung cấp, mô hình, khóa API, tên và cách trả lời của trợ lý. */
   route('GET', '/api/ai/me', ({ user }) => ({ ...publicConfig(myConfig(user.id)), providers: PROVIDERS, org_key: orgKeyAvailable(), enabled: aiSettings().enabled, can_store_key: !!KEY.getSecret() }));
+  route('GET', '/api/ai/me/usage', ({ user }) => myUsage(user.id));
   route('PUT', '/api/ai/me', ({ user, body, req }) => {
     const provider = String(body.provider || 'anthropic'); if (!PROVIDERS[provider]) bad('Nhà cung cấp AI không hợp lệ.');
     const model = str(body.model, 80); if (model && !MODEL_RE.test(model)) bad('Tên mô hình chỉ gồm chữ, số và các ký tự . _ - : / @.');
@@ -96,7 +120,7 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
   });
   route('POST', '/api/ai/usage', ({ user, body }) => {
     const n = v => Math.max(0, Math.min(5e6, int(v)));
-    run('INSERT INTO ai_log(user_id,at,day,provider,model,tokens_in,tokens_out,tools,status) VALUES(?,?,?,?,?,?,?,?,?)', user.id, now(), D.today(), str(body.provider, 30), str(body.model, 80), n(body.tokens_in), n(body.tokens_out), str((Array.isArray(body.tools) ? body.tools : []).join(','), 500), str(body.status, 30));
+    run('INSERT INTO ai_log(user_id,at,day,provider,model,tokens_in,tokens_out,tools,status,web_requests) VALUES(?,?,?,?,?,?,?,?,?,?)', user.id, now(), D.today(), str(body.provider, 30), str(body.model, 80), n(body.tokens_in), n(body.tokens_out), str((Array.isArray(body.tools) ? body.tools : []).join(','), 500), str(body.status, 30), Math.max(0, Math.min(1000, int(body.web_requests))));
     return { ok: true };
   });
 
@@ -138,17 +162,28 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
   /* Quản trị: cấu hình trợ lý AI và thống kê sử dụng */
   route('GET', '/api/admin/ai-settings', () => {
     const s = aiSettings();
-    const usage = all('SELECT l.user_id, u.full_name, SUM(l.tokens_in) tokens_in, SUM(l.tokens_out) tokens_out, COUNT(*) turns FROM ai_log l LEFT JOIN users u ON u.id=l.user_id WHERE l.day>=? GROUP BY l.user_id ORDER BY SUM(l.tokens_in+l.tokens_out) DESC LIMIT 50', D.addDays(D.today(), -30));
+    const usage = all('SELECT l.user_id, u.full_name, SUM(l.tokens_in) tokens_in, SUM(l.tokens_out) tokens_out, COUNT(*) turns, COALESCE(SUM(l.web_requests),0) web_requests FROM ai_log l LEFT JOIN users u ON u.id=l.user_id WHERE l.day>=? GROUP BY l.user_id ORDER BY SUM(l.tokens_in+l.tokens_out) DESC LIMIT 50', D.addDays(D.today(), -30));
     return { ...s, usage_30d: usage };
   }, { admin: true });
   route('PUT', '/api/admin/ai-settings', ({ user, body, req }) => {
     const q = int(body.daily_tokens); if (q < 1000 || q > 5e6) bad('Hạn mức token mỗi người mỗi ngày phải từ 1.000 đến 5.000.000.');
     const before = aiSettings();
+    let domains = null;
+    if (body.web_domains !== undefined) {
+      const p = parseDomains(body.web_domains);
+      if (p.bad.length) bad('Tên miền không hợp lệ: ' + p.bad.slice(0, 5).join(', ') + '. Chỉ nhập tên miền (ví dụ chinhphu.vn), không có ký tự đại diện hay đường dẫn.');
+      if (p.domains.length > 30) bad('Tối đa 30 tên miền.');
+      domains = p.domains;
+    }
+    const web = body.web_search !== undefined ? !!body.web_search : before.web_search;
+    if (web && !(domains || before.web_domains).length) bad('Cần ít nhất một tên miền được phép khi bật tìm kiếm Internet.');
     D.setSetting('ai_enabled', body.enabled ? '1' : '0'); D.setSetting('ai_allow_pii', body.allow_pii ? '1' : '0'); D.setSetting('ai_daily_tokens', q);
+    D.setSetting('ai_web_search', web ? '1' : '0');
+    if (domains) D.setSetting('ai_web_domains', domains.join('\n'));
     const after = aiSettings();
-    secLog('ai_settings', { user_id: user.id, username: user.username, ip: clientIp(req), detail: `bật: ${before.enabled}→${after.enabled}; dữ liệu cá nhân: ${before.allow_pii}→${after.allow_pii}; hạn mức: ${before.daily_tokens}→${after.daily_tokens}` });
+    secLog('ai_settings', { user_id: user.id, username: user.username, ip: clientIp(req), detail: `bật: ${before.enabled}→${after.enabled}; dữ liệu cá nhân: ${before.allow_pii}→${after.allow_pii}; hạn mức: ${before.daily_tokens}→${after.daily_tokens}; Internet: ${before.web_search}→${after.web_search}; tên miền: ${after.web_domains.join(' ')}`.slice(0, 1000) });
     return after;
   }, { admin: true });
 }
 
-module.exports = { register, aiSettings, PROVIDERS };
+module.exports = { register, aiSettings, PROVIDERS, parseDomains, DEFAULT_WEB_DOMAINS };

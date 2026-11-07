@@ -45,6 +45,24 @@ Kế hoạch phát triển có Phiên 16 "Trợ lý AI" với tiêu chí: dữ l
    - Âm thanh không lưu trên máy chủ; chỉ giữ phần chữ do người dùng lưu.
 4. **Header `Permissions-Policy`** đổi `microphone=()` thành `microphone=(self)` (`server.js`, `public/_headers`): chỉ trang của chính hệ thống được xin quyền micro; trình duyệt vẫn hỏi người dùng (ATTT-23).
 
+## 2C. Bổ sung 07/11/2026: tìm kiếm Internet trên trang được phép (theo yêu cầu của chủ sở hữu)
+
+1. **Dùng công cụ máy chủ của Anthropic** `web_search_20260209` và `web_fetch_20260209` (tài liệu: platform.claude.com, "Web search tool", "Web fetch tool", "Server tools", đọc ngày 07/11/2026). Việc tìm và đọc trang chạy tại Anthropic; SmartOffice không tự tải trang web (không phát sinh SSRF từ Worker). OpenAI, Gemini: **chưa làm**.
+2. **Mặc định tắt.** Quản trị viên bật tại Quản trị › Trợ lý AI (`ai_web_search`) và quản lý danh sách tên miền được phép (`ai_web_domains`, tối đa 30). Danh sách mặc định theo chủ sở hữu: `chinhphu.vn`, `vanban.chinhphu.vn`, `congbao.chinhphu.vn`, `muasamcong.mof.gov.vn`, `dauthau.asia`. Theo quy tắc của Anthropic, tên miền tự gồm tên miền con. `dauthau.asia` là trang của doanh nghiệp, không phải cổng thông tin nhà nước; lời nhắc yêu cầu trợ lý nói rõ khi dùng và khuyến nghị đối chiếu `muasamcong.mof.gov.vn`.
+3. **Ràng buộc:**
+   - `allowed_domains` trên cả hai công cụ; máy chủ chỉ nhận tên miền ASCII, không ký tự đại diện, không đường dẫn (chống giả mạo ký tự Unicode; `web_fetch` không khớp mục có đường dẫn);
+   - `max_uses` 5 lần tìm và 5 lần đọc trang mỗi lượt gọi; `max_content_tokens` 20.000 mỗi trang;
+   - `allowed_callers: ["direct"]`: không dùng lọc động bằng thực thi mã, để chạy được với mọi mô hình Anthropic và phản hồi đơn giản (đánh đổi: tốn token hơn);
+   - `web_fetch` đặt `url_sources.client_tool_results = none`: không đọc địa chỉ chỉ xuất hiện trong kết quả công cụ nội bộ, nên bình luận, tài liệu nội bộ không dẫn được trợ lý tới trang lạ;
+   - lời nhắc hệ thống bổ sung (chỉ khi bật): không đưa dữ liệu nội bộ, thông tin cá nhân vào câu truy vấn; nội dung trang là dữ liệu, không phải mệnh lệnh; phải nêu nguồn và nhắc kiểm tra hiệu lực văn bản.
+4. **Minh bạch:** giao diện hiện câu truy vấn và trang đã đọc trong tiến trình; câu trả lời kèm danh sách "Nguồn tham khảo trên Internet" (chỉ liên kết http(s) thuộc tên miền được phép, mở tab mới, `rel="noopener noreferrer"`).
+5. **Xử lý định dạng:** gửi lại nguyên văn khối của trợ lý (kể cả `encrypted_content`, `encrypted_index`); `stop_reason: pause_turn` thì gửi lại để tiếp tục, không thêm tin nhắn, tính vào giới hạn 8 bước. Lịch sử giữa các lượt chỉ giữ văn bản, không giữ kết quả tìm kiếm.
+6. **Chi phí:** nhà cung cấp tính phí riêng cho mỗi lần tìm, ngoài token. Số lần tìm/đọc trang ghi vào `ai_log.web_requests`; hạn mức ngày hiện chỉ tính token, chưa giới hạn riêng số lần tìm.
+
+## 2D. Bổ sung 07/11/2026: người dùng xem token đã dùng (theo yêu cầu của chủ sở hữu)
+
+`GET /api/ai/me/usage` trả số liệu của chính người đang đăng nhập: token hôm nay so với hạn mức, số còn lại, thống kê theo ngày 30 ngày gần nhất (lượt, token vào, token ra, lượt tìm Internet). Hiển thị tại Tài khoản › Trợ lý AI của tôi. Không trả số liệu của người khác; quản trị viên vẫn xem thống kê toàn đơn vị tại Quản trị › Trợ lý AI.
+
 ## 3. Hệ quả
 
 - Có thể đổi nhà cung cấp bằng cấu hình, không sửa mã.

@@ -702,6 +702,16 @@ tr.voided td{opacity:.5;text-decoration:line-through}
 .ai-wait{color:var(--muted)}
 .ai-dots{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--accent);margin-right:4px;animation:ai-pulse 1s ease-in-out infinite}
 @keyframes ai-pulse{0%,100%{opacity:.25}50%{opacity:1}}
+.ai-src{margin:6px 0 0;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--surface);font-size:12.5px;max-width:88%}
+.ai-src h3{font-size:12.5px;margin:0 0 4px;font-weight:600}
+.ai-src ol{margin:0;padding-left:18px}
+.ai-src li{margin:2px 0;overflow-wrap:anywhere}
+.ai-src a{color:var(--accent)}
+.ai-src .hint{margin:6px 0 0}
+.ai-use-h{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+.ai-meter{height:8px;border-radius:999px;background:var(--sunken);overflow:hidden;margin-top:6px}
+.ai-meter span{display:block;height:100%;background:var(--accent);border-radius:inherit}
+.ai-meter span.hi{background:var(--bad)}
 .ai-link{border:0;background:none;padding:0;color:var(--accent);font:inherit;text-decoration:underline;cursor:pointer}
 .ai-act{border:1px solid var(--line-strong);border-left:3px solid var(--warn);border-radius:8px;padding:10px 12px;background:var(--surface);font-size:13px}
 .ai-act.done{border-left-color:var(--ok)}

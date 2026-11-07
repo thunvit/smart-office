@@ -285,7 +285,7 @@ Cần làm → Đang làm → (Chờ đánh giá, nếu dự án bật "Yêu c�
 
 Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hình nền dự án.
 
-## XII. TRỢ LÝ AI (PHIÊN BẢN 1.11, KHI QUẢN TRỊ VIÊN ĐÃ BẬT)
+## XII. TRỢ LÝ AI (PHIÊN BẢN 1.11–1.13, KHI QUẢN TRỊ VIÊN ĐÃ BẬT)
 
 0. **Cấu hình trợ lý của bạn (lần đầu):** mỗi người một trợ lý riêng. Vào **Tài khoản › Trợ lý AI của tôi** (hoặc bấm ⚙ trong khung trợ lý):
    - chọn **Nhà cung cấp**: Anthropic (Claude), OpenAI hoặc Google Gemini;
@@ -315,4 +315,10 @@ Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hìn
    - Bấm **Lập biên bản và kết luận**: trợ lý lập biên bản, kết luận và danh sách việc cần làm (người thực hiện chọn trong thành phần họp, hạn nếu được nêu).
    - Kiểm tra, sửa rồi bấm **Lưu vào biên bản cuộc họp** (người chủ trì hoặc người tạo cuộc họp), **Tải tệp Word**, hoặc chọn việc, dự án rồi bấm **Giao các việc đã chọn**.
    - Âm thanh không được lưu; chỉ lưu phần chữ bạn bấm lưu.
+8. **Tra cứu trên Internet (phiên bản 1.13, khi quản trị viên bật; hiện chỉ với Anthropic):** hỏi về văn bản pháp luật, chỉ đạo của Chính phủ, công báo, thông tin đấu thầu. Ví dụ: "Mức lương cơ sở hiện nay theo văn bản nào?"; "Tra thông báo mời thầu gói mua sắm máy tính trên hệ thống mua sắm công".
+   - Trợ lý chỉ tìm trong các trang quản trị viên cho phép. Mặc định: chinhphu.vn, vanban.chinhphu.vn, congbao.chinhphu.vn, muasamcong.mof.gov.vn, dauthau.asia (trang của doanh nghiệp, không phải cổng thông tin nhà nước).
+   - Trong lúc xử lý, khung trợ lý hiện câu tìm kiếm và trang đang đọc. Câu trả lời kèm mục **Nguồn tham khảo trên Internet**; bấm để mở trang gốc.
+   - Thông tin từ Internet chỉ để tham khảo: luôn mở nguồn kiểm tra hiệu lực văn bản trước khi sử dụng.
+   - **Quản trị viên:** Quản trị › Trợ lý AI › đánh dấu **Cho phép trợ lý tìm kiếm trên Internet**, sửa danh sách tên miền (mỗi dòng một tên miền, không nhập `http://`, đường dẫn hay ký tự `*`), bấm **Lưu cấu hình**. Mỗi lần tìm, đọc trang được nhà cung cấp tính phí riêng ngoài token; bảng thống kê có cột "Lượt tìm Internet".
+9. **Xem token AI bạn đã dùng:** Tài khoản › Trợ lý AI của tôi › mục **Token AI tôi đã dùng**: số token hôm nay so với hạn mức, số còn lại (tính lại lúc 0 giờ, giờ Việt Nam), bảng theo ngày trong 30 ngày gần nhất (số lượt, token vào, token ra, lượt tìm Internet). Mỗi người chỉ xem được số liệu của mình. Chi phí thực tế xem tại trang quản lý tài khoản của nhà cung cấp.
 

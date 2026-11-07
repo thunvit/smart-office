@@ -310,6 +310,24 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Lệnh dừng tác vụ nền không tắt tiến trình node con trên Windows, nên máy chủ 3100 cũ vẫn chạy mã cũ (trả 404 cho API mới). Đã tắt theo PID và khởi động lại.
   - Tôi đã dùng nhầm tab trình duyệt tích hợp của chủ sở hữu và đăng nhập vào `localhost:3999`. Cookie `sid` dùng chung giữa các cổng của `localhost`, nên phiên của chủ sở hữu trên `localhost:3100` có thể đã bị đăng xuất. Đã trả tab về 3100; từ đó thử trên tab riêng qua `127.0.0.1`.
 
+## 07/11/2026 (chiều). Trợ lý AI tìm kiếm Internet trên trang được phép; người dùng xem token đã dùng (so-1.13.0)
+- **Yêu cầu:** chủ sở hữu chọn các trang được tìm: chinhphu.vn, vanban.chinhphu.vn, congbao.chinhphu.vn, muasamcong.mof.gov.vn, dauthau.asia; bổ sung "Cá nhân được xem token AI mình đã dùng".
+- **Căn cứ kỹ thuật:** tài liệu Anthropic "Web search tool", "Web fetch tool", "Server tools" (platform.claude.com, tải ngày 07/11/2026): `allowed_domains`, tên miền tự gồm tên miền con, `max_uses`, `pause_turn`, `encrypted_content`, `url_sources`, `allowed_callers`.
+- **Việc đã làm (nhánh `tinh-nang/tro-ly-ai-ca-nhan`; ADR-010 mục 2C, 2D):**
+  - `ai-core.js`: cấu hình `ai_web_search` (mặc định tắt), `ai_web_domains` (chuẩn hóa, chỉ nhận tên miền ASCII, không ký tự đại diện, không đường dẫn, tối đa 30); `/api/ai/turn` trả danh sách tên miền khi bật; cột `ai_log.web_requests`; `GET /api/ai/me/usage` (token hôm nay, hạn mức còn lại, 30 ngày theo ngày, chỉ số liệu của chính mình); nhật ký an ninh ghi thay đổi.
+  - `ai.js`: bộ chuyển đổi Anthropic thêm `web_search_20260209`, `web_fetch_20260209` (giới hạn tên miền, 5 lần mỗi loại, gọi trực tiếp, `url_sources.client_tool_results = none`, trích dẫn); lời nhắc bổ sung cấm đưa dữ liệu nội bộ vào truy vấn; xử lý `pause_turn`; nối khối văn bản có trích dẫn; sự kiện `sources` (chỉ http(s) thuộc tên miền được phép); ghi số lượt tìm.
+  - `public/ai.js`, `public/app.css`: danh sách "Nguồn tham khảo trên Internet" dưới câu trả lời; cấu hình tìm Internet và cột "Lượt tìm Internet" ở Quản trị › Trợ lý AI; mục "Token AI tôi đã dùng" ở Tài khoản › Trợ lý AI của tôi.
+  - `public/sw.js`: so-1.13.0. Hướng dẫn sử dụng mục XII.8–9.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 139 đạt, 0 không đạt (thêm phần W, U: mặc định tắt, chặn tên miền sai, chuẩn hóa, định dạng công cụ gửi đi, nguồn bị lọc, `pause_turn`, soạn văn bản và OpenAI không dùng Internet, người dùng chỉ xem token của mình, 401 khi chưa đăng nhập).
+  - `worker-smoke` đạt (đủ các dòng bắt buộc, `ai 403 200 200`); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+  - Bản Node thật cổng 3999 với máy chủ Anthropic giả lập: SSE trả câu truy vấn, câu trả lời, nguồn (đã bỏ nguồn ngoài danh sách); yêu cầu gửi đi đúng tham số; `/api/ai/me/usage` tăng đúng 1.620 token và 1 lượt tìm; tắt thì không gửi công cụ web. Máy chủ 3100: `/healthz` 200, `/api/login` sai trả 401.
+- **Chưa kiểm chứng:**
+  - Giao diện hiển thị nguồn, cấu hình quản trị, mục token cá nhân: chưa xem trên trình duyệt. Thao tác nhập mật khẩu vào trang thử bị hệ thống chặn, nên tôi không đăng nhập giao diện; phần này mới kiểm thử qua API.
+  - Gọi Anthropic thật: chất lượng tìm kiếm tiếng Việt trên các trang trên; việc các trang có chặn công cụ thu thập (`robots.txt`) hay không.
+  - OpenAI, Gemini: chưa làm tìm Internet.
+- **Dọn dẹp:** tắt máy chủ thử 3999, máy chủ giả lập 3997, và máy chủ 3988 còn sót từ đầu phiên (PID 83064). Khởi động lại 3100 bằng mã mới; dữ liệu thử của chủ sở hữu giữ nguyên.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

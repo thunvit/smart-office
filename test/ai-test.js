@@ -185,6 +185,9 @@ const toolResults = req => (req.body.messages || []).flatMap(m => Array.isArray(
   ok(r.s === 200 && r.b.usage_30d.some(x => x.user_id === U['mai.bt'].id), 'quản trị xem thống kê sử dụng 30 ngày');
   await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000 });
 
+  // W. Tìm kiếm Internet (Anthropic web_search/web_fetch) chỉ trong tên miền được phép; U. người dùng xem token của mình
+  await webSearch(U);
+
   // P. Cấu hình AI cá nhân: mỗi người một nhà cung cấp, mô hình, khóa, tên, cách trả lời; chạy qua đúng đường Worker (workerChat/workerTest)
   await personal(U);
 
@@ -211,6 +214,70 @@ async function viaWorker(kind, who, text, script, env) {
     return { events, calls: mf.calls, err: events.find(e => e.type === 'error'), text: (events.find(e => e.type === 'text') || {}).text };
   } finally { globalThis.fetch = orig; }
 }
+async function webSearch(U) {
+  const DOMS = ['chinhphu.vn', 'vanban.chinhphu.vn', 'congbao.chinhphu.vn', 'muasamcong.mof.gov.vn', 'dauthau.asia'];
+  let r = await call('admin', 'GET', '/api/admin/ai-settings');
+  ok(r.b.web_search === false && JSON.stringify(r.b.web_domains) === JSON.stringify(DOMS), 'W: mặc định tắt tìm Internet; danh sách tên miền mặc định theo chủ sở hữu', r.b.web_domains);
+  r = await chat('mai.bt', 'Mức lương cơ sở hiện nay?', [A.text('Chưa có')]);
+  ok(r.calls[0] && r.calls[0].body.tools.every(t => !t.type) && !r.calls[0].body.system[0].text.includes('web_search'), 'W: chưa bật thì không gửi công cụ tìm Internet', r.calls[0] && r.calls[0].body.tools.length);
+  ok((await call('mai.bt', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000, web_search: true })).s === 403, 'W: người dùng thường không bật được tìm Internet');
+  for (const bad of ['*.evil.com', 'chinhphu.vn/van-ban', 'аmazon.com', 'localhost', 'javascript:alert(1)'])
+    ok((await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000, web_search: true, web_domains: 'chinhphu.vn\n' + bad })).s === 400, 'W: từ chối tên miền không hợp lệ: ' + bad);
+  ok((await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000, web_search: true, web_domains: '' })).s === 400, 'W: bật tìm Internet phải có ít nhất một tên miền');
+  r = await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000, web_search: true, web_domains: 'https://ChinhPhu.vn/\nchinhphu.vn, dauthau.asia' });
+  ok(r.s === 200 && r.b.web_search === true && JSON.stringify(r.b.web_domains) === '["chinhphu.vn","dauthau.asia"]', 'W: chuẩn hóa tên miền (bỏ https://, chữ hoa, trùng lặp)', r.b);
+  ok(/Internet: false→true/.test(JSON.stringify((await call('admin', 'GET', '/api/admin/security-log?event=ai_settings')).b)), 'W: nhật ký an ninh ghi việc bật tìm Internet');
+  r = await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000, web_search: true, web_domains: DOMS.join('\n') });
+  ok(r.s === 200 && r.b.web_domains.length === 5, 'W: lưu danh sách 5 tên miền', r.b.web_domains);
+  ok((await call('mai.bt', 'GET', '/api/ai/status')).b.web_domains.length === 5, 'W: trạng thái cho người dùng biết các trang được tìm');
+
+  // Phản hồi Anthropic theo tài liệu: server_tool_use, web_search_tool_result (encrypted_content), văn bản có trích dẫn bị tách khối, web_fetch_tool_result
+  const srch = { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: { query: 'mức lương cơ sở 2026' } };
+  const srchRes = { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [{ type: 'web_search_result', url: 'https://vanban.chinhphu.vn/?pageid=1', title: 'Nghị định lương cơ sở', encrypted_content: 'ENC-ABC', page_age: '01/07/2026' }] };
+  const fetchUse = { type: 'server_tool_use', id: 'srvtoolu_2', name: 'web_fetch', input: { url: 'https://congbao.chinhphu.vn/van-ban/1' } };
+  const fetchRes = { type: 'web_fetch_tool_result', tool_use_id: 'srvtoolu_2', content: { type: 'web_fetch_result', url: 'https://congbao.chinhphu.vn/van-ban/1', content: { type: 'document', source: { type: 'text', media_type: 'text/plain', data: 'Nội dung' }, title: 'Công báo số 1', citations: { enabled: true } }, retrieved_at: '2026-11-07T01:00:00Z' } };
+  const webAnswer = { content: [{ type: 'text', text: 'Tôi sẽ tìm trên trang Chính phủ.' }, srch, srchRes, fetchUse, fetchRes,
+    { type: 'text', text: 'Theo nguồn chính thức, ' }, { type: 'text', text: 'mức lương cơ sở là 2.340.000 ₫/tháng', citations: [{ type: 'web_search_result_location', url: 'https://vanban.chinhphu.vn/?pageid=1', title: 'Nghị định lương cơ sở', encrypted_index: 'EI', cited_text: '2.340.000' }, { type: 'web_search_result_location', url: 'https://evil.example/x', title: 'Trang lạ', encrypted_index: 'EI2', cited_text: 'x' }, { type: 'web_search_result_location', url: 'javascript:alert(1)', title: 'js', encrypted_index: 'EI3', cited_text: 'x' }] }, { type: 'text', text: '.' }],
+    stop_reason: 'end_turn', usage: { input_tokens: 900, output_tokens: 80, server_tool_use: { web_search_requests: 1, web_fetch_requests: 1 } } };
+  r = await chat('mai.bt', 'Mức lương cơ sở hiện nay?', [webAnswer]);
+  const c0 = r.calls[0], ws = c0 && c0.body.tools.find(t => t.type === 'web_search_20260209'), wf = c0 && c0.body.tools.find(t => t.type === 'web_fetch_20260209');
+  ok(ws && ws.name === 'web_search' && JSON.stringify(ws.allowed_domains) === JSON.stringify(DOMS) && ws.max_uses === 5 && JSON.stringify(ws.allowed_callers) === '["direct"]' && ws.user_location.country === 'VN' && !('blocked_domains' in ws), 'W: web_search giới hạn tên miền được phép, số lần tìm, gọi trực tiếp', ws);
+  ok(wf && wf.name === 'web_fetch' && JSON.stringify(wf.allowed_domains) === JSON.stringify(DOMS) && wf.citations.enabled === true && wf.url_sources.client_tool_results.type === 'none' && wf.max_content_tokens > 0, 'W: web_fetch giới hạn tên miền, không đọc địa chỉ lấy từ dữ liệu nội bộ, bật trích dẫn', wf);
+  ok(c0 && c0.body.tools.filter(t => !t.type).length === TOOLS.length && /TUYỆT ĐỐI không đưa dữ liệu nội bộ/.test(c0.body.system[0].text) && /dauthau\.asia là trang của doanh nghiệp/.test(c0.body.system[0].text), 'W: vẫn giữ công cụ nội bộ; lời nhắc cấm đưa dữ liệu nội bộ vào truy vấn, nêu dauthau.asia là trang doanh nghiệp');
+  ok(r.text === 'Tôi sẽ tìm trên trang Chính phủ.\n\nTheo nguồn chính thức, mức lương cơ sở là 2.340.000 ₫/tháng.', 'W: nối các khối văn bản có trích dẫn thành câu liền mạch', r.text);
+  const src = r.events.find(e => e.type === 'sources');
+  ok(src && src.items.length === 2 && src.items.some(x => x.url === 'https://vanban.chinhphu.vn/?pageid=1' && x.title === 'Nghị định lương cơ sở') && src.items.some(x => x.url === 'https://congbao.chinhphu.vn/van-ban/1' && x.title === 'Công báo số 1'), 'W: trả nguồn tham khảo (trích dẫn + trang đã đọc)', src);
+  ok(src && !JSON.stringify(src).includes('evil.example') && !JSON.stringify(src).includes('javascript:'), 'W: bỏ nguồn ngoài tên miền được phép và địa chỉ không phải http(s)');
+  ok(r.events.some(e => e.type === 'status' && e.text === 'Tìm: mức lương cơ sở 2026') && r.events.some(e => e.type === 'status' && /^Đọc trang https:\/\/congbao/.test(e.text)), 'W: hiện cho người dùng câu truy vấn và trang đã đọc', r.events.filter(e => e.type === 'status'));
+  const lg = D.get('SELECT web_requests, tools FROM ai_log WHERE user_id=? ORDER BY id DESC LIMIT 1', U['mai.bt'].id);
+  ok(lg && lg.web_requests === 2 && /web_search/.test(lg.tools) && /web_fetch/.test(lg.tools), 'W: ghi số lượt tìm/đọc trang vào ai_log', lg);
+
+  // pause_turn: gửi lại nguyên văn khối của trợ lý (kể cả encrypted_content), không thêm tin nhắn người dùng
+  const paused = { content: [{ type: 'text', text: 'Đang tra cứu công báo.' }, srch, srchRes], stop_reason: 'pause_turn', usage: { input_tokens: 300, output_tokens: 10, server_tool_use: { web_search_requests: 1 } } };
+  r = await chat('mai.bt', 'Tra Nghị định mới về lương', [paused, A.text('Đã tìm thấy Nghị định.')]);
+  const m1 = r.calls[1] && r.calls[1].body.messages, last = m1 && m1[m1.length - 1];
+  ok(r.calls.length === 2 && last.role === 'assistant' && JSON.stringify(last.content) === JSON.stringify(paused.content) && m1.length === 2, 'W: pause_turn gửi lại nguyên văn để tiếp tục, không thêm tin nhắn', m1 && m1.map(m => m.role));
+  ok(r.text === 'Đang tra cứu công báo.\n\nĐã tìm thấy Nghị định.' && r.events.some(e => e.type === 'status' && e.text === 'Đang tiếp tục tìm kiếm'), 'W: ghép văn bản trước và sau khi tạm dừng', r.text);
+
+  // Tác vụ một lần gọi và nhà cung cấp khác không dùng tìm Internet
+  const cp = await (async () => { const mf = mockFetch([A.text('Bản thảo')]); const x = await AI.handleCompose({ body: { doc_type: 'thongbao', brief: 'Nghỉ lễ' }, env: { AI_API_KEY: 'test-key' }, fetchImpl: mf, callApi: (m, p, b) => call('mai.bt', m, p, b) }); return { x, c: mf.calls[0] }; })();
+  ok(cp.x.status === 200 && !('tools' in cp.c.body) && !/web_search/.test(cp.c.body.system[0].text), 'W: soạn văn bản không tìm Internet', Object.keys(cp.c.body));
+  r = await chat('mai.bt', 'x', [{ choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }], usage: {} }], { AI_PROVIDER: 'openai', AI_API_KEY: 'sk', AI_MODEL: 'm' });
+  ok(r.calls[0].body.tools.every(t => t.type === 'function') && r.text === 'ok', 'W: OpenAI chưa hỗ trợ tìm Internet, không gửi công cụ lạ');
+
+  // U. Người dùng xem token AI của chính mình
+  r = await call('mai.bt', 'GET', '/api/ai/me/usage');
+  const dbMai = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out),0) n, COUNT(*) c, COALESCE(SUM(web_requests),0) w FROM ai_log WHERE user_id=? AND day=?', U['mai.bt'].id, D.today());
+  ok(r.s === 200 && r.b.quota === 200000 && r.b.used_today === dbMai.n && r.b.today.turns === dbMai.c && r.b.today.web_requests === dbMai.w && r.b.quota_left === 200000 - dbMai.n, 'U: người dùng xem token đã dùng hôm nay, hạn mức còn lại', { api: r.b.used_today, db: dbMai });
+  ok(r.b.days.length >= 1 && r.b.days[0].day === D.today() && r.b.total_30d.turns >= dbMai.c, 'U: thống kê theo ngày trong 30 ngày', r.b.days);
+  const dbHuy = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out),0) n FROM ai_log WHERE user_id=? AND day=?', U['huy.dq'].id, D.today()).n;
+  r = await call('huy.dq', 'GET', '/api/ai/me/usage');
+  ok(r.s === 200 && r.b.used_today === dbHuy && r.b.used_today !== dbMai.n, 'U: mỗi người chỉ thấy số liệu của mình', { huy: r.b.used_today, mai: dbMai.n });
+  sessions.anon = ''; ok((await call('anon', 'GET', '/api/ai/me/usage')).s === 401, 'U: chưa đăng nhập không xem được');
+
+  ok((await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000, web_search: false })).b.web_search === false, 'W: tắt lại tìm Internet');
+}
+
 async function personal(U) {
   const KEY = require(path.join(__dirname, '..', 'ai-key.js'));
   const WENV = { AI_KEY_SECRET: SECRET };
