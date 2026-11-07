@@ -119,7 +119,7 @@ async function meetingDetail(id) {
       <div class="field"><label for="mt-tp">Dự án</label><select id="mt-tp">${B().projects.filter(p => !p.archived).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
       <div class="field" style="justify-content:flex-end"><button class="btn sm" data-act="m-task">Giao việc</button></div></div></details>` : ''}
     <p class="err" id="md-err" hidden></p></div>
-  <div class="modal-f">${m.can_edit && m.status === 'scheduled' ? '<button class="btn danger" data-act="m-cancel" style="margin-right:auto">Hủy cuộc họp</button><button class="btn" data-act="m-edit">Sửa</button>' : ''}<button class="btn" data-act="close">Đóng</button>${m.can_edit && m.status !== 'cancelled' ? '<button class="btn primary" data-act="m-min">Lưu biên bản</button>' : ''}</div>`, {
+  <div class="modal-f">${m.can_edit && m.status === 'scheduled' ? '<button class="btn danger" data-act="m-cancel" style="margin-right:auto">Hủy cuộc họp</button><button class="btn" data-act="m-edit">Sửa</button>' : ''}${window.SO_AI && window.SO_AI.status().enabled && m.status !== 'cancelled' ? `<button class="btn" data-act="ai-meeting" data-id="${m.id}">✨ Trợ lý cuộc họp</button>` : ''}<button class="btn" data-act="close">Đóng</button>${m.can_edit && m.status !== 'cancelled' ? '<button class="btn primary" data-act="m-min">Lưu biên bản</button>' : ''}</div>`, {
     'm-yes': btn => busy(btn, async () => { await POST(`/api/meetings/${m.id}/respond`, { response: 'yes' }); meetingDetail(m.id); render(); }),
     'm-no': btn => busy(btn, async () => { await POST(`/api/meetings/${m.id}/respond`, { response: 'no' }); meetingDetail(m.id); render(); }),
     'm-min': btn => busy(btn, async () => { try { await POST(`/api/meetings/${m.id}/minutes`, { minutes: $('#mm-min').value }); toast('Đã lưu biên bản'); closeModal(); render(); } catch (e) { showErr('#md-err', e); } }),
@@ -147,7 +147,7 @@ const DOC_CAT = { phapquy: 'Văn bản quy phạm pháp luật', quyche: 'Quy ch
 let dcCat = '', dcQ = '';
 VIEWS['tai-lieu'] = async main => {
   const d = await GET('/api/docs?' + new URLSearchParams({ category: dcCat, q: dcQ }));
-  main.innerHTML = `<div class="page-head"><div><h1>Tài liệu – Tri thức</h1><p>Kho văn bản, quy chế, biểu mẫu và hướng dẫn nội bộ</p></div>${d.can_upload ? '<div class="actions"><button class="btn primary" data-act="doc-new">+ Thêm tài liệu</button></div>' : ''}</div>
+  main.innerHTML = `<div class="page-head"><div><h1>Tài liệu – Tri thức</h1><p>Kho văn bản, quy chế, biểu mẫu và hướng dẫn nội bộ</p></div><div class="actions">${window.SO_AI && window.SO_AI.status().enabled ? '<button class="btn" data-act="ai-draft">✨ Soạn văn bản bằng AI</button>' : ''}${d.can_upload ? '<button class="btn primary" data-act="doc-new">+ Thêm tài liệu</button>' : ''}</div></div>
   <div class="doc-layout"><nav class="doc-cats card">${[['', 'Tất cả tài liệu'], ...Object.entries(DOC_CAT)].map(([k, l]) => `<button data-dccat="${k}" aria-pressed="${dcCat === k}">${l}</button>`).join('')}</nav>
   <div style="min-width:0"><div class="toolbar"><input class="search" style="width:100%;max-width:440px" id="dcq" type="search" placeholder="Tìm theo trích yếu, số ký hiệu, cơ quan ban hành, nội dung…" value="${esc(dcQ)}" aria-label="Tìm tài liệu"></div>
   <section class="card"><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Số, ký hiệu</th><th>Trích yếu</th><th>Ngày ban hành</th><th>Cơ quan ban hành</th><th>Loại</th></tr></thead><tbody>

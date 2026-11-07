@@ -81,6 +81,7 @@ Mỗi người dùng một trợ lý riêng: người dùng tự chọn nhà cun
    | `AI_EFFORT` | Text, tùy chọn | Mức suy luận mặc định của khóa chung (Anthropic): `low`, `medium`, `high` |
    | `AI_FALLBACK` | Text, tùy chọn | Anthropic: đặt `0` để tắt cơ chế tự chuyển mô hình dự phòng khi mô hình chính từ chối |
    | `AI_BASE_URL` | Text, tùy chọn | Địa chỉ API tương thích, **chỉ áp dụng cho khóa chung**; khóa cá nhân luôn gửi tới địa chỉ chính thức của nhà cung cấp |
+   | `AI_STT_MODEL` | Text, tùy chọn | Mô hình chuyển giọng nói của khóa chung OpenAI (mặc định `whisper-1`). Gemini dùng `AI_MODEL`; Anthropic không nhận âm thanh (giao diện dùng nhận dạng của trình duyệt) |
 
    Bản Node: đặt các biến môi trường cùng tên trước khi chạy `node server.js`. Không đặt `AI_KEY_SECRET` thì máy chủ tự sinh tệp `<DATA_DIR>/ai-key.secret`; sao lưu thư mục dữ liệu phải kèm tệp này.
 2. Đăng nhập quản trị › **Quản trị › Trợ lý AI**: bật trợ lý cho đơn vị, đặt hạn mức token mỗi người mỗi ngày (mặc định 200.000). Chỉ đánh dấu "Cho phép gửi thông tin cá nhân" khi có văn bản đồng ý của đơn vị.

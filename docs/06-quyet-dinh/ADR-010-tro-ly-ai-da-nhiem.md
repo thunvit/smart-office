@@ -35,6 +35,16 @@ Kế hoạch phát triển có Phiên 16 "Trợ lý AI" với tiêu chí: dữ l
 4. **Tên và cách trả lời riêng** đặt ở tin nhắn ngữ cảnh đầu lượt, ghi rõ chỉ áp dụng khi không trái quy tắc hệ thống; lời nhắc hệ thống giữ nguyên.
 5. Quản trị viên vẫn quyết định bật/tắt toàn đơn vị, che dữ liệu cá nhân, hạn mức token/người/ngày.
 
+## 2B. Bổ sung 07/11/2026: soạn văn bản, ghi âm, biên bản và kết luận cuộc họp (theo yêu cầu của chủ sở hữu)
+
+1. **Tác vụ một lần gọi, không dùng công cụ** (`ai-compose.js` dựng lời nhắc; `ai.js` gọi nhà cung cấp): `POST /api/ai/compose` (soạn văn bản hành chính theo loại, giọng văn; soạn lại theo yêu cầu chỉnh sửa), `POST /api/ai/minutes` (biên bản, kết luận, việc cần làm dạng JSON). Thông tin cuộc họp lấy qua API của người dùng; người thực hiện chỉ nhận người trong thành phần họp.
+2. **Kết quả chỉ là bản thảo:** người dùng sửa rồi tự bấm lưu biên bản, giao việc, lưu vào Tài liệu, tải tệp Word; các thao tác này đi qua API nghiệp vụ thường với đúng quyền của người dùng.
+3. **Chuyển giọng nói thành chữ** (`POST /api/ai/transcribe`):
+   - OpenAI (`/v1/audio/transcriptions`, mặc định `whisper-1`, đổi bằng trường "mô hình chuyển giọng nói" cá nhân hoặc `AI_STT_MODEL`) và Gemini (`inlineData`). Trình duyệt thu âm WAV 16 kHz theo đoạn 60 giây (khoảng 1,9 MB), giới hạn mỗi đoạn khoảng 10 MB.
+   - Anthropic không nhận đầu vào âm thanh: giao diện dùng nhận dạng giọng nói của trình duyệt (Chrome/Edge), có thông báo rằng âm thanh do hãng trình duyệt xử lý.
+   - Âm thanh không lưu trên máy chủ; chỉ giữ phần chữ do người dùng lưu.
+4. **Header `Permissions-Policy`** đổi `microphone=()` thành `microphone=(self)` (`server.js`, `public/_headers`): chỉ trang của chính hệ thống được xin quyền micro; trình duyệt vẫn hỏi người dùng (ATTT-23).
+
 ## 3. Hệ quả
 
 - Có thể đổi nhà cung cấp bằng cấu hình, không sửa mã.

@@ -692,7 +692,7 @@ function securityHeaders(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), payment=()');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(self), geolocation=(self), payment=()');
   if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
 }
 function originAllowed(req) {
@@ -746,6 +746,11 @@ async function handle(req, res) {
     res.writeHead(200, AI.SSE_HEADERS);
     await AI.handleChat({ body, env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b), emit: ev => res.write('data: ' + JSON.stringify(ev) + '\n\n') });
     return res.end();
+  }
+  if (AI.ONE_SHOT[url.pathname] && req.method === 'POST' && !IS_WORKER) {
+    let body; try { body = await readBody(req, url.pathname === '/api/ai/transcribe' ? 16e6 : 1e6); } catch (e) { return json(e.status || 400, { error: e.message }); }
+    const r = await AI.ONE_SHOT[url.pathname]({ body, env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b) });
+    return json(r.status, r.json);
   }
   if (url.pathname === '/api/ai/test' && req.method === 'POST' && !IS_WORKER) {
     const r = await AI.handleTest({ env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b) });

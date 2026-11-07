@@ -5,11 +5,11 @@
  *    giữa các tài khoản dùng chung thiết bị và tránh hiển thị số liệu cũ.
  *  - Đổi VERSION mỗi lần phát hành để trình duyệt nhận bản mới.
  */
-const VERSION = 'so-1.11.1';
+const VERSION = 'so-1.12.1';
 const SHELL = `${VERSION}-shell`;
 const RUNTIME = `${VERSION}-runtime`;
 const PRECACHE = [
-  '/', '/index.html', '/offline.html', '/app.css', '/app.js', '/hr.js', '/biz.js', '/ext.js', '/work.js', '/work-formula.js', '/xlsx-lite.js', '/work-report.js', '/ai.js', '/pwa.js',
+  '/', '/index.html', '/offline.html', '/app.css', '/app.js', '/hr.js', '/biz.js', '/ext.js', '/work.js', '/work-formula.js', '/xlsx-lite.js', '/work-report.js', '/ai.js', '/ai-office.js', '/pwa.js',
   '/manifest.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png',
   '/icons/apple-touch-icon.png', '/icons/favicon-32.png', '/icons/icon.svg'
 ];

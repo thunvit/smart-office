@@ -13,6 +13,7 @@
  */
 const TOOLS_MOD = require('./ai-tools');
 const KEY = require('./ai-key');
+const CMP = require('./ai-compose');
 const { TOOLS, BY_NAME, shapeResult } = TOOLS_MOD;
 
 const MAX_STEPS = 8, MAX_HISTORY = 20, MAX_TEXT = 4000, STEP_TIMEOUT = 90e3;
@@ -44,6 +45,12 @@ async function postJson(fetchImpl, url, headers, body) {
   }
   return j || {};
 }
+async function postRaw(fetchImpl, url, headers, body) {
+  let r; try { r = await fetchImpl(url, { method: 'POST', headers, body }); } catch (e) { throw new AiError(502, 'Không kết nối được nhà cung cấp AI.'); }
+  const text = await r.text(); let j = null; try { j = JSON.parse(text); } catch (e) {}
+  if (!r.ok) { const m = (j && j.error && (j.error.message || j.error.type)) || text.slice(0, 200); throw new AiError(r.status === 429 ? 503 : 502, (r.status === 401 || r.status === 403 ? 'Khóa API của nhà cung cấp AI không hợp lệ hoặc không đủ quyền. ' : 'Nhà cung cấp AI báo lỗi. ') + `(HTTP ${r.status}: ${String(m).slice(0, 200)})`); }
+  return j || {};
+}
 class AiError extends Error { constructor(status, msg) { super(msg); this.status = status; } }
 
 function anthropic(cfg, fetchImpl) {
@@ -56,8 +63,9 @@ function anthropic(cfg, fetchImpl) {
     name: 'anthropic', model,
     user: text => ({ role: 'user', content: text }),
     assistant: text => ({ role: 'assistant', content: text }),
-    async step(messages) {
-      const body = { model, max_tokens: 8000, system: [{ type: 'text', text: SYSTEM, cache_control: { type: 'ephemeral' } }], tools, messages, output_config: { effort: cfg.effort || 'medium' } };
+    async step(messages, opt = {}) {
+      const body = { model, max_tokens: opt.maxTokens || 8000, system: [{ type: 'text', text: opt.system || SYSTEM, cache_control: { type: 'ephemeral' } }], messages, output_config: { effort: opt.effort || cfg.effort || 'medium' } };
+      if (!opt.noTools) body.tools = tools;
       if (cfg.fallback) body.fallbacks = 'default';
       const j = await postJson(fetchImpl, url, headers, body);
       const content = Array.isArray(j.content) ? j.content : [];
@@ -70,7 +78,8 @@ function anthropic(cfg, fetchImpl) {
         usage: { in: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0), out: u.output_tokens || 0 }
       };
     },
-    results: rs => [{ role: 'user', content: rs.map(r => ({ type: 'tool_result', tool_use_id: r.id, content: r.content, ...(r.error ? { is_error: true } : {}) })) }]
+    results: rs => [{ role: 'user', content: rs.map(r => ({ type: 'tool_result', tool_use_id: r.id, content: r.content, ...(r.error ? { is_error: true } : {}) })) }],
+    async transcribe() { throw new AiError(415, 'Anthropic (Claude) không nhận đầu vào âm thanh. Hãy dùng nhận dạng giọng nói của trình duyệt, hoặc cấu hình OpenAI/Gemini để chuyển giọng nói tại máy chủ.'); }
   };
 }
 
@@ -82,14 +91,24 @@ function openai(cfg, fetchImpl) {
     name: 'openai', model: cfg.model,
     user: text => ({ role: 'user', content: text }),
     assistant: text => ({ role: 'assistant', content: text }),
-    async step(messages) {
-      const j = await postJson(fetchImpl, url, { authorization: 'Bearer ' + cfg.key }, { model: cfg.model, messages: [{ role: 'system', content: SYSTEM }, ...messages], tools });
+    async step(messages, opt = {}) {
+      const req = { model: cfg.model, messages: [{ role: 'system', content: opt.system || SYSTEM }, ...messages] };
+      if (!opt.noTools) req.tools = tools;
+      const j = await postJson(fetchImpl, url, { authorization: 'Bearer ' + cfg.key }, req);
       const c = (j.choices && j.choices[0]) || {}, m = c.message || { role: 'assistant', content: '' };
       const calls = (m.tool_calls || []).map(tc => { let args = {}; try { args = JSON.parse((tc.function && tc.function.arguments) || '{}'); } catch (e) { args = { __invalid_json: true }; } return { id: tc.id, name: tc.function && tc.function.name, args }; });
       const u = j.usage || {};
       return { native: [m], text: String(m.content || '').trim(), calls, stop: c.finish_reason === 'length' ? 'max_tokens' : c.finish_reason === 'content_filter' ? 'refusal' : 'ok', usage: { in: u.prompt_tokens || 0, out: u.completion_tokens || 0 } };
     },
-    results: rs => rs.map(r => ({ role: 'tool', tool_call_id: r.id, content: r.content }))
+    results: rs => rs.map(r => ({ role: 'tool', tool_call_id: r.id, content: r.content })),
+    async transcribe(b64, mime) {
+      const fd = new FormData();
+      fd.append('file', new Blob([Buffer.from(b64, 'base64')], { type: mime }), 'ghi-am.' + (/wav/.test(mime) ? 'wav' : /ogg/.test(mime) ? 'ogg' : 'webm'));
+      fd.append('model', cfg.sttModel || 'whisper-1'); fd.append('language', 'vi'); fd.append('response_format', 'json');
+      const j = await postRaw(fetchImpl, (cfg.baseUrl || 'https://api.openai.com/v1') + '/audio/transcriptions', { authorization: 'Bearer ' + cfg.key }, fd);
+      const u = j.usage || {};
+      return { text: String(j.text || '').trim(), usage: { in: u.input_tokens || 0, out: u.output_tokens || 0 }, model: cfg.sttModel || 'whisper-1' };
+    }
   };
 }
 
@@ -103,8 +122,10 @@ function gemini(cfg, fetchImpl) {
     name: 'gemini', model: cfg.model,
     user: text => ({ role: 'user', parts: [{ text }] }),
     assistant: text => ({ role: 'model', parts: [{ text }] }),
-    async step(contents) {
-      const j = await postJson(fetchImpl, url, { 'x-goog-api-key': cfg.key }, { systemInstruction: { parts: [{ text: SYSTEM }] }, contents, tools });
+    async step(contents, opt = {}) {
+      const req = { systemInstruction: { parts: [{ text: opt.system || SYSTEM }] }, contents };
+      if (!opt.noTools) req.tools = tools;
+      const j = await postJson(fetchImpl, url, { 'x-goog-api-key': cfg.key }, req);
       const cand = (j.candidates && j.candidates[0]) || {}, content = cand.content || { role: 'model', parts: [] }, parts = content.parts || [];
       const u = j.usageMetadata || {};
       return {
@@ -115,19 +136,24 @@ function gemini(cfg, fetchImpl) {
         usage: { in: u.promptTokenCount || 0, out: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) }
       };
     },
-    results: rs => [{ role: 'user', parts: rs.map(r => ({ functionResponse: { name: r.name, ...(r.callId ? { id: r.callId } : {}), response: { result: r.content } } })) }]
+    results: rs => [{ role: 'user', parts: rs.map(r => ({ functionResponse: { name: r.name, ...(r.callId ? { id: r.callId } : {}), response: { result: r.content } } })) }],
+    async transcribe(b64, mime) {
+      const j = await postJson(fetchImpl, url, { 'x-goog-api-key': cfg.key }, { contents: [{ role: 'user', parts: [{ inlineData: { mimeType: mime, data: b64 } }, { text: CMP.TRANSCRIBE_PROMPT }] }] });
+      const parts = (((j.candidates || [])[0] || {}).content || {}).parts || [], u = j.usageMetadata || {};
+      return { text: parts.filter(p => typeof p.text === 'string' && !p.thought).map(p => p.text).join('').trim(), usage: { in: u.promptTokenCount || 0, out: u.candidatesTokenCount || 0 }, model: cfg.model };
+    }
   };
 }
 
 const PROVIDERS = { anthropic, openai, gemini };
 function configFrom(env = {}) {
-  return { provider: String(env.AI_PROVIDER || 'anthropic').toLowerCase(), key: env.AI_API_KEY || '', model: env.AI_MODEL || '', baseUrl: (env.AI_BASE_URL || '').replace(/\/+$/, ''), effort: env.AI_EFFORT || '', fallback: env.AI_FALLBACK !== '0', source: 'org' };
+  return { provider: String(env.AI_PROVIDER || 'anthropic').toLowerCase(), key: env.AI_API_KEY || '', model: env.AI_MODEL || '', baseUrl: (env.AI_BASE_URL || '').replace(/\/+$/, ''), effort: env.AI_EFFORT || '', sttModel: env.AI_STT_MODEL || '', fallback: env.AI_FALLBACK !== '0', source: 'org' };
 }
 /* Cấu hình dùng cho lượt hội thoại: khóa cá nhân của người dùng (ưu tiên) → khóa chung của máy chủ → báo chưa cấu hình.
  * Khóa cá nhân luôn gọi địa chỉ chính thức của nhà cung cấp (AI_BASE_URL chỉ áp dụng cho khóa chung) để không gửi khóa tới địa chỉ khác. */
 function configFor(turn, env = {}) {
   const p = turn && turn.personal, org = configFrom(env);
-  if (p && p.key) return { provider: p.provider, key: p.key, model: p.model || '', baseUrl: '', effort: p.effort || '', fallback: env.AI_FALLBACK !== '0', source: 'personal' };
+  if (p && p.key) return { provider: p.provider, key: p.key, model: p.model || '', sttModel: p.stt_model || '', baseUrl: '', effort: p.effort || '', fallback: env.AI_FALLBACK !== '0', source: 'personal' };
   if (org.key) return org;
   throw new AiError(412, 'Bạn chưa cấu hình trợ lý AI cá nhân. Vào Tài khoản › Trợ lý AI của tôi để chọn nhà cung cấp và nhập khóa API.');
 }
@@ -212,6 +238,63 @@ async function handleTest({ env, callApi, fetchImpl }) {
   } catch (e) { return { status: 200, json: { ok: false, provider: prov && prov.name, error: e.message } }; }
 }
 
+/* ================= Tác vụ một lần gọi: soạn văn bản, biên bản cuộc họp, chuyển giọng nói ================= */
+async function openTurn(callApi, env, fetchImpl) {
+  const t = await callApi('POST', '/api/ai/turn', {});
+  if (t.status !== 200) throw new AiError(t.status, (t.json && t.json.error) || 'Không mở được phiên trợ lý.');
+  const cfg = configFor(t.json, env);
+  return { turn: t.json, cfg, prov: makeProvider(cfg, fetchImpl || fetch) };
+}
+const ctxOf = turn => ({ org_name: turn.org_name, user_name: turn.user.full_name, user_title: turn.user.title, dept: turn.user.dept, today_vn: turn.today.split('-').reverse().join('/') });
+const logUse = (callApi, prov, model, usage, tool, status) => callApi('POST', '/api/ai/usage', { provider: prov.name, model, tokens_in: usage.in, tokens_out: usage.out, tools: [tool], status }).catch(() => {});
+const fail = e => ({ status: e.status || 500, json: { error: e instanceof AiError || e.status ? e.message : 'Lỗi hệ thống khi xử lý yêu cầu trợ lý.' } });
+
+/** Soạn văn bản hành chính. body: { doc_type, brief, recipient?, references?, tone?, previous?, revision? } */
+async function handleCompose({ body = {}, env, callApi, fetchImpl }) {
+  try {
+    if (!String(body.brief || '').trim() && !String(body.revision || '').trim()) throw new AiError(400, 'Vui lòng nhập yêu cầu, ý chính của văn bản.');
+    const { turn, prov } = await openTurn(callApi, env, fetchImpl);
+    const r = await prov.step([prov.user(CMP.draftPrompt(body, ctxOf(turn)))], { system: CMP.DRAFT_SYSTEM, noTools: true, maxTokens: 12000 });
+    await logUse(callApi, prov, prov.model, r.usage, 'soan_van_ban', r.stop);
+    if (r.stop === 'refusal') throw new AiError(422, 'Nhà cung cấp AI từ chối soạn nội dung này.');
+    return { status: 200, json: { text: r.text, truncated: r.stop === 'max_tokens', provider: prov.name, model: prov.model, doc_type: CMP.DOC_TYPES[body.doc_type] ? body.doc_type : 'khac' } };
+  } catch (e) { return fail(e); }
+}
+
+/** Biên bản, kết luận cuộc họp. body: { meeting_id, transcript }. Thông tin cuộc họp lấy qua API (đúng quyền của người dùng). */
+async function handleMinutes({ body = {}, env, callApi, fetchImpl }) {
+  try {
+    const transcript = String(body.transcript || '').trim();
+    if (transcript.length < 20) throw new AiError(400, 'Bản ghi chép quá ngắn để lập biên bản.');
+    const id = parseInt(body.meeting_id, 10); if (!(id > 0)) throw new AiError(400, 'Thiếu mã cuộc họp.');
+    const { turn, prov } = await openTurn(callApi, env, fetchImpl);
+    const mt = await callApi('GET', '/api/meetings/' + id);
+    if (mt.status !== 200) throw new AiError(mt.status, (mt.json && mt.json.error) || 'Không xem được cuộc họp.');
+    const r = await prov.step([prov.user(CMP.minutesPrompt(mt.json, transcript, ctxOf(turn)))], { system: CMP.MINUTES_SYSTEM, noTools: true, maxTokens: 16000 });
+    await logUse(callApi, prov, prov.model, r.usage, 'bien_ban_hop', r.stop);
+    if (r.stop === 'refusal') throw new AiError(422, 'Nhà cung cấp AI từ chối xử lý nội dung này.');
+    return { status: 200, json: { ...CMP.parseMinutes(r.text, mt.json), truncated: r.stop === 'max_tokens', provider: prov.name, model: prov.model } };
+  } catch (e) { return fail(e); }
+}
+
+const AUDIO_MIME = /^audio\/(wav|x-wav|wave|webm|ogg|mpeg|mp4|mp3|flac|aac)(;.*)?$/;
+const MAX_AUDIO_B64 = 14e6; // ~10 MB âm thanh mỗi đoạn; giao diện cắt đoạn 60 giây (WAV 16 kHz ≈ 1,9 MB)
+/** Chuyển giọng nói thành chữ (OpenAI, Gemini). body: { audio (base64), mime, seconds } */
+async function handleTranscribe({ body = {}, env, callApi, fetchImpl }) {
+  try {
+    const b64 = String(body.audio || ''), mime = String(body.mime || 'audio/wav').toLowerCase();
+    if (!b64) throw new AiError(400, 'Không có dữ liệu ghi âm.');
+    if (b64.length > MAX_AUDIO_B64) throw new AiError(413, 'Đoạn ghi âm quá lớn. Vui lòng ghi theo đoạn ngắn hơn.');
+    if (!AUDIO_MIME.test(mime) || !/^[A-Za-z0-9+/=]+$/.test(b64.slice(0, 2000))) throw new AiError(415, 'Định dạng ghi âm không được hỗ trợ.');
+    const { prov } = await openTurn(callApi, env, fetchImpl);
+    const r = await prov.transcribe(b64, mime.split(';')[0]);
+    const secs = Math.max(0, Math.min(3600, Number(body.seconds) || 0));
+    const usage = r.usage.in || r.usage.out ? r.usage : { in: Math.round(secs * 32), out: Math.round(r.text.length / 3) }; // ước tính khi nhà cung cấp không trả số token
+    await logUse(callApi, prov, r.model, usage, 'chuyen_giong_noi', 'ok');
+    return { status: 200, json: { text: r.text, provider: prov.name, model: r.model } };
+  } catch (e) { return fail(e); }
+}
+
 /* ================= Gắn vào môi trường chạy ================= */
 /** Cloudflare Worker: trả Response SSE; dữ liệu lấy qua stub Durable Object với cookie người dùng. */
 /* Gọi Durable Object bằng cookie người dùng. Riêng /api/ai/turn kèm mã nội bộ (tính từ AI_KEY_SECRET) để nhận khóa cá nhân đã giải mã;
@@ -226,6 +309,14 @@ function workerApi(request, env, stub) {
     let json = null; try { json = await r.json(); } catch (e) {}
     return { status: r.status, json };
   };
+}
+/** Cloudflare: các tác vụ một lần gọi trả JSON (soạn văn bản, biên bản, chuyển giọng nói) */
+const ONE_SHOT = { '/api/ai/compose': handleCompose, '/api/ai/minutes': handleMinutes, '/api/ai/transcribe': handleTranscribe };
+async function workerOneShot(request, env, stub) {
+  const h = ONE_SHOT[new URL(request.url).pathname];
+  let body = {}; try { body = await request.json(); } catch (e) {}
+  const r = await h({ body, env, callApi: workerApi(request, env, stub) });
+  return new Response(JSON.stringify(r.json), { status: r.status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
 }
 async function workerTest(request, env, stub) {
   const r = await handleTest({ env, callApi: workerApi(request, env, stub) });
@@ -245,4 +336,4 @@ function workerChat(request, env, stub, ctx) {
 }
 const SSE_HEADERS = { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 
-module.exports = { handleChat, handleTest, workerChat, workerTest, configFrom, configFor, makeProvider, SSE_HEADERS, SYSTEM, AiError, _providers: PROVIDERS };
+module.exports = { handleChat, handleTest, handleCompose, handleMinutes, handleTranscribe, ONE_SHOT, workerOneShot, workerChat, workerTest, configFrom, configFor, makeProvider, SSE_HEADERS, SYSTEM, AiError, _providers: PROVIDERS };

@@ -49,7 +49,7 @@ function draw() {
     return '';
   }).join('') + (busy ? `<div class="ai-msg"><div class="ai-bub ai-wait"><span class="ai-dots" aria-hidden="true"></span> ${esc(busy === true ? 'Đang xử lý…' : busy)}</div></div>` : '')
     : !status.configured ? `<div class="ai-empty"><p class="notice info">Bạn chưa cấu hình trợ lý AI. Mỗi người dùng một trợ lý riêng: chọn nhà cung cấp (Anthropic, OpenAI hoặc Google Gemini), mô hình và nhập khóa API của bạn.</p><div class="actions" style="margin-top:10px"><button class="btn primary sm" data-act="ai-config">Cấu hình trợ lý của tôi</button></div></div>`
-    : `<div class="ai-empty"><p>${status.assistant_name ? '<b>' + esc(status.assistant_name) + '</b> sẵn sàng. ' : ''}Tôi có thể tra cứu công việc, đề xuất, lịch họp, tài liệu và lập đề nghị giao việc, gửi đề xuất, đặt lịch họp để bạn xác nhận.</p><div class="ai-sug">${SUGGEST.map(s => `<button class="chip" data-act="ai-sug">${esc(s)}</button>`).join('')}</div></div>`;
+    : `<div class="ai-empty"><p>${status.assistant_name ? '<b>' + esc(status.assistant_name) + '</b> sẵn sàng. ' : ''}Tôi có thể tra cứu công việc, đề xuất, lịch họp, tài liệu và lập đề nghị giao việc, gửi đề xuất, đặt lịch họp để bạn xác nhận.</p><div class="ai-sug">${SUGGEST.map(s => `<button class="chip" data-act="ai-sug">${esc(s)}</button>`).join('')}<button class="chip" data-act="ai-draft">✍ Soạn văn bản…</button></div><p class="hint" style="margin-top:10px">Ghi âm, lập biên bản và kết luận: mở cuộc họp tại Lịch họp › Trợ lý cuộc họp.</p></div>`;
   log.scrollTop = log.scrollHeight;
   const b = $('#ai-send'); if (b) b.disabled = !!busy;
 }
@@ -100,7 +100,10 @@ function toggle(force) {
 }
 
 async function check() {
+  const before = enabled;
   try { status = await GET('/api/ai/status'); enabled = !!status.enabled; } catch (e) { enabled = false; status = {}; }
+  /* Trang có nút AI (Tài liệu, Lịch họp) có thể đã vẽ trước khi biết trạng thái: vẽ lại một lần khi trạng thái bật/tắt thay đổi */
+  if (before !== enabled && $('#overlay').hidden) render();
   if (enabled) ensurePanel();
   const t = $('#ai-title'); if (t) t.textContent = status.assistant_name || 'Trợ lý AI';
   draw();
@@ -188,7 +191,7 @@ async function adminHtml() {
   <section class="card" style="margin-top:14px"><div class="card-h"><h2>Sử dụng 30 ngày gần nhất</h2></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Người dùng</th><th class="r">Số lượt</th><th class="r">Token vào</th><th class="r">Token ra</th></tr></thead><tbody>
     ${s.usage_30d.length ? s.usage_30d.map(u => `<tr><td>${esc(u.full_name || '#' + u.user_id)}</td><td class="r num">${n(u.turns)}</td><td class="r num">${n(u.tokens_in)}</td><td class="r num">${n(u.tokens_out)}</td></tr>`).join('') : '<tr><td colspan="4" class="hint">Chưa có lượt sử dụng.</td></tr>'}</tbody></table></div></section>`;
 }
-window.SO_AI = { adminHtml, check, mountAccount };
+window.SO_AI = { adminHtml, check, mountAccount, status: () => status };
 
 /* Khởi động khi giao diện chính xuất hiện (sau đăng nhập), ẩn khi trở về màn hình đăng nhập; không gọi máy chủ định kỳ */
 let shown = false;

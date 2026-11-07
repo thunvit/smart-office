@@ -28,6 +28,7 @@ export default {
       // dữ liệu lấy qua stub bằng cookie của người dùng nên đi qua đúng kiểm tra phân quyền.
       if (url.pathname === '/api/ai/chat' && request.method === 'POST') return ai.workerChat(request, env, stub, ctx);
       if (url.pathname === '/api/ai/test' && request.method === 'POST') return ai.workerTest(request, env, stub);
+      if (ai.ONE_SHOT[url.pathname] && request.method === 'POST') return ai.workerOneShot(request, env, stub);
       return stub.fetch(request);
     }
     return env.ASSETS.fetch(request);

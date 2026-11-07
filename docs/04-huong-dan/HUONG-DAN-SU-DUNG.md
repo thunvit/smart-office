@@ -304,4 +304,15 @@ Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hìn
 3. **Thao tác ghi luôn cần bạn xác nhận.** Khi trợ lý đề nghị tạo công việc, đổi trạng thái, gửi trao đổi, gửi đề xuất, duyệt/từ chối hoặc đặt lịch họp, một thẻ "Đề nghị" hiện ra với nội dung do hệ thống lập. Đọc kỹ rồi bấm **Xác nhận** (thực hiện) hoặc **Bỏ qua**. Đề nghị hết hạn sau 10 phút.
 4. **Trợ lý chỉ làm được những gì bạn có quyền làm.** Trợ lý không xóa dữ liệu, không tính lương, không thao tác quản trị.
 5. **Lưu ý:** trợ lý có thể sai, hãy kiểm tra trước khi xác nhận. Câu hỏi của bạn và dữ liệu tra cứu được gửi tới nhà cung cấp AI; thông tin cá nhân (thư điện tử, số điện thoại, số giấy tờ…) được ẩn theo cấu hình của đơn vị. Cuộc trò chuyện không được lưu; tải lại trang là bắt đầu cuộc trò chuyện mới.
+6. **Soạn văn bản:** Tài liệu › **✨ Soạn văn bản bằng AI** (hoặc nút "Soạn văn bản…" trong khung trợ lý).
+   - Chọn loại văn bản (công văn, tờ trình, quyết định, thông báo, kế hoạch, báo cáo, giấy mời, biên bản, thư) và giọng văn; nhập nơi nhận, ý chính (gõ hoặc bấm **● Ghi âm** để đọc), căn cứ tham khảo.
+   - Bấm **Soạn thảo**. Sửa trực tiếp bản thảo, hoặc nhập yêu cầu chỉnh sửa rồi bấm **Soạn lại theo yêu cầu**.
+   - **Sao chép**, **Tải tệp Word (.doc)**, hoặc **Lưu vào Tài liệu** (nếu có quyền cập nhật kho Tài liệu).
+   - Bản thảo do AI lập: người soạn kiểm tra nội dung, thể thức, căn cứ trước khi trình ký. Chỗ thiếu thông tin được đánh dấu "[cần bổ sung: …]".
+7. **Ghi âm, biên bản và kết luận cuộc họp:** Lịch họp › mở cuộc họp › **✨ Trợ lý cuộc họp**.
+   - Bấm **● Ghi âm** khi bắt đầu họp; bản chép lời hiện dần kèm mốc thời gian. Có thể gõ, sửa, dán ghi chép trực tiếp. Chỉ ghi âm khi đã thông báo cho người dự họp.
+   - Cách chuyển giọng nói tùy cấu hình của bạn: OpenAI hoặc Gemini thì máy chủ chuyển từng đoạn 60 giây; Anthropic (Claude) không nhận âm thanh nên dùng nhận dạng giọng nói của trình duyệt Chrome/Edge. Trình duyệt sẽ hỏi quyền dùng micro.
+   - Bấm **Lập biên bản và kết luận**: trợ lý lập biên bản, kết luận và danh sách việc cần làm (người thực hiện chọn trong thành phần họp, hạn nếu được nêu).
+   - Kiểm tra, sửa rồi bấm **Lưu vào biên bản cuộc họp** (người chủ trì hoặc người tạo cuộc họp), **Tải tệp Word**, hoặc chọn việc, dự án rồi bấm **Giao các việc đã chọn**.
+   - Âm thanh không được lưu; chỉ lưu phần chữ bạn bấm lưu.
 

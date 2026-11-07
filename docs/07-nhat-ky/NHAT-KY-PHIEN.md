@@ -288,6 +288,28 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Chưa kiểm chứng:** gọi nhà cung cấp thật (chờ chủ sở hữu tự nhập khóa trên bản chạy thử); Cloudflare thật.
 - **Đẩy lên GitHub (theo yêu cầu của chủ sở hữu, 07/11/2026):** `sua-loi/trung-duong-dan-bang-tin` (`260a75a`) và `tinh-nang/tro-ly-ai-ca-nhan`. `main` giữ nguyên `2c05e18`; không có workflow nào chạy (CI chỉ chạy khi đẩy `main` hoặc mở PR), chưa triển khai.
 
+## 07/11/2026. PR sửa lỗi; trợ lý AI soạn văn bản, ghi âm, biên bản và kết luận cuộc họp (so-1.12.1)
+- **PR sửa lỗi Bảng tin:** https://github.com/thunvit/smart-office/pull/1 (`sua-loi/trung-duong-dan-bang-tin` → `main`), theo yêu cầu của chủ sở hữu. CI "Kiểm tra mã nguồn" đạt. Chưa hợp nhất.
+- **Yêu cầu mới:** "cho con AI có tính năng soạn văn bản, ghi âm và đưa ra kết luận cuộc họp".
+- **Việc đã làm (nhánh `tinh-nang/tro-ly-ai-ca-nhan`; ADR-010 mục 2B):**
+  - `ai-compose.js`: lời nhắc soạn văn bản (10 loại văn bản, 3 giọng văn, soạn lại theo yêu cầu) và biên bản họp (JSON: tóm tắt, biên bản, kết luận, việc cần làm); nội dung người dùng bọc `<du_lieu>`, không tự đóng thẻ được; chuẩn hóa người thực hiện theo thành phần họp.
+  - `ai.js`: `POST /api/ai/compose`, `/api/ai/minutes`, `/api/ai/transcribe` cho cả Worker và Node; bộ chuyển đổi nhận lời nhắc riêng và chế độ không gửi công cụ; chuyển giọng nói OpenAI (multipart `/audio/transcriptions`) và Gemini (`inlineData`); Anthropic trả 415 kèm hướng dẫn.
+  - `ai-core.js`: cột `stt_model` (mô hình chuyển giọng nói cá nhân); `/api/ai/status` báo `audio_server`.
+  - Giao diện `public/ai-office.js`: Soạn văn bản (Tài liệu và khung trợ lý; sao chép, tải .doc, lưu vào Tài liệu); Trợ lý cuộc họp (ghi âm WAV 16 kHz theo đoạn 60 giây hoặc nhận dạng của trình duyệt; lập biên bản; lưu biên bản; giao việc). `public/ai.js` vẽ lại trang khi trạng thái AI thay đổi.
+  - `Permissions-Policy`: `microphone=(self)` (`server.js`, `public/_headers`).
+- **Lỗi phát hiện khi tự thử và đã sửa trước khi commit:** nút AI không hiện ở trang Tài liệu vì trang vẽ trước khi tải trạng thái trợ lý; xin quyền micro thất bại thì bộ ghi vẫn đánh dấu đang ghi và báo lỗi tiếng Anh "Permission denied".
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 109 đạt, 0 không đạt (thêm phần Q và kiểm tra `/api/ai/compose` trên bản Node thật).
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+  - Giao diện (tab riêng `127.0.0.1:3999`, máy chủ OpenAI giả lập): soạn, soạn lại; lưu vào Tài liệu bị từ chối đúng quyền; âm thanh tổng hợp 3 giây mã hóa đúng WAV 16 kHz (96.044 byte), `/api/ai/transcribe` gửi multipart và nhận chữ; lập biên bản; giao việc tạo công việc đúng người, hạn; lưu biên bản đổi trạng thái cuộc họp.
+- **Chưa kiểm chứng:**
+  - Ghi âm bằng micro thật: khung trình duyệt tích hợp chặn micro. Cần thử bằng Chrome hoặc Edge tại `http://localhost:3100`.
+  - Nhận dạng giọng nói của trình duyệt (dùng khi cấu hình Anthropic).
+  - Gọi nhà cung cấp thật; chất lượng chép lời tiếng Việt; Cloudflare thật.
+- **Sự cố trong phiên:**
+  - Lệnh dừng tác vụ nền không tắt tiến trình node con trên Windows, nên máy chủ 3100 cũ vẫn chạy mã cũ (trả 404 cho API mới). Đã tắt theo PID và khởi động lại.
+  - Tôi đã dùng nhầm tab trình duyệt tích hợp của chủ sở hữu và đăng nhập vào `localhost:3999`. Cookie `sid` dùng chung giữa các cổng của `localhost`, nên phiên của chủ sở hữu trên `localhost:3100` có thể đã bị đăng xuất. Đã trả tab về 3100; từ đó thử trên tab riêng qua `127.0.0.1`.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
