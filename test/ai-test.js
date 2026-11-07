@@ -242,8 +242,11 @@ async function webSearch(U) {
   const webAnswer = { content: [{ type: 'text', text: 'Tôi sẽ tìm trên trang Chính phủ.' }, srch, srchRes, fetchUse, fetchRes,
     { type: 'text', text: 'Theo nguồn chính thức, ' }, { type: 'text', text: 'mức lương cơ sở là 2.340.000 ₫/tháng', citations: [{ type: 'web_search_result_location', url: 'https://vanban.chinhphu.vn/?pageid=1', title: 'Nghị định lương cơ sở', encrypted_index: 'EI', cited_text: '2.340.000' }, { type: 'web_search_result_location', url: 'https://evil.example/x', title: 'Trang lạ', encrypted_index: 'EI2', cited_text: 'x' }, { type: 'web_search_result_location', url: 'javascript:alert(1)', title: 'js', encrypted_index: 'EI3', cited_text: 'x' }] }, { type: 'text', text: '.' }],
     stop_reason: 'end_turn', usage: { input_tokens: 900, output_tokens: 80, server_tool_use: { web_search_requests: 1, web_fetch_requests: 1 } } };
-  r = await chat('mai.bt', 'Mức lương cơ sở hiện nay?', [webAnswer]);
-  const c0 = r.calls[0], ws = c0 && c0.body.tools.find(t => t.type === 'web_search_20260209'), wf = c0 && c0.body.tools.find(t => t.type === 'web_fetch_20260209');
+  r = await chat('mai.bt', 'Mức lương cơ sở hiện nay?', [A.text('Không tìm thấy')]);
+  ok(r.calls.length === 1 && !r.calls[0].body.tools.some(t => t.type) && /LUÔN tra cứu nội bộ trước/.test(r.calls[0].body.system[0].text), 'W: ưu tiên nội bộ: chưa tra nội bộ thì không cấp công cụ Internet (lời nhắc vẫn nêu quy tắc)', r.calls[0] && r.calls[0].body.tools.filter(t => t.type));
+  r = await chat('mai.bt', 'Mức lương cơ sở hiện nay?', [A.tool('tim_tai_lieu', { q: 'lương cơ sở' }), webAnswer]);
+  const cIn = r.calls[0], c0 = r.calls[1], ws = c0 && c0.body.tools.find(t => t.type === 'web_search_20260209'), wf = c0 && c0.body.tools.find(t => t.type === 'web_fetch_20260209');
+  ok(cIn && !cIn.body.tools.some(t => t.type) && ws && wf && cIn.body.system[0].text === c0.body.system[0].text, 'W: ưu tiên nội bộ: tra tài liệu nội bộ trước, bước sau mới có công cụ Internet; lời nhắc không đổi (giữ bộ đệm)');
   ok(ws && ws.name === 'web_search' && JSON.stringify(ws.allowed_domains) === JSON.stringify(DOMS) && ws.max_uses === 5 && JSON.stringify(ws.allowed_callers) === '["direct"]' && ws.user_location.country === 'VN' && !('blocked_domains' in ws), 'W: web_search giới hạn tên miền được phép, số lần tìm, gọi trực tiếp', ws);
   ok(wf && wf.name === 'web_fetch' && JSON.stringify(wf.allowed_domains) === JSON.stringify(DOMS) && wf.citations.enabled === true && wf.url_sources.client_tool_results.type === 'none' && wf.max_content_tokens > 0, 'W: web_fetch giới hạn tên miền, không đọc địa chỉ lấy từ dữ liệu nội bộ, bật trích dẫn', wf);
   ok(c0 && c0.body.tools.filter(t => !t.type).length === TOOLS.length && /TUYỆT ĐỐI không đưa dữ liệu nội bộ/.test(c0.body.system[0].text) && /dauthau\.asia là trang của doanh nghiệp/.test(c0.body.system[0].text), 'W: vẫn giữ công cụ nội bộ; lời nhắc cấm đưa dữ liệu nội bộ vào truy vấn, nêu dauthau.asia là trang doanh nghiệp');
@@ -251,15 +254,15 @@ async function webSearch(U) {
   const src = r.events.find(e => e.type === 'sources');
   ok(src && src.items.length === 2 && src.items.some(x => x.url === 'https://vanban.chinhphu.vn/?pageid=1' && x.title === 'Nghị định lương cơ sở') && src.items.some(x => x.url === 'https://congbao.chinhphu.vn/van-ban/1' && x.title === 'Công báo số 1'), 'W: trả nguồn tham khảo (trích dẫn + trang đã đọc)', src);
   ok(src && !JSON.stringify(src).includes('evil.example') && !JSON.stringify(src).includes('javascript:'), 'W: bỏ nguồn ngoài tên miền được phép và địa chỉ không phải http(s)');
-  ok(r.events.some(e => e.type === 'status' && e.text === 'Tìm: mức lương cơ sở 2026') && r.events.some(e => e.type === 'status' && /^Đọc trang https:\/\/congbao/.test(e.text)), 'W: hiện cho người dùng câu truy vấn và trang đã đọc', r.events.filter(e => e.type === 'status'));
+  ok(r.events.some(e => e.type === 'status' && e.text === 'Tìm trên Internet: mức lương cơ sở 2026') && r.events.some(e => e.type === 'status' && /^Đọc trang https:\/\/congbao/.test(e.text)), 'W: hiện cho người dùng câu truy vấn và trang đã đọc', r.events.filter(e => e.type === 'status'));
   const lg = D.get('SELECT web_requests, tools FROM ai_log WHERE user_id=? ORDER BY id DESC LIMIT 1', U['mai.bt'].id);
   ok(lg && lg.web_requests === 2 && /web_search/.test(lg.tools) && /web_fetch/.test(lg.tools), 'W: ghi số lượt tìm/đọc trang vào ai_log', lg);
 
   // pause_turn: gửi lại nguyên văn khối của trợ lý (kể cả encrypted_content), không thêm tin nhắn người dùng
   const paused = { content: [{ type: 'text', text: 'Đang tra cứu công báo.' }, srch, srchRes], stop_reason: 'pause_turn', usage: { input_tokens: 300, output_tokens: 10, server_tool_use: { web_search_requests: 1 } } };
-  r = await chat('mai.bt', 'Tra Nghị định mới về lương', [paused, A.text('Đã tìm thấy Nghị định.')]);
-  const m1 = r.calls[1] && r.calls[1].body.messages, last = m1 && m1[m1.length - 1];
-  ok(r.calls.length === 2 && last.role === 'assistant' && JSON.stringify(last.content) === JSON.stringify(paused.content) && m1.length === 2, 'W: pause_turn gửi lại nguyên văn để tiếp tục, không thêm tin nhắn', m1 && m1.map(m => m.role));
+  r = await chat('mai.bt', 'Tra Nghị định mới về lương', [A.tool('tim_tai_lieu', { q: 'nghị định lương' }), paused, A.text('Đã tìm thấy Nghị định.')]);
+  const m1 = r.calls[2] && r.calls[2].body.messages, last = m1 && m1[m1.length - 1];
+  ok(r.calls.length === 3 && last.role === 'assistant' && JSON.stringify(last.content) === JSON.stringify(paused.content) && m1.length === 4 && r.calls[2].body.tools.some(t => t.type === 'web_search_20260209'), 'W: pause_turn gửi lại nguyên văn để tiếp tục, không thêm tin nhắn', m1 && m1.map(m => m.role));
   ok(r.text === 'Đang tra cứu công báo.\n\nĐã tìm thấy Nghị định.' && r.events.some(e => e.type === 'status' && e.text === 'Đang tiếp tục tìm kiếm'), 'W: ghép văn bản trước và sau khi tạm dừng', r.text);
 
   // Tác vụ một lần gọi và nhà cung cấp khác không dùng tìm Internet
@@ -309,9 +312,11 @@ async function explore(U) {
   const T = require(path.join(__dirname, '..', 'ai-tools.js'));
   const one = async (who, name, args) => { const r = await chat(who, 'x', [A.tool(name, args, 'toolu_x'), A.text('Xong')]); return { r, tr: r.calls[1] ? toolResults(r.calls[1])[0] : null }; };
 
-  // Danh mục: không có API phân quyền, quản trị, tài khoản, nhật ký an ninh, sao lưu, cấu hình, xuất/tải tệp, tiền lương, nội dung tin nhắn, cấu hình AI
-  ok(T.CATALOG.length >= 50 && T.CATALOG.every(c => !/^\/api\/(admin|ai|payroll|export|me|bootstrap)\b|\/file(\/|$)|\/members$|\/bulk|\/config|\.ics|\.csv|\/messages|\/export/.test(c.pattern)), 'X: danh mục không chứa API phân quyền, quản trị, lương, xuất/tải tệp, tin nhắn', T.CATALOG.map(c => c.pattern).filter(p => /admin|payroll|members$|bulk|config|messages/.test(p)));
-  for (const bad of ['/api/admin/users', '/api/admin/security-log', '/api/admin/backup', '/api/payroll/my', '/api/payroll/periods/1', '/api/work/members', '/api/work/config', '/api/work/bulk/tasks', '/api/chat/conversations/1/messages', '/api/export/tasks.csv', '/api/docs/1/file', '/api/tasks/1/ics', '/api/ai/me', '/api/bootstrap', '/api/tasks/1/../../admin/users', '/api/tasks/%2e%2e/admin', '/api/tasks/abc', 'https://evil.example/api/tasks', '/api/tasks#x'])
+  // Danh mục: chỉ cấm phân quyền (vai trò, ủy quyền, tác vụ hàng loạt), tài khoản, nhật ký an ninh, sao lưu, cấu hình AI; không có tệp tải về/CSV
+  ok(T.CATALOG.length >= 55 && T.CATALOG.every(c => !/^\/api\/(admin|ai|export|me|bootstrap)\b|\/file(\/|$)|\/bulk|\/config|\.ics|\.csv|\/export/.test(c.pattern)), 'X: danh mục không chứa API phân quyền, quản trị, tài khoản, xuất/tải tệp', T.CATALOG.map(c => c.pattern).filter(p => /admin|bulk|config/.test(p)));
+  ok(['/api/payroll/my', '/api/payroll/periods', '/api/payroll/periods/3', '/api/payroll/profiles', '/api/work/members', '/api/chat/conversations/2/messages'].every(p => { try { return !!T.safeApiPath(p); } catch (e) { return false; } }), 'X: không chặn quá mức: tiền lương, khối lượng công việc theo người, nội dung tin nhắn đọc được theo quyền');
+  ok(T.safeApiPath('/api/chat/conversations/3/messages?after=5&peek=0') === '/api/chat/conversations/3/messages?after=5&peek=1', 'X: đọc tin nhắn luôn kèm peek=1 (không đánh dấu đã đọc)', T.safeApiPath('/api/chat/conversations/3/messages?after=5&peek=0'));
+  for (const bad of ['/api/admin/users', '/api/admin/security-log', '/api/admin/backup', '/api/work/config', '/api/work/bulk/tasks', '/api/work/bulk/projects', '/api/export/tasks.csv', '/api/export/payroll.csv', '/api/docs/1/file', '/api/tasks/1/ics', '/api/ai/me', '/api/bootstrap', '/api/tasks/1/../../admin/users', '/api/tasks/%2e%2e/admin', '/api/tasks/abc', 'https://evil.example/api/tasks', '/api/tasks#x'])
     ok((() => { try { T.safeApiPath(bad); return false; } catch (e) { return true; } })(), 'X: chặn đường dẫn ' + bad);
   ok(T.safeApiPath('/api/tasks?scope=assigned&x=1&status=late&cookie=a') === '/api/tasks?scope=assigned&status=late&limit=50', 'X: chỉ giữ tham số trong danh mục, dựng lại truy vấn', T.safeApiPath('/api/tasks?scope=assigned&x=1&status=late&cookie=a'));
   ok(T.safeApiPath('/api/projects/12/report') === '/api/projects/12/report' && T.safeApiPath('/api/requests?box=inbox') === '/api/requests?box=inbox', 'X: nhận đường dẫn có mã số và tham số hợp lệ');
@@ -327,6 +332,27 @@ async function explore(U) {
   const adm = await call('admin', 'GET', '/api/work/system-report');
   ({ r, tr } = await one('admin', 'doc_du_lieu', { duong_dan: '/api/work/system-report' }));
   ok(adm.s === 200 && tr && !tr.is_error, 'X: quản trị đọc được báo cáo toàn hệ thống', { adm: adm.s });
+
+  const conv = (await call('mai.bt', 'GET', '/api/chat/conversations')).b;
+  const cv = Array.isArray(conv) && conv.find(c => c.id);
+  if (cv) {
+    D.run('UPDATE conv_members SET last_read=0 WHERE conv_id=? AND user_id=?', cv.id, U['mai.bt'].id);
+    ({ r, tr } = await one('mai.bt', 'doc_du_lieu', { duong_dan: '/api/chat/conversations/' + cv.id + '/messages' }));
+    const lr = D.get('SELECT last_read FROM conv_members WHERE conv_id=? AND user_id=?', cv.id, U['mai.bt'].id).last_read;
+    ok(tr && !tr.is_error && lr === 0, 'X: trợ lý đọc tin nhắn không làm thay đổi trạng thái đã đọc', { lr, tr: tr && tr.content.slice(0, 80) });
+    await call('mai.bt', 'GET', '/api/chat/conversations/' + cv.id + '/messages');
+    ok(D.get('SELECT last_read FROM conv_members WHERE conv_id=? AND user_id=?', cv.id, U['mai.bt'].id).last_read > 0 || D.get('SELECT COUNT(*) n FROM messages WHERE conv_id=?', cv.id).n === 0, 'X: người dùng tự mở tin nhắn vẫn đánh dấu đã đọc như cũ');
+  } else ok(false, 'X: có cuộc trò chuyện mẫu để thử', conv);
+  const other = D.get('SELECT c.conv_id FROM conv_members c WHERE c.conv_id NOT IN (SELECT conv_id FROM conv_members WHERE user_id=?) LIMIT 1', U['mai.bt'].id);
+  if (other) { ({ r, tr } = await one('mai.bt', 'doc_du_lieu', { duong_dan: '/api/chat/conversations/' + other.conv_id + '/messages' })); ok(tr && tr.is_error === true && /Lỗi 40[34]/.test(tr.content), 'X: không đọc được tin nhắn của cuộc trò chuyện mình không tham gia', tr && tr.content.slice(0, 100)); }
+  const pst = {}; for (const u of ['mai.bt', 'huy.dq', 'long.hd', 'quan.lm']) pst[u] = (await call(u, 'GET', '/api/payroll/profiles')).s;
+  const noPay = Object.keys(pst).find(u => pst[u] === 403), yesPay = Object.keys(pst).find(u => pst[u] === 200);
+  ({ r, tr } = await one(noPay, 'doc_du_lieu', { duong_dan: '/api/payroll/profiles' }));
+  ok(noPay && tr && tr.is_error === true && /Lỗi 403/.test(tr.content), 'X: hồ sơ lương: người không thuộc bộ phận tiền lương bị từ chối 403 (' + noPay + ')', { pst, tr: tr && tr.content.slice(0, 100) });
+  ({ r, tr } = await one(yesPay, 'doc_du_lieu', { duong_dan: '/api/payroll/profiles' }));
+  ok(yesPay && tr && !tr.is_error && tr.content.includes('full_name') && !/"(base_salary|insurance_salary|allowance_taxable|allowance_nontax)":/.test(tr.content), 'X: bộ phận tiền lương đọc được hồ sơ lương, số tiền vẫn bị che (' + yesPay + ')', tr && tr.content.slice(0, 160));
+  ({ r, tr } = await one('admin', 'doc_du_lieu', { duong_dan: '/api/payroll/periods' }));
+  ok(tr && !tr.is_error && !/"(gross|net|base_salary)":/.test(tr.content), 'X: tiền lương đọc được nhưng số tiền vẫn bị che khi chưa cho phép dữ liệu cá nhân', tr && tr.content.slice(0, 160));
 
   // Lịch sử hoạt động: lãnh đạo toàn đơn vị, người khác phòng mình; bỏ thẻ HTML; phân trang
   const aAll = await call('admin', 'GET', '/api/activity?limit=200');
@@ -354,7 +380,7 @@ async function explore(U) {
   ({ r, tr } = await one('mai.bt', 'mo_man_hinh', { man_hinh: 'cong-viec', du_an_id: 3 }));
   ui = r.events.find(e => e.type === 'ui');
   ok(ui && ui.op === 'navigate' && ui.route === 'cong-viec' && ui.project === 3, 'X: chuyển tới dự án trên giao diện', ui);
-  for (const [n, a] of [['mo_man_hinh', { man_hinh: 'quan-tri' }], ['mo_man_hinh', { man_hinh: 'javascript:alert(1)' }], ['mo_chi_tiet', { loai: 'nguoi_dung_he_thong', id: 1 }], ['mo_chi_tiet', { loai: 'de_xuat', id: 'abc' }]]) {
+  for (const [n, a] of [['mo_man_hinh', { man_hinh: 'phan-quyen' }], ['mo_man_hinh', { man_hinh: 'javascript:alert(1)' }], ['mo_chi_tiet', { loai: 'nguoi_dung_he_thong', id: 1 }], ['mo_chi_tiet', { loai: 'de_xuat', id: 'abc' }]]) {
     ({ r, tr } = await one('mai.bt', n, a));
     ok(tr && tr.is_error && !r.events.some(e => e.type === 'ui'), 'X: từ chối lệnh giao diện không hợp lệ: ' + JSON.stringify(a));
   }

@@ -21,8 +21,9 @@ const PRIO = { cao: 'Cao', tb: 'Trung bình', thap: 'Thấp' };
 
 /* ---------- Danh mục API đọc nghiệp vụ cho công cụ doc_du_lieu ----------
  * Chỉ GET. Đường dẫn phải khớp đúng một mẫu dưới đây (mã số là số nguyên dương); tham số truy vấn chỉ nhận tên có trong danh mục, giá trị được dựng lại.
- * Cố ý KHÔNG có: quản trị, phân quyền và thành viên/vai trò, tài khoản người dùng, nhật ký an ninh, sao lưu/khôi phục, cấu hình,
- * xuất tệp, tải tệp, tiền lương, nội dung tin nhắn (đọc sẽ đánh dấu đã đọc), cấu hình trợ lý AI. Quyền xem từng đối tượng do API nghiệp vụ kiểm tra. */
+ * Theo yêu cầu của chủ sở hữu: chỉ cấm nghiệp vụ phân quyền. Không có trong danh mục: phân quyền, vai trò, ủy quyền (/api/work/config, /api/work/bulk/*),
+ * tài khoản người dùng và nhật ký an ninh, sao lưu/khôi phục (/api/admin/*), cấu hình trợ lý AI; tệp tải về và CSV (trùng với API JSON, không đọc được bằng mô hình).
+ * Tiền lương: đọc theo quyền hiện hành; số tiền vẫn bị che nếu đơn vị chưa cho phép gửi thông tin cá nhân. Quyền xem từng đối tượng do API nghiệp vụ kiểm tra. */
 const CATALOG = [
   ['/api/dashboard', 'Tổng quan: việc của tôi, tải công việc theo người (lãnh đạo: toàn đơn vị; trưởng phòng: phòng mình), tổng số việc/quá hạn, đề xuất và hồ sơ quy trình chờ tôi, hoạt động gần đây, hợp đồng sắp hết hạn'],
   ['/api/activity', 'Lịch sử hoạt động trên hệ thống (lãnh đạo: toàn đơn vị; người khác: phòng mình). user=mã người, from/to=YYYY-MM-DD, q=từ khóa', 'user,from,to,q,limit,offset'],
@@ -41,6 +42,7 @@ const CATALOG = [
   ['/api/projects/:id/recurrences', 'Công việc lặp lại của dự án'],
   ['/api/projects/:id/fields', 'Trường dữ liệu tùy chỉnh của dự án'],
   ['/api/work/templates', 'Mẫu dự án'],
+  ['/api/work/members', 'Khối lượng công việc theo người: số dự án, việc đang mở, quá hạn, hoàn thành (lãnh đạo: toàn đơn vị; trưởng phòng: phòng mình)', 'dept,q'],
   ['/api/work/members/:id/report', 'Báo cáo công việc của một người. basis: due|created; status', 'from,to,project,basis,status'],
   ['/api/work/system-report', 'Báo cáo công việc toàn hệ thống (quản trị, giám đốc)', 'from,to,basis,dept,sub,status'],
   ['/api/requests', 'Đề xuất phê duyệt. box: inbox (chờ tôi duyệt)|sent|done|all; status: pending|approved|rejected; type', 'box,type,status'],
@@ -80,8 +82,13 @@ const CATALOG = [
   ['/api/reviews/cycles', 'Kỳ đánh giá năng lực'],
   ['/api/reviews', 'Đánh giá năng lực', 'cycle'],
   ['/api/cases', 'Khen thưởng – kỷ luật', 'kind'],
-  ['/api/chat/conversations', 'Danh sách cuộc trò chuyện và số tin chưa đọc (không đọc nội dung tin nhắn)']
-].map(([pattern, desc, params]) => ({ pattern, desc, params: params ? params.split(',') : [], re: new RegExp('^' + pattern.replace(/:id/g, '[1-9][0-9]{0,8}') + '$') }));
+  ['/api/chat/conversations', 'Danh sách cuộc trò chuyện của tôi và số tin chưa đọc'],
+  ['/api/chat/conversations/:id/messages', 'Nội dung tin nhắn một cuộc trò chuyện tôi tham gia (200 tin gần nhất; trợ lý đọc không làm thay đổi trạng thái đã đọc)', 'after', { peek: '1' }],
+  ['/api/payroll/my', 'Phiếu lương của tôi các kỳ đã khóa'],
+  ['/api/payroll/periods', 'Các kỳ lương và tổng quỹ lương, thuế, bảo hiểm'],
+  ['/api/payroll/periods/:id', 'Bảng lương chi tiết một kỳ (bộ phận tiền lương)'],
+  ['/api/payroll/profiles', 'Hồ sơ lương, phụ cấp của nhân viên (bộ phận tiền lương)']
+].map(([pattern, desc, params, fixed]) => ({ pattern, desc, params: params ? params.split(',') : [], fixed: fixed || null, re: new RegExp('^' + pattern.replace(/:id/g, '[1-9][0-9]{0,8}') + '$') }));
 /** Kiểm tra và dựng lại đường dẫn API đọc: chỉ nhận đường dẫn trong danh mục; tham số truy vấn lọc theo danh mục. */
 function safeApiPath(input) {
   const raw = String(input || '').trim();
@@ -93,13 +100,14 @@ function safeApiPath(input) {
   const src = new URLSearchParams(q), out = new URLSearchParams();
   for (const k of c.params) { const v = src.get(k); if (v != null && v !== '') out.set(k, v.slice(0, 100)); }
   if (c.params.includes('limit') && !out.get('limit')) out.set('limit', '50');
+  if (c.fixed) for (const [k, v] of Object.entries(c.fixed)) out.set(k, v); // tham số cố định (ví dụ peek=1: đọc tin nhắn không đánh dấu đã đọc)
   const s = out.toString();
   return path + (s ? '?' + s : '');
 }
 const CATALOG_TEXT = CATALOG.map(c => `${c.pattern}${c.params.length ? ' ?' + c.params.join(',') : ''}: ${c.desc}`).join('\n');
 
 /* ---------- Màn hình và loại chi tiết trợ lý được mở trên giao diện (không thay đổi dữ liệu) ---------- */
-const SCREENS = { 'tong-quan': 'Tổng quan', 'cong-viec': 'Công việc – Dự án', 'phe-duyet': 'Phê duyệt', 'quy-trinh': 'Quy trình', 'nhan-su': 'Hồ sơ nhân sự', 'cham-cong': 'Chấm công – Bảng công', 'tien-luong': 'Tiền lương', 'muc-tieu': 'Mục tiêu – KPI', 'bang-tin': 'Bảng tin', 'lich-hop': 'Lịch họp', 'tai-lieu': 'Tài liệu', 'khach-hang': 'Khách hàng', 'thu-chi': 'Thu chi – Ngân sách', 'tai-san': 'Tài sản', 'nhan-tin': 'Nhắn tin', 'khach-den': 'Đăng ký khách đến', 'tuyen-dung': 'Tuyển dụng', 'dao-tao': 'Đào tạo', 'danh-gia': 'Đánh giá năng lực', 'khen-thuong': 'Khen thưởng – Kỷ luật', 'tai-khoan': 'Tài khoản' };
+const SCREENS = { 'tong-quan': 'Tổng quan', 'quan-tri': 'Quản trị', 'cong-viec': 'Công việc – Dự án', 'phe-duyet': 'Phê duyệt', 'quy-trinh': 'Quy trình', 'nhan-su': 'Hồ sơ nhân sự', 'cham-cong': 'Chấm công – Bảng công', 'tien-luong': 'Tiền lương', 'muc-tieu': 'Mục tiêu – KPI', 'bang-tin': 'Bảng tin', 'lich-hop': 'Lịch họp', 'tai-lieu': 'Tài liệu', 'khach-hang': 'Khách hàng', 'thu-chi': 'Thu chi – Ngân sách', 'tai-san': 'Tài sản', 'nhan-tin': 'Nhắn tin', 'khach-den': 'Đăng ký khách đến', 'tuyen-dung': 'Tuyển dụng', 'dao-tao': 'Đào tạo', 'danh-gia': 'Đánh giá năng lực', 'khen-thuong': 'Khen thưởng – Kỷ luật', 'tai-khoan': 'Tài khoản' };
 const DETAILS = { cong_viec: 'công việc', du_an: 'dự án', de_xuat: 'đề xuất', quy_trinh: 'hồ sơ quy trình', nhan_su: 'hồ sơ nhân sự', cuoc_hop: 'cuộc họp', tai_lieu: 'tài liệu', ban_tin: 'bản tin', khach_hang: 'khách hàng', tai_san: 'tài sản', ung_vien: 'ứng viên', khoa_hoc: 'khóa đào tạo' };
 
 const TOOLS = [

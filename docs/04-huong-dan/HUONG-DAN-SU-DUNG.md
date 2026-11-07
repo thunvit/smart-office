@@ -318,12 +318,13 @@ Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hìn
 8. **Tra cứu trên Internet (phiên bản 1.13, khi quản trị viên bật; hiện chỉ với Anthropic):** hỏi về văn bản pháp luật, chỉ đạo của Chính phủ, công báo, thông tin đấu thầu. Ví dụ: "Mức lương cơ sở hiện nay theo văn bản nào?"; "Tra thông báo mời thầu gói mua sắm máy tính trên hệ thống mua sắm công".
    - Trợ lý chỉ tìm trong các trang quản trị viên cho phép. Mặc định: chinhphu.vn, vanban.chinhphu.vn, congbao.chinhphu.vn, muasamcong.mof.gov.vn, dauthau.asia (trang của doanh nghiệp, không phải cổng thông tin nhà nước).
    - Trong lúc xử lý, khung trợ lý hiện câu tìm kiếm và trang đang đọc. Câu trả lời kèm mục **Nguồn tham khảo trên Internet**; bấm để mở trang gốc.
+   - **Ưu tiên dữ liệu nội bộ:** trợ lý luôn tìm trong kho tài liệu và dữ liệu của đơn vị trước; chỉ khi nội bộ không có hoặc không đủ mới tìm trên Internet, và nói rõ phần nào lấy từ đâu.
    - Thông tin từ Internet chỉ để tham khảo: luôn mở nguồn kiểm tra hiệu lực văn bản trước khi sử dụng.
    - **Quản trị viên:** Quản trị › Trợ lý AI › đánh dấu **Cho phép trợ lý tìm kiếm trên Internet**, sửa danh sách tên miền (mỗi dòng một tên miền, không nhập `http://`, đường dẫn hay ký tự `*`), bấm **Lưu cấu hình**. Mỗi lần tìm, đọc trang được nhà cung cấp tính phí riêng ngoài token; bảng thống kê có cột "Lượt tìm Internet".
 9. **Nắm tình hình không cần thao tác (phiên bản 1.14):**
    - Hỏi "Tình hình hôm nay thế nào?" hoặc bấm gợi ý **Tình hình hôm nay**. Trợ lý tổng hợp các nguồn bạn có quyền xem: công việc, việc quá hạn, tải công việc theo người, đề xuất tồn đọng, hồ sơ quy trình, lịch họp, hoạt động gần đây, thu chi, chấm công, lịch hẹn khách hàng. Sau đó nêu điểm nóng và việc cần chỉ đạo.
    - Hỏi sâu bất kỳ phân hệ nào: "Phòng Kinh doanh tuần này hoàn thành bao nhiêu việc?", "Ai đang có nhiều việc quá hạn nhất?", "Hôm qua anh Long đã làm những gì?", "Hồ sơ quy trình nào đang chậm?".
-   - Trợ lý chỉ xem được dữ liệu bạn có quyền xem. Trợ lý không tra cứu phân quyền, tài khoản người dùng, nhật ký an ninh, tiền lương, sao lưu, nội dung tin nhắn.
+   - Trợ lý chỉ xem được dữ liệu bạn có quyền xem. Trợ lý không tra cứu phân quyền, vai trò, tài khoản người dùng, nhật ký an ninh, sao lưu. Tiền lương: đọc được theo quyền của bạn, nhưng số tiền bị ẩn nếu đơn vị chưa cho phép gửi thông tin cá nhân. Tin nhắn: trợ lý đọc thay bạn không làm tin chuyển sang đã đọc.
    - **Tự báo cáo mỗi ngày:** Tài khoản › Trợ lý AI của tôi › đánh dấu **Tự động báo cáo tình hình khi tôi vào hệ thống lần đầu mỗi ngày**. Khung trợ lý sẽ tự mở và báo cáo.
 10. **Nói và nghe:**
    - Bấm biểu tượng micro cạnh nút Gửi rồi nói.

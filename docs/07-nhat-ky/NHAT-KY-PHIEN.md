@@ -377,6 +377,21 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
 - **Lưu ý:** các lượt cũ trước bản này đã gộp token bộ đệm vào `tokens_in`, nên vẫn tính đủ; chỉ lượt mới được giảm.
 
+## 07/11/2026 (chiều, tiếp). Nới danh mục chặn; tìm Internet chỉ sau khi đã tra nội bộ (so-1.14.2)
+- **Ý kiến của chủ sở hữu:** "Chặn hơi quá so với câu hỏi" (yêu cầu chỉ cấm nghiệp vụ phân quyền); "tìm trong nội bộ không có thì mới được tìm ra bên ngoài internet".
+- **Việc đã làm:**
+  - `ai-tools.js`: mở lại tiền lương (`/api/payroll/my`, `/periods`, `/periods/:id`, `/profiles`; theo quyền hiện hành, số tiền vẫn bị che khi chưa cho phép thông tin cá nhân), khối lượng công việc theo người (`/api/work/members`), nội dung tin nhắn (kèm cố định `peek=1`), màn hình Quản trị. Vẫn chặn: `/api/work/config`, `/api/work/bulk/*`, `/api/admin/*`, cấu hình AI.
+  - `ext.js`: `GET /api/chat/conversations/:id/messages?peek=1` không cập nhật `last_read`; giao diện cũ không gửi `peek` nên hành vi không đổi.
+  - `ai.js`: ưu tiên nội bộ, chỉ cấp `web_search`/`web_fetch` sau khi đã gọi công cụ đọc nội bộ; lời nhắc hệ thống cố định; tiến trình hiện "Tìm trên Internet: …"; quy tắc lương đổi thành "không tự tính, chỉ đọc số liệu đã có".
+  - `public/sw.js` so-1.14.2; ADR-010 mục 2C.2, 2E.1; hướng dẫn XII.8–9.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 197 đạt, 0 không đạt:
+    - chưa tra nội bộ thì không có công cụ web; tra tài liệu xong mới có, lời nhắc không đổi;
+    - lương: người ngoài bộ phận tiền lương bị 403, bộ phận tiền lương đọc được nhưng số tiền bị che;
+    - tin nhắn: đọc qua trợ lý không đổi trạng thái đã đọc; người dùng tự mở vẫn đánh dấu như cũ; không đọc được cuộc trò chuyện mình không tham gia;
+    - các đường dẫn phân quyền, quản trị vẫn bị chặn.
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
