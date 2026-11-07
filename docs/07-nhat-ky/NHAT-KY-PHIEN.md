@@ -245,6 +245,319 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - **Chưa chạy** `work-ui.js`, `work-ui-full.js`: máy chưa cài Playwright.
 - **Chưa kiểm chứng trên Cloudflare thật**; chưa hợp nhất vào `main`.
 
+## 07/11/2026. Trợ lý AI hội thoại đa nhiệm, nhiều nhà cung cấp (so-1.11.0; ADR-010), theo yêu cầu của chủ sở hữu
+- **Yêu cầu:** làm Đợt 2 "Trợ lý hội thoại đa nhiệm"; dùng được Gemini, Anthropic hoặc OpenAI, trước mắt Anthropic (chủ sở hữu có khóa).
+- **Việc đã làm:**
+  - `ai.js`: cổng AI, ba bộ chuyển đổi gọi bằng `fetch` (Anthropic `anthropic-version: 2026-10-21`, mặc định `claude-opus-5-5`, bộ đệm lời nhắc, `fallbacks: "default"`; OpenAI Chat Completions; Gemini generateContent), vòng lặp công cụ tối đa 8 bước, gọi song song công cụ chỉ đọc, SSE theo bước.
+  - `ai-tools.js`: 17 công cụ (11 chỉ đọc, 6 ghi) ánh xạ sang API sẵn có; che dữ liệu cá nhân; rút gọn kết quả.
+  - `ai-core.js`: bảng `ai_pending`, `ai_log`; mở lượt, hạn mức, đề nghị chờ xác nhận (10 phút, một lần, chỉ chủ đề nghị), xác nhận thực hiện qua API thường của người dùng; cấu hình quản trị; nhật ký an ninh `ai_action`, `ai_settings`.
+  - `worker/index.js`: `POST /api/ai/chat` xử lý tại Worker không trạng thái (khóa chỉ ở Worker). `worker/do-core.js`: bổ sung `Host` cho yêu cầu nội bộ. `server.js`: `internalCall`, nhánh SSE bản Node.
+  - Giao diện `public/ai.js` (nút Trợ lý, `Ctrl + /`, thẻ xác nhận), Quản trị › Trợ lý AI; CSS dùng biến màu chung; `sw.js` lên `so-1.11.0`.
+  - Tài liệu: ADR-010, `TRIEN-KHAI-CLOUDFLARE.md` mục A.4, `HUONG-DAN-SU-DUNG.md` mục XII, CLAUDE.md mục 3g; CI chạy `ai-test`.
+- **Kiểm thử (cục bộ/mô phỏng, nhà cung cấp giả lập, không gọi mô hình thật):**
+  - `ai-test` 56 đạt, 0 không đạt: mặc định tắt; chỉ quản trị bật; chưa đăng nhập 401; Origin lạ 403; thiếu khóa 503; định dạng yêu cầu Anthropic/OpenAI/Gemini; kết quả công cụ bọc `<du_lieu>`; gửi lại nguyên khối thinking/chữ ký suy luận; người ngoài dự án nhận 403 qua công cụ; che email, số điện thoại, số giấy tờ; thao tác ghi chỉ thành đề nghị, người khác không xác nhận được, không xác nhận lần hai, hủy, hết hạn 410; xác nhận thao tác vượt quyền vẫn bị API từ chối; dữ liệu chứa mệnh lệnh không tự thực hiện; tối đa 8 bước; khóa sai không lộ khóa; hạn mức 429; `ai_log` không có cột nội dung; bản Node thật qua SSE với máy chủ Anthropic giả lập.
+  - `worker-smoke`: `KẾT QUẢ: đạt`, có thêm `ai 403 200 200`, `backup-manifest 200 71 1` (thêm 2 bảng).
+  - `work-test` 125/0, `work-plan-test` 21/0, `work-ext-test` 98/0, `auth-test` 78/0, `backup-test` 48/0; `node --check` toàn bộ.
+  - Giao diện (trình duyệt tích hợp, bản Node cổng 3999, máy chủ Anthropic giả lập): mặc định không có nút Trợ lý; quản trị bật thì nút hiện ngay, nhật ký an ninh ghi "bật: false→true"; hỏi chỉ đọc hiện câu trả lời, `#12` thành liên kết; đề nghị tạo công việc hiện thẻ do máy chủ lập, bấm Xác nhận thì tạo công việc #15 đúng tên, hạn, ưu tiên, Tổng quan cập nhật; 360 px chế độ tối: khung toàn màn hình, không cuộn ngang.
+  - **Chưa chạy** `work-ui.js`, `work-ui-full.js` (chưa cài Playwright).
+- **Chưa kiểm chứng:** gọi Anthropic thật bằng khóa của chủ sở hữu (trợ lý AI không tự nhập khóa, CLAUDE.md 4.3); OpenAI, Gemini với khóa thật; chạy trên Cloudflare thật (Worker → Durable Object qua stub, SSE qua TransformStream); chất lượng trả lời tiếng Việt; chi phí thực tế.
+- **Còn dở:** truyền từng chữ (token streaming); pháp chế xác nhận điều kiện gửi dữ liệu ra nước ngoài trước khi bật trên hệ thống thật.
+
+## 07/11/2026. Tách nhánh; trợ lý AI cấu hình theo từng người (so-1.11.1), theo yêu cầu của chủ sở hữu
+- **Yêu cầu:** "tách nhánh riêng chứ, chạy local cho tôi test đã, việc cấu hình AI cần cấu hình động ở màn hình người dùng, theo cá nhân, mỗi người 1 con AI".
+- **Nhánh (cục bộ, chưa đẩy):**
+  - `sua-loi/trung-duong-dan-bang-tin` (`260a75a`): báo cáo rà soát và sửa lỗi Bảng tin;
+  - `tinh-nang/tro-ly-ai-ca-nhan`: trợ lý AI, gồm cả bản sửa lỗi trên.
+- **Việc đã làm:**
+  - `ai-key.js`: mã hóa AES-256-GCM khóa API cá nhân; bí mật `AI_KEY_SECRET` (Node tự sinh tại `DATA_DIR`); mã nội bộ để cổng AI tại Worker nhận khóa đã giải mã.
+  - `ai-core.js`: bảng `ai_user_config`; `GET/PUT /api/ai/me` (không trả khóa); `/api/ai/turn` trả khóa chỉ cho lời gọi nội bộ; `/api/ai/status` báo đã cấu hình hay chưa; nhật ký `ai_key_set`, `ai_key_clear`.
+  - `ai.js`: thứ tự khóa cá nhân → khóa chung → 412; khóa cá nhân chỉ gửi địa chỉ chính thức; tên và cách trả lời riêng; `POST /api/ai/test` (kiểm tra kết nối) cho Worker và Node.
+  - Giao diện: Tài khoản › Trợ lý AI của tôi; nút ⚙ và lời nhắc cấu hình trong khung trợ lý; tiêu đề khung theo tên trợ lý; `sw.js` lên `so-1.11.1`.
+  - ADR-010 mục 2A; `TRIEN-KHAI-CLOUDFLARE.md` A.4 (thêm `AI_KEY_SECRET`); `HUONG-DAN-SU-DUNG.md` XII.0.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 87 đạt, 0 không đạt. Thêm phần P chạy qua đúng mã Worker (`workerChat`, `workerTest` với stub mô phỏng):
+    - phản hồi không chứa khóa; CSDL và bản sao lưu chỉ có bản mã; sai bí mật không giải được;
+    - mã nội bộ sai không nhận khóa; khóa, mô hình, mức suy luận, tên, cách trả lời đúng của từng người;
+    - người khác không dùng khóa của nhau; dùng khóa chung khi có; khóa cá nhân không theo `AI_BASE_URL`;
+    - kiểm tra kết nối; đổi sang Gemini phải nhập khóa mới; xóa khóa.
+    - Bản Node: tự sinh `ai-key.secret`; tệp CSDL và WAL không chứa khóa dạng rõ; `/api/ai/turn` qua HTTP không trả khóa.
+  - Lần chạy đầu của kiểm tra bản Node báo "không đạt" vì tiến trình con thừa hưởng `AI_KEY_SECRET` từ tiến trình kiểm thử, không phải lỗi mã. Đã tách điều kiện và bỏ biến này khỏi môi trường tiến trình con.
+  - `worker-smoke` đạt (`ai 403 200 200`, `backup-manifest 200 72 1`); `work-test` 125/0, `work-plan-test` 21/0, `work-ext-test` 98/0, `auth-test` 78/0, `backup-test` 48/0; `node --check` toàn bộ.
+  - Giao diện, trình duyệt tích hợp, cổng 3100: khung trợ lý báo chưa cấu hình và dẫn sang Tài khoản; đổi nhà cung cấp đổi gợi ý mô hình, ẩn/hiện mức suy luận; lưu khóa giả chỉ hiện `••••0000`, phản hồi không chứa khóa, tiêu đề khung đổi theo tên trợ lý; xóa khóa. Đã xóa khóa giả, trả dữ liệu thử về trạng thái chưa cấu hình.
+- **Bản chạy thử cho chủ sở hữu:** Node cổng 3100, dữ liệu mẫu trong thư mục tạm của phiên, trợ lý đã bật sẵn (ghi trực tiếp `ai_enabled=1` vào CSDL thử), không có khóa chung.
+- **Chưa kiểm chứng:** gọi nhà cung cấp thật (chờ chủ sở hữu tự nhập khóa trên bản chạy thử); Cloudflare thật.
+- **Đẩy lên GitHub (theo yêu cầu của chủ sở hữu, 07/11/2026):** `sua-loi/trung-duong-dan-bang-tin` (`260a75a`) và `tinh-nang/tro-ly-ai-ca-nhan`. `main` giữ nguyên `2c05e18`; không có workflow nào chạy (CI chỉ chạy khi đẩy `main` hoặc mở PR), chưa triển khai.
+
+## 07/11/2026. PR sửa lỗi; trợ lý AI soạn văn bản, ghi âm, biên bản và kết luận cuộc họp (so-1.12.1)
+- **PR sửa lỗi Bảng tin:** https://github.com/thunvit/smart-office/pull/1 (`sua-loi/trung-duong-dan-bang-tin` → `main`), theo yêu cầu của chủ sở hữu. CI "Kiểm tra mã nguồn" đạt. Chưa hợp nhất.
+- **Yêu cầu mới:** "cho con AI có tính năng soạn văn bản, ghi âm và đưa ra kết luận cuộc họp".
+- **Việc đã làm (nhánh `tinh-nang/tro-ly-ai-ca-nhan`; ADR-010 mục 2B):**
+  - `ai-compose.js`: lời nhắc soạn văn bản (10 loại văn bản, 3 giọng văn, soạn lại theo yêu cầu) và biên bản họp (JSON: tóm tắt, biên bản, kết luận, việc cần làm); nội dung người dùng bọc `<du_lieu>`, không tự đóng thẻ được; chuẩn hóa người thực hiện theo thành phần họp.
+  - `ai.js`: `POST /api/ai/compose`, `/api/ai/minutes`, `/api/ai/transcribe` cho cả Worker và Node; bộ chuyển đổi nhận lời nhắc riêng và chế độ không gửi công cụ; chuyển giọng nói OpenAI (multipart `/audio/transcriptions`) và Gemini (`inlineData`); Anthropic trả 415 kèm hướng dẫn.
+  - `ai-core.js`: cột `stt_model` (mô hình chuyển giọng nói cá nhân); `/api/ai/status` báo `audio_server`.
+  - Giao diện `public/ai-office.js`: Soạn văn bản (Tài liệu và khung trợ lý; sao chép, tải .doc, lưu vào Tài liệu); Trợ lý cuộc họp (ghi âm WAV 16 kHz theo đoạn 60 giây hoặc nhận dạng của trình duyệt; lập biên bản; lưu biên bản; giao việc). `public/ai.js` vẽ lại trang khi trạng thái AI thay đổi.
+  - `Permissions-Policy`: `microphone=(self)` (`server.js`, `public/_headers`).
+- **Lỗi phát hiện khi tự thử và đã sửa trước khi commit:** nút AI không hiện ở trang Tài liệu vì trang vẽ trước khi tải trạng thái trợ lý; xin quyền micro thất bại thì bộ ghi vẫn đánh dấu đang ghi và báo lỗi tiếng Anh "Permission denied".
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 109 đạt, 0 không đạt (thêm phần Q và kiểm tra `/api/ai/compose` trên bản Node thật).
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+  - Giao diện (tab riêng `127.0.0.1:3999`, máy chủ OpenAI giả lập): soạn, soạn lại; lưu vào Tài liệu bị từ chối đúng quyền; âm thanh tổng hợp 3 giây mã hóa đúng WAV 16 kHz (96.044 byte), `/api/ai/transcribe` gửi multipart và nhận chữ; lập biên bản; giao việc tạo công việc đúng người, hạn; lưu biên bản đổi trạng thái cuộc họp.
+- **Chưa kiểm chứng:**
+  - Ghi âm bằng micro thật: khung trình duyệt tích hợp chặn micro. Cần thử bằng Chrome hoặc Edge tại `http://localhost:3100`.
+  - Nhận dạng giọng nói của trình duyệt (dùng khi cấu hình Anthropic).
+  - Gọi nhà cung cấp thật; chất lượng chép lời tiếng Việt; Cloudflare thật.
+- **Sự cố trong phiên:**
+  - Lệnh dừng tác vụ nền không tắt tiến trình node con trên Windows, nên máy chủ 3100 cũ vẫn chạy mã cũ (trả 404 cho API mới). Đã tắt theo PID và khởi động lại.
+  - Tôi đã dùng nhầm tab trình duyệt tích hợp của chủ sở hữu và đăng nhập vào `localhost:3999`. Cookie `sid` dùng chung giữa các cổng của `localhost`, nên phiên của chủ sở hữu trên `localhost:3100` có thể đã bị đăng xuất. Đã trả tab về 3100; từ đó thử trên tab riêng qua `127.0.0.1`.
+
+## 07/11/2026 (chiều). Trợ lý AI tìm kiếm Internet trên trang được phép; người dùng xem token đã dùng (so-1.13.0)
+- **Yêu cầu:** chủ sở hữu chọn các trang được tìm: chinhphu.vn, vanban.chinhphu.vn, congbao.chinhphu.vn, muasamcong.mof.gov.vn, dauthau.asia; bổ sung "Cá nhân được xem token AI mình đã dùng".
+- **Căn cứ kỹ thuật:** tài liệu Anthropic "Web search tool", "Web fetch tool", "Server tools" (platform.claude.com, tải ngày 07/11/2026): `allowed_domains`, tên miền tự gồm tên miền con, `max_uses`, `pause_turn`, `encrypted_content`, `url_sources`, `allowed_callers`.
+- **Việc đã làm (nhánh `tinh-nang/tro-ly-ai-ca-nhan`; ADR-010 mục 2C, 2D):**
+  - `ai-core.js`: cấu hình `ai_web_search` (mặc định tắt), `ai_web_domains` (chuẩn hóa, chỉ nhận tên miền ASCII, không ký tự đại diện, không đường dẫn, tối đa 30); `/api/ai/turn` trả danh sách tên miền khi bật; cột `ai_log.web_requests`; `GET /api/ai/me/usage` (token hôm nay, hạn mức còn lại, 30 ngày theo ngày, chỉ số liệu của chính mình); nhật ký an ninh ghi thay đổi.
+  - `ai.js`: bộ chuyển đổi Anthropic thêm `web_search_20260209`, `web_fetch_20260209` (giới hạn tên miền, 5 lần mỗi loại, gọi trực tiếp, `url_sources.client_tool_results = none`, trích dẫn); lời nhắc bổ sung cấm đưa dữ liệu nội bộ vào truy vấn; xử lý `pause_turn`; nối khối văn bản có trích dẫn; sự kiện `sources` (chỉ http(s) thuộc tên miền được phép); ghi số lượt tìm.
+  - `public/ai.js`, `public/app.css`: danh sách "Nguồn tham khảo trên Internet" dưới câu trả lời; cấu hình tìm Internet và cột "Lượt tìm Internet" ở Quản trị › Trợ lý AI; mục "Token AI tôi đã dùng" ở Tài khoản › Trợ lý AI của tôi.
+  - `public/sw.js`: so-1.13.0. Hướng dẫn sử dụng mục XII.8–9.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 139 đạt, 0 không đạt (thêm phần W, U: mặc định tắt, chặn tên miền sai, chuẩn hóa, định dạng công cụ gửi đi, nguồn bị lọc, `pause_turn`, soạn văn bản và OpenAI không dùng Internet, người dùng chỉ xem token của mình, 401 khi chưa đăng nhập).
+  - `worker-smoke` đạt (đủ các dòng bắt buộc, `ai 403 200 200`); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+  - Bản Node thật cổng 3999 với máy chủ Anthropic giả lập: SSE trả câu truy vấn, câu trả lời, nguồn (đã bỏ nguồn ngoài danh sách); yêu cầu gửi đi đúng tham số; `/api/ai/me/usage` tăng đúng 1.620 token và 1 lượt tìm; tắt thì không gửi công cụ web. Máy chủ 3100: `/healthz` 200, `/api/login` sai trả 401.
+- **Chưa kiểm chứng:**
+  - Giao diện hiển thị nguồn, cấu hình quản trị, mục token cá nhân: chưa xem trên trình duyệt. Thao tác nhập mật khẩu vào trang thử bị hệ thống chặn, nên tôi không đăng nhập giao diện; phần này mới kiểm thử qua API.
+  - Gọi Anthropic thật: chất lượng tìm kiếm tiếng Việt trên các trang trên; việc các trang có chặn công cụ thu thập (`robots.txt`) hay không.
+  - OpenAI, Gemini: chưa làm tìm Internet.
+- **Dọn dẹp:** tắt máy chủ thử 3999, máy chủ giả lập 3997, và máy chủ 3988 còn sót từ đầu phiên (PID 83064). Khởi động lại 3100 bằng mã mới; dữ liệu thử của chủ sở hữu giữ nguyên.
+
+## 07/11/2026 (chiều, tiếp). Trợ lý AI tra cứu toàn bộ nghiệp vụ, lịch sử hoạt động, nghe – nói, điều khiển giao diện (so-1.14.0)
+- **Yêu cầu của chủ sở hữu:** AI tra cứu hết các API nghiệp vụ (cấm nghiệp vụ phân quyền) và lịch sử hoạt động theo phân quyền hiện tại, để lãnh đạo nắm toàn bộ tình hình mà không phải thao tác; nghe và nói được; điều khiển web để chuyển màn hình, mở chi tiết.
+- **Việc đã làm (ADR-010 mục 2E):**
+  - `ai-tools.js`:
+    - danh mục 58 API đọc ở 18 phân hệ; `safeApiPath` chỉ nhận đường dẫn khớp mẫu và tham số có trong danh mục;
+    - công cụ `doc_du_lieu`, `bao_cao_tinh_hinh` (9 nguồn song song), `lich_su_hoat_dong`, `mo_man_hinh`, `mo_chi_tiet`.
+    - Danh mục không có: quản trị, phân quyền và thành viên, tài khoản, nhật ký an ninh, sao lưu, cấu hình, xuất/tải tệp, tiền lương, nội dung tin nhắn.
+  - `server.js`: `GET /api/activity` (lãnh đạo xem toàn đơn vị, người khác xem phòng mình; lọc; phân trang 200; bỏ thẻ HTML); chỉ mục `idx_activity_user`.
+  - `ai.js`: thực hiện công cụ tổng hợp và công cụ giao diện; lời nhắc hướng dẫn báo cáo cho lãnh đạo, cấm tra cứu phân quyền.
+  - `ai-core.js`: tùy chọn cá nhân `auto_brief`.
+  - `public/ai.js`, `public/app.css`:
+    - thực hiện lệnh chuyển màn hình, mở chi tiết (kiểm tra `routeOk`, dùng bộ xử lý nhấp chuột sẵn có);
+    - micro trong khung trợ lý (nhận dạng của trình duyệt tự gửi sau 1,6 giây im lặng, hoặc chuyển giọng nói tại máy chủ);
+    - đọc câu trả lời bằng `speechSynthesis` vi-VN;
+    - gợi ý "Tình hình hôm nay"; tự báo cáo lần đầu mỗi ngày.
+  - `public/sw.js`: so-1.14.0. Hướng dẫn sử dụng mục XII.9–11.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 183 đạt, 0 không đạt. Phần X mới:
+    - chặn 19 đường dẫn cấm hoặc giả mạo;
+    - dựng lại tham số;
+    - quyền theo người dùng: báo cáo toàn hệ thống so khớp với lời gọi trực tiếp;
+    - lịch sử hoạt động theo phòng, có phân trang, trả 401 khi chưa đăng nhập;
+    - báo cáo tình hình đủ phần, bỏ qua phần không có quyền, vẫn che thư điện tử;
+    - lệnh giao diện hợp lệ và bị từ chối;
+    - công cụ giao diện không lập được đề nghị ghi;
+    - bật/tắt tự báo cáo.
+  - `worker-smoke` đạt (đủ các dòng bắt buộc, `ai 403 200 200`); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+  - Máy chủ 3100 khởi động lại với so-1.14.0: `/healthz` 200; `/api/activity` khi chưa đăng nhập 401; `/api/login` sai 401.
+- **Chưa kiểm chứng:**
+  - Giao diện micro, đọc câu trả lời, chuyển màn hình và mở chi tiết trên trình duyệt: chưa xem được, vì thao tác nhập mật khẩu vào trang thử bị hệ thống chặn.
+  - Giọng đọc tiếng Việt phụ thuộc thiết bị.
+  - Chất lượng báo cáo với mô hình thật; Cloudflare thật.
+- **Lưu ý chi phí:** mô tả 22 công cụ khoảng 15.600 ký tự, gửi kèm mỗi bước (có bộ đệm lời nhắc). Hạn mức ngày đang tính cả token đọc từ bộ đệm; lãnh đạo dùng nhiều nên được nâng hạn mức.
+
+## 07/11/2026 (chiều, tiếp). Hạn mức AI tính 10% token đọc bộ đệm (so-1.14.1)
+- **Yêu cầu:** chủ sở hữu đồng ý tính token đọc từ bộ đệm vào hạn mức theo tỷ lệ 10%, để lãnh đạo không hết hạn mức sớm.
+- **Việc đã làm:**
+  - `ai.js`: ba bộ chuyển đổi tách token đọc bộ đệm khỏi token vào (Anthropic `cache_read_input_tokens`; OpenAI `prompt_tokens_details.cached_tokens`; Gemini `cachedContentTokenCount`) và ghi `tokens_cached`.
+  - `ai-core.js`: cột `ai_log.tokens_cached`; hạn mức = vào + ra + 10% bộ đệm (làm tròn lên mỗi lượt), áp cho chặn 429, `/api/ai/me/usage`, thống kê quản trị.
+  - `public/ai.js`: thêm cột "Đọc bộ đệm", "Tính hạn mức" ở Tài khoản và Quản trị. `public/sw.js` so-1.14.1. ADR-010 mục 2E.7; hướng dẫn mục XII.12.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 189 đạt, 0 không đạt. Phần C mới:
+    - tách đúng cho ba nhà cung cấp;
+    - hạn mức tăng đúng vào + ra + 10%;
+    - tổng thô vượt hạn mức nhưng số quy đổi chưa vượt thì vẫn dùng được;
+    - quản trị thấy số liệu.
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Lưu ý:** các lượt cũ trước bản này đã gộp token bộ đệm vào `tokens_in`, nên vẫn tính đủ; chỉ lượt mới được giảm.
+
+## 07/11/2026 (chiều, tiếp). Nới danh mục chặn; tìm Internet chỉ sau khi đã tra nội bộ (so-1.14.2)
+- **Ý kiến của chủ sở hữu:** "Chặn hơi quá so với câu hỏi" (yêu cầu chỉ cấm nghiệp vụ phân quyền); "tìm trong nội bộ không có thì mới được tìm ra bên ngoài internet".
+- **Việc đã làm:**
+  - `ai-tools.js`: mở lại tiền lương (`/api/payroll/my`, `/periods`, `/periods/:id`, `/profiles`; theo quyền hiện hành, số tiền vẫn bị che khi chưa cho phép thông tin cá nhân), khối lượng công việc theo người (`/api/work/members`), nội dung tin nhắn (kèm cố định `peek=1`), màn hình Quản trị. Vẫn chặn: `/api/work/config`, `/api/work/bulk/*`, `/api/admin/*`, cấu hình AI.
+  - `ext.js`: `GET /api/chat/conversations/:id/messages?peek=1` không cập nhật `last_read`; giao diện cũ không gửi `peek` nên hành vi không đổi.
+  - `ai.js`: ưu tiên nội bộ, chỉ cấp `web_search`/`web_fetch` sau khi đã gọi công cụ đọc nội bộ; lời nhắc hệ thống cố định; tiến trình hiện "Tìm trên Internet: …"; quy tắc lương đổi thành "không tự tính, chỉ đọc số liệu đã có".
+  - `public/sw.js` so-1.14.2; ADR-010 mục 2C.2, 2E.1; hướng dẫn XII.8–9.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 197 đạt, 0 không đạt:
+    - chưa tra nội bộ thì không có công cụ web; tra tài liệu xong mới có, lời nhắc không đổi;
+    - lương: người ngoài bộ phận tiền lương bị 403, bộ phận tiền lương đọc được nhưng số tiền bị che;
+    - tin nhắn: đọc qua trợ lý không đổi trạng thái đã đọc; người dùng tự mở vẫn đánh dấu như cũ; không đọc được cuộc trò chuyện mình không tham gia;
+    - các đường dẫn phân quyền, quản trị vẫn bị chặn.
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+
+## 07/11/2026 (chiều, tiếp). Sửa lỗi Anthropic từ chối mã quốc gia VN trong công cụ tìm kiếm (so-1.14.3)
+- **Sự cố (chủ sở hữu thử với Anthropic thật tại `localhost:3100`):** hỏi "Hôm nay tôi cần làm gì?" nhận lỗi "Nhà cung cấp AI báo lỗi. (HTTP 400: tools.22.web_search_20260209: Country code VN is not supported.)".
+- **Nguyên nhân (do tôi):**
+  - Tôi khai báo `user_location.country = "VN"` cho `web_search` (bản so-1.13.0). Tài liệu Anthropic có ghi mã quốc gia không được hỗ trợ sẽ bị trả lỗi 400, nhưng tôi không kiểm tra VN có được hỗ trợ không.
+  - Kiểm thử dùng máy chủ giả lập chấp nhận mọi tham số, nên không phát hiện được.
+  - Lỗi chỉ xảy ra ở bước sau khi trợ lý đã tra nội bộ (bước có công cụ web), và làm hỏng cả câu trả lời.
+- **Phạm vi ảnh hưởng:** mọi lượt hỏi dùng Anthropic khi quản trị viên đã bật tìm Internet, từ so-1.13.0. Mã chưa hợp nhất vào `main`, nên hệ thống thật trên Cloudflare không bị ảnh hưởng.
+- **Cách sửa (`ai.js`):**
+  - bỏ `user_location`;
+  - thêm dự phòng: lỗi 400 nhắc tới `web_search`/`web_fetch` thì gửi lại bước đó không kèm công cụ web, tắt web cho phần còn lại của lượt, báo cho người dùng và trả lời bằng dữ liệu nội bộ.
+- **Kiểm thử tái hiện:**
+  - `ai-test` thêm điều kiện "không gửi user_location": báo không đạt trên mã cũ (`{"country":"VN",...}`), đạt trên mã mới;
+  - thêm 3 kiểm thử dự phòng: máy chủ giả lập trả đúng thông báo lỗi trên thì vẫn trả lời và có thông báo trạng thái; lỗi 400 khác vẫn báo lỗi, không thử lại.
+  - `ai-test` 201 đạt, 0 không đạt; `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Mức kiểm chứng:**
+  - Đã chạy thật với Anthropic do chủ sở hữu thử: bước đầu (công cụ nội bộ) chạy được.
+  - Bản sửa mới kiểm thử cục bộ với máy chủ giả lập; chưa thử lại với Anthropic thật.
+
+## 07/11/2026 (chiều, tiếp). Rà soát tổng thể trợ lý AI; sửa lỗi chữ ký thinking block; lưu lịch sử trò chuyện (so-1.15.0)
+- **Sự cố (chủ sở hữu thử với Anthropic thật):** câu hỏi "có gói thầu nào tên mạng đang gặp vấn đề lớn" báo "HTTP 400: messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation…".
+- **Yêu cầu:** "cần test kỹ để hoàn thiện"; "cần rà soát tổng thể, đừng có fix theo từng case"; "cần lưu các thread/session trò chuyện cũ".
+- **Nguyên nhân (do tôi):**
+  - Ở so-1.14.2 tôi làm "ưu tiên nội bộ" bằng cách đổi danh sách `tools` giữa các bước của một lượt. Anthropic gắn thinking block với `system` + `tools` + các tin trước, nên đổi `tools` làm thinking block mất hiệu lực.
+  - Bản dự phòng so-1.14.3 cũng đổi `tools`.
+  - Nguyên nhân gốc: máy chủ giả lập trong kiểm thử chấp nhận mọi yêu cầu.
+- **Phạm vi ảnh hưởng:** mọi lượt hỏi Anthropic có từ 2 bước trở lên khi đã bật tìm Internet (so-1.14.2–1.14.3). Mã chưa hợp nhất vào `main`.
+- **Rà soát tổng thể:** báo cáo `docs/05-ra-soat/2026-11-07-RA-SOAT-TRO-LY-AI.md`.
+  - **Sửa:**
+    - danh sách công cụ cố định trong lượt; tìm Internet qua công cụ `tim_internet` chạy ở cuộc gọi riêng, chỉ chạy sau khi đã tra nội bộ;
+    - chuẩn hóa lịch sử xen kẽ vai (Gemini);
+    - không chạy công cụ khi câu trả lời bị cắt do giới hạn độ dài;
+    - tự bỏ tham số tùy chọn (`fallbacks`, `output_config.effort`) khi mô hình không hỗ trợ.
+  - **Kiểm thử theo hợp đồng API:** máy chủ giả lập từ chối mọi vi phạm quy tắc Anthropic/OpenAI/Gemini đã biết. Chạy trên mã so-1.14.3 tái hiện đúng lỗi chủ sở hữu gặp (4 vi phạm, 10 kiểm thử không đạt); mã mới 0 vi phạm.
+  - **Kiểm tra toàn diện với khóa thật** (Tài khoản › Trợ lý AI của tôi; `POST /api/ai/test` với `full: true`).
+- **Lưu lịch sử trò chuyện (ADR-010 mục 2F):**
+  - bảng `ai_threads`, `ai_thread_items`; API `/api/ai/threads*` chỉ chủ sở hữu;
+  - cổng AI tự lưu câu hỏi, câu trả lời, nguồn, thẻ đề nghị (trạng thái lấy từ `ai_pending`), lệnh mở màn hình, lỗi;
+  - thời hạn lưu `ai_keep_days` (mặc định 180 ngày);
+  - giao diện: nút 🕘 Lịch sử, mở lại, xóa; tự mở lại cuộc trò chuyện đang dở khi tải trang.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 233 đạt, 0 không đạt ("HỢP ĐỒNG API" 0 vi phạm; phần R, K, T mới);
+  - `worker-smoke` đạt (`backup-manifest 200 74 1`); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Chưa kiểm chứng:**
+  - với Anthropic thật: cần chủ sở hữu bấm Kiểm tra toàn diện;
+  - giao diện Lịch sử trên trình duyệt;
+  - pháp chế về thời hạn lưu nội dung trò chuyện.
+- **Tài liệu:** ADR-010 (mục 8 được thay bằng 2F; 2C.2, 2F, 2G); hướng dẫn XII.13–14; CLAUDE.md 3g (điều kiện "HỢP ĐỒNG API"); `public/sw.js` so-1.15.0.
+
+## 07/11/2026. Quy phí tìm Internet vào hạn mức (so-1.15.1)
+- **Mục tiêu:** chủ sở hữu hỏi tìm Internet có tốn phí không, rồi đồng ý quy phí tìm vào hạn mức ("Có, làm luôn").
+- **Việc đã làm:**
+  - tách số lượt tìm (có phí 10 USD/1.000 lượt) và số lượt đọc trang (chỉ tính token): cột mới `ai_log.web_fetches`;
+  - hạn mức ngày cộng 2.500 token mỗi lượt tìm (`WEB_SEARCH_TOKENS` trong `ai-tools.js`); áp cho kiểm tra hạn mức, trang token của người dùng và thống kê quản trị;
+  - `tim_internet` bị từ chối khi hạn mức còn lại không đủ một lượt tìm; mô hình trả lời bằng dữ liệu nội bộ;
+  - sửa câu chữ trên giao diện: trước ghi "mỗi lượt tìm, đọc trang được tính phí riêng", nay chỉ lượt tìm.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 237 đạt, 0 không đạt (thêm: ghi riêng lượt tìm/đọc trang; hạn mức cộng 2.500 token mỗi lượt tìm; quản trị thấy số liệu; hết hạn mức thì không tìm Internet);
+  - đối chứng: bộ kiểm thử mới chạy trên mã so-1.15.0 dừng với lỗi `no such column: web_fetches`;
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Chưa kiểm chứng:** đơn giá lấy theo tài liệu Anthropic, chưa đối chiếu hóa đơn thật; dữ liệu `ai_log` ghi trước so-1.15.1 có `web_requests` gộp lượt đọc trang nên có thể tính hạn mức cao hơn thực tế trong ngày nâng cấp (chỉ có trên máy thử, nhánh chưa triển khai).
+- **Tài liệu:** ADR-010 2C.7, 2E.7; hướng dẫn XII; `public/sw.js` so-1.15.1.
+
+## 07/11/2026. Sửa lỗi trợ lý không mở được màn hình (so-1.15.2)
+- **Sự cố (chủ sở hữu báo, kèm ảnh):** trợ lý trả lời "Đã mở Lịch họp" nhưng trang vẫn ở Thu chi.
+- **Nguyên nhân (lỗi do phiên này, từ so-1.14.0):** `public/app.js` và `public/ai.js` là hai IIFE riêng. `public/ai.js` gọi trần `routeOk`, `current`, `closeModal`, `TODAY`, `DEL`, `B` của `app.js` mà không lấy qua `window.SO` nên phát sinh ReferenceError. Hậu quả:
+  - không chuyển màn hình, không mở chi tiết;
+  - không tự báo cáo đầu ngày (`TODAY`);
+  - không xóa được cuộc trò chuyện (`DEL`);
+  - khóa ghi nhớ cuộc trò chuyện đang mở không gắn người dùng (`B`), nên tải lại trang không mở lại được.
+- **Khắc phục:** `window.SO` xuất thêm `routeOk`, `current`; `public/ai.js` lấy đủ các hàm qua `window.SO`, đọc `B` qua `S.B`.
+- **Rà soát tổng thể:** quét toàn bộ `public/*.js` bằng bộ phân tích cú pháp acorn (công cụ tạm ngoài kho, không thêm phụ thuộc). Không còn tên chưa khai báo nào khác; hai kết quả còn lại là `module` có kiểm tra `typeof` và `Uint32Array` có sẵn trong trình duyệt.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 240 đạt, 0 không đạt. Phần G mới kiểm tra tĩnh, không cần thư viện: tệp giao diện không gọi tên của app.js ngoài `window.SO`;
+  - đối chứng: trên mã cũ báo 2 không đạt, nêu đủ 6 tên;
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Chưa kiểm chứng:** thao tác thật trên trình duyệt (chủ sở hữu thử lại "mở màn hình lịch họp", mở chi tiết, xóa cuộc trò chuyện).
+- **Ghi nhận thêm từ ảnh:** thanh menu ở 1006 px bị chồng chữ "Kinh doanh" và "Quản trị"; chưa xử lý.
+- **Định hướng của chủ sở hữu:** tìm Internet không phải điểm bán hàng chính; trợ lý định vị là trợ lý ảo hỗ trợ cá nhân.
+
+## 07/11/2026. Liên kết xem chi tiết trong câu trả lời của trợ lý (so-1.15.3)
+- **Yêu cầu của chủ sở hữu:** dữ liệu trong câu trả lời có liên kết để bấm xem chi tiết.
+- **Việc đã làm:**
+  - lời nhắc thêm quy tắc 8: viết `[tên](loai:mã)` cho 12 loại đối tượng, `[tên](man_hinh:ma)` cho màn hình; hồ sơ nhân sự dùng mã người dùng, không dùng mã hợp đồng; không chắc mã thì không tạo liên kết;
+  - giao diện (`fmt` trong `public/ai.js`) đổi cú pháp trên thành nút; bấm nút mở chi tiết qua `uiDo`. Nội dung đọc to chỉ đọc tên. Cuộc trò chuyện mở lại từ lịch sử cũng có liên kết.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 250 đạt, 0 không đạt (phần G thêm 10 điều kiện: định dạng nút; không tạo liên kết cho `javascript:`, địa chỉ web, loại lạ, mã sai; thoát HTML tên hiển thị; không lồng nút; loại liên kết khớp `mo_chi_tiet`; lời nhắc có quy tắc);
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Chưa kiểm chứng:** với mô hình thật (mô hình có ghi đúng cú pháp, đúng mã không); hiển thị trên trình duyệt thật.
+
+## 07/11/2026. Trợ lý cuộc họp: người phát biểu, mẫu giọng, biên bản theo NĐ 30/2020, tư vấn phân công (so-1.16.0, ADR-011)
+- **Yêu cầu của chủ sở hữu:**
+  - lưu thành viên nào phát biểu; lưu nhận dạng giọng theo thành viên;
+  - kết luận chưa theo thể thức Nghị định 30/2020;
+  - bóc tách đầu việc, tư vấn phân công cho đúng người.
+- **Tra cứu căn cứ:**
+  - đọc toàn văn phần điều khoản Nghị định 30/2020/NĐ-CP (Điều 7, 8, 9, 37) trên thuvienphapluat.vn bằng trình duyệt;
+  - Phụ lục I mục I–II.3 và Phụ lục III (bảng chữ viết tắt TB, BB; Mẫu 1.4, Mẫu 1.9) qua bài trích của cùng trang;
+  - chưa đọc được tệp Word mẫu gốc và mục "Liên quan hiệu lực" (yêu cầu tài khoản trả phí). Đã cập nhật dòng 6, dòng 10 danh mục căn cứ pháp lý.
+- **Việc đã làm:**
+  - `public/voice-id.js`: đặc trưng giọng MFCC (57 số) tính tại trình duyệt; mô hình người nói trong phiên (gợi ý, học thêm từ đoạn thư ký xác nhận, từ chối giọng lạ khi đủ dữ liệu); không thư viện ngoài.
+  - `meeting-ai.js` (mới):
+    - bảng `voice_profiles` (chỉ đặc trưng, có thời điểm đồng ý) và `meeting_transcripts`;
+    - API `/api/me/voice` (đăng ký có đồng ý, xóa), `/api/meetings/:id/voices` (chỉ thành phần cuộc họp), `/api/meetings/:id/transcript`, `/api/meetings/:id/assign-context` (ứng viên kèm tải công việc, chỉ người chủ trì thấy);
+    - nhật ký an ninh `voice_enroll`, `voice_read`, `voice_delete`.
+  - `ai.js`, `ai-compose.js`:
+    - chép lời có mốc thời gian từng đoạn: OpenAI `verbose_json`/`diarized_json`, Gemini JSON đoạn;
+    - lời nhắc biên bản mới (diễn biến theo người, kết luận, đầu việc có chủ trì, phối hợp, nguồn, lý do), kèm ứng viên phân công;
+    - máy chủ chỉ nhận mã người trong thành phần họp hoặc danh sách ứng viên.
+  - `public/nd30.js`: dựng Biên bản (Mẫu 1.9) và Thông báo kết luận (Mẫu 1.4) theo thể thức; tệp Word A4, lề 20/20/30/15 mm.
+  - `public/ai-office.js`:
+    - bộ ghi âm tách đoạn theo người nói;
+    - màn hình trợ lý cuộc họp mới: người phát biểu, lấy mẫu tại chỗ, sửa người nói, thống kê, lưu bản ghi; thể thức; xem trước hai văn bản; đầu việc chủ trì/phối hợp; giao việc kèm người phối hợp;
+    - thẻ Tài khoản › Mẫu giọng nói của tôi.
+  - Tài liệu: ADR-011 (Đề xuất), hướng dẫn sử dụng mục XII.7, danh mục căn cứ pháp lý, mục lục tài liệu.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 299 đạt, 0 không đạt (thêm 49 điều kiện):
+    - mẫu giọng: đồng ý, số chiều, phiên bản, không lưu âm thanh;
+    - quyền đọc dấu giọng, bản ghi phát biểu, tải công việc; nhật ký an ninh; trợ lý hội thoại không đọc được dấu giọng;
+    - chép lời theo đoạn: OpenAI whisper-1, diarize, Gemini;
+    - biên bản: chủ trì/phối hợp/lý do, bỏ mã người ngoài; tải công việc không gửi cho mô hình khi người gọi không phải chủ trì;
+    - nhận dạng giọng tổng hợp 12/12 đoạn đúng;
+    - thể thức: ngày tháng, ký hiệu BB/TB, chữ ký, lề trang.
+  - `worker-smoke` đạt (`backup-manifest 200 76 1`: thêm 2 bảng mới); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ; rà soát phạm vi biến giao diện không còn lỗi.
+  - **Trình duyệt (máy chủ thử 3100, phiên đăng nhập sẵn của chủ sở hữu):**
+    - mở trợ lý cuộc họp, thêm đoạn, chọn người nói, lưu bản ghi phát biểu (đã kiểm qua API);
+    - xem trước Biên bản và Thông báo kết luận; thẻ mẫu giọng chặn khi chưa tích đồng ý.
+    - Phát hiện và đã sửa 2 lỗi bố cục: ô lời phát biểu bị thu về 14 px; ở 360 px ô chọn người nói bị thu, nút tràn ngang.
+- **Chưa kiểm chứng:**
+  - ghi âm thật (micro bị chặn trong khung trình duyệt của công cụ);
+  - độ chính xác nhận dạng với giọng thật;
+  - mô hình thật (Anthropic/OpenAI/Gemini) với lời nhắc biên bản mới, `diarized_json`, JSON đoạn của Gemini;
+  - tệp Word mở bằng Microsoft Word;
+  - chạy trên Cloudflare.
+
+## 07/11/2026. Duyệt ADR-011; bản ghi âm 24 giờ, mẫu giọng học thêm, tự xóa khi khóa tài khoản (so-1.16.1)
+- **Ý kiến của chủ sở hữu khi duyệt ADR-011:**
+  - thời hạn lưu mẫu giọng: tự xóa khi tài khoản ngừng hoạt động;
+  - bản ghi âm phát biểu: xóa sau 24 tiếng, cho tải về;
+  - tệp sao lưu chứa mẫu giọng: giữ như hiện nay;
+  - bật mẫu giọng cho cả đơn vị: "Cho họ lưu mẫu giọng, vào họp là nó biết luôn đỡ phải học lại";
+  - câu hỏi về thông tin thể thức dùng chung chưa có ý kiến: giữ nguyên.
+- **Cách hiểu "bản ghi âm phát biểu":** là âm thanh cuộc họp (lưu 24 giờ để tải về); bản ghi phát biểu dạng chữ vẫn lưu cùng cuộc họp như biên bản. Đã nêu rõ trong ADR-011 mục 6 để chủ sở hữu điều chỉnh nếu hiểu khác.
+- **Việc đã làm:**
+  - `meeting-ai.js`:
+    - bảng `meeting_audio`, `meeting_audio_parts`; API bắt đầu ghi, gửi từng phần theo thứ tự, kết thúc, danh sách, tải về, xóa;
+    - hạn 24 giờ; nhật ký an ninh `meeting_audio_download`, `meeting_audio_delete`;
+    - học thêm mẫu giọng khi lưu bản ghi phát biểu: chỉ cập nhật mẫu đã đăng ký, trọng số giới hạn, nhật ký `voice_adapt`; đăng ký lại thì đặt lại;
+    - `maintain()` dọn bản ghi âm quá hạn và mẫu giọng của tài khoản ngừng hoạt động; mẫu giọng của người ngừng hoạt động không trả cho cuộc họp.
+  - `server.js`: khóa tài khoản thì xóa ngay mẫu giọng; gọi `maintain()` theo yêu cầu đã đăng nhập, tối đa 10 phút một lần.
+  - `backup.js`: không sao lưu bản ghi âm; khôi phục thì xóa bản ghi âm đang có.
+  - `public/ai-office.js`:
+    - bộ lưu âm thanh `AudioArchive` (MediaRecorder Opus 24 kbit/s, phần 30 giây, thử lại, cho tải bản trên máy khi không gửi được);
+    - danh sách bản ghi âm trong trợ lý cuộc họp;
+    - gửi dấu giọng đoạn đã xác nhận khi lưu bản ghi phát biểu;
+    - lời giải thích, nội dung đồng ý ở thẻ mẫu giọng.
+  - `public/sw.js` so-1.16.1; ADR-011 chuyển trạng thái Đã duyệt, thêm mục 6; hướng dẫn sử dụng mục XII.7.
+- **Sự cố trong lúc làm:** đường dẫn `POST /api/meetings/:id/audio` trùng mẫu `POST /api/meetings/:id/:action` của `biz.js` (đăng ký trước) nên trả 404. Kiểm thử phát hiện; đổi thành `POST /api/meetings/:id/audio/start`.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 325 đạt, 0 không đạt (thêm 26 điều kiện):
+    - học thêm mẫu giọng: quyền, chỉ người đã đăng ký trong thành phần họp, trọng số, giới hạn;
+    - bản ghi âm: quyền lưu/xem/tải/xóa, định dạng, thứ tự phần, gửi lại, giới hạn 1 MB/phần, ghép đúng byte, tải dạng tệp đính kèm, nhật ký, quá 24 giờ không tải được và bị dọn, không có trong bản sao lưu, trợ lý hội thoại không đọc được;
+    - mẫu giọng: xóa khi khóa tài khoản, dọn khi ngừng hoạt động theo cách khác.
+  - `worker-smoke` đạt (`backup-manifest 200 76 1`, `ai 403 200 200`, `download 200 true`, `re-instantiate 200`, `lockout persist 429`, `work-template 200 3`, `work-post 200`); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+  - **Trình duyệt (máy chủ thử 3100):** thay micro bằng âm thanh tổng hợp trong trang để chạy `AudioArchive` thật. Kết quả: gửi lên, kết thúc, tải về tệp WebM hợp lệ (đầu tệp EBML `1a 45 df a3`), danh sách hiển thị, không tràn ngang ở 375 px. Phát hiện và đã sửa: thời lượng tính cả thời gian gửi nốt; dung lượng nhỏ hiện "0,0 MB". Đã xóa bản ghi thử.
+- **Chưa kiểm chứng:** ghi âm bằng micro thật; tệp nhiều phần (trên 30 giây) phát lại trên các trình duyệt; Safari (`audio/mp4`); chạy trên Cloudflare.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
@@ -261,4 +574,5 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 3. **Pháp chế** xác định nơi lưu dữ liệu và hồ sơ pháp lý khi kinh doanh dịch vụ.
 4. **Tên miền** `smartoffice.vnptninhbinh.com.vn` chưa gắn; chờ chọn phương án DNS.
 5. **Phân hệ Công việc – Dự án v2** đã triển khai (06/11/2026). Đề xuất P1: service worker tự kích hoạt bản mới khi API thay đổi không tương thích, tránh giao diện cũ gọi API mới.
-6. **Trợ lý AI (Phiên 16):** chờ chủ sở hữu chọn phương án phụ thuộc SDK (ADR-001), mô hình mặc định, và pháp chế xác nhận điều kiện gửi dữ liệu ra nhà cung cấp AI; sau đó lập ADR-010.
+6. **Trợ lý AI (Phiên 16, Đợt 2):** đã viết trên nhánh (so-1.11.0, ADR-010 ở trạng thái Đề xuất). Chờ: chủ sở hữu duyệt ADR-010; chủ sở hữu tự khai báo `AI_API_KEY` và thử với Anthropic thật; pháp chế xác nhận điều kiện gửi dữ liệu ra nhà cung cấp AI trước khi bật trên hệ thống thật.
+7. **Trợ lý cuộc họp (ADR-011, so-1.16.1):** ADR-011 đã duyệt ngày 07/11/2026 (kèm 4 ý kiến, đã thực hiện trên nhánh). Chờ pháp chế xác nhận căn cứ xử lý đặc trưng giọng nói (dữ liệu sinh trắc học) và bản ghi âm; quy chế cần nêu việc PITR 30 ngày trên Cloudflare có thể đưa bản ghi âm đã xóa trở lại. Cần thử ghi âm thật trong một cuộc họp, đo độ chính xác gợi ý người nói, mở tệp Word bằng Microsoft Word, và đối chiếu với tệp Mẫu 1.4, 1.9 gốc.

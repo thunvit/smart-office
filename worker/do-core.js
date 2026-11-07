@@ -21,6 +21,9 @@ function createApp(storage, env = {}, ctx = null) {
   if (env.PUBLIC_ORIGINS) process.env.PUBLIC_ORIGINS = env.PUBLIC_ORIGINS;
   process.env.SO_DEBUG = env.SO_DEBUG || '';
   if (env.ADMIN_PASSWORD) process.env.ADMIN_PASSWORD = env.ADMIN_PASSWORD;
+  if (env.AI_KEY_SECRET) process.env.AI_KEY_SECRET = env.AI_KEY_SECRET; // mã hóa khóa API AI cá nhân (ai-key.js)
+  process.env.SO_AI_ORG_KEY = env.AI_API_KEY ? '1' : '';
+  process.env.SO_AI_ORG_PROVIDER = String(env.AI_PROVIDER || 'anthropic').toLowerCase(); // để báo giao diện có chuyển giọng nói tại máy chủ hay không // chỉ báo có khóa chung, không đưa khóa vào Durable Object
   globalThis.__SO_WORKER = true;
   globalThis.__SO_SQL = makeSql(() => CURRENT_STORAGE);
   APP = require('../server.js');
@@ -52,6 +55,7 @@ async function handleRequest(app, request) {
   const headers = {};
   request.headers.forEach((v, k) => { headers[k] = v; });
   headers['x-forwarded-proto'] = url.protocol.replace(':', '');
+  if (!headers.host) headers.host = url.host; // yêu cầu nội bộ từ cổng AI (worker/index.js) có thể không mang Host
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   const req = {
     method: request.method,

@@ -64,6 +64,94 @@ Nếu muốn triển khai bằng GitHub Actions thay cho Workers Builds, khai b�
 4. **Sao lưu:** chức năng "Sao lưu" trong phần Quản trị không áp dụng trên Cloudflare; thay vào đó là cơ chế khôi phục theo thời điểm của Durable Objects.
 5. **Giờ hệ thống:** ứng dụng luôn tính theo giờ Việt Nam (UTC+7) cho chấm công, hạn công việc và nhật ký, dù máy chủ Cloudflare chạy theo giờ UTC.
 
+## A.4. Trợ lý AI (tùy chọn; ADR-010)
+
+Trợ lý mặc định **tắt**. Chỉ cấu hình sau khi pháp chế xác nhận điều kiện gửi dữ liệu tới nhà cung cấp AI (Luật Bảo vệ dữ liệu cá nhân 2025).
+
+Mỗi người dùng một trợ lý riêng: người dùng tự chọn nhà cung cấp, mô hình và nhập khóa API của mình tại **Tài khoản › Trợ lý AI của tôi**. Quản trị hệ thống chỉ cần khai báo bí mật mã hóa khóa; khóa chung của đơn vị là tùy chọn.
+
+1. Trên trang Cloudflare: *Workers & Pages › smart-office › Settings › Variables and Secrets*, thêm:
+
+   | Tên | Loại | Giá trị |
+   |---|---|---|
+   | `AI_KEY_SECRET` | **Secret**, bắt buộc | Chuỗi ngẫu nhiên dài (tối thiểu 32 ký tự) dùng mã hóa khóa API cá nhân trong CSDL. Thiếu bí mật này thì người dùng không lưu được khóa. **Không đổi, không xóa** sau khi đã dùng: đổi bí mật thì mọi khóa đã lưu không giải mã được, người dùng phải nhập lại |
+   | `AI_API_KEY` | Secret, tùy chọn | Khóa chung của đơn vị, dùng cho người chưa nhập khóa cá nhân |
+   | `AI_PROVIDER` | Text, tùy chọn | Nhà cung cấp của khóa chung: `anthropic` (mặc định), `openai`, `gemini` |
+   | `AI_MODEL` | Text, tùy chọn | Mô hình của khóa chung; bắt buộc với `openai`, `gemini`. Anthropic để trống thì dùng `claude-opus-5-5` |
+   | `AI_EFFORT` | Text, tùy chọn | Mức suy luận mặc định của khóa chung (Anthropic): `low`, `medium`, `high` |
+   | `AI_FALLBACK` | Text, tùy chọn | Anthropic: đặt `0` để tắt cơ chế tự chuyển mô hình dự phòng khi mô hình chính từ chối |
+   | `AI_BASE_URL` | Text, tùy chọn | Địa chỉ API tương thích, **chỉ áp dụng cho khóa chung**; khóa cá nhân luôn gửi tới địa chỉ chính thức của nhà cung cấp |
+   | `AI_STT_MODEL` | Text, tùy chọn | Mô hình chuyển giọng nói của khóa chung OpenAI (mặc định `whisper-1`). Gemini dùng `AI_MODEL`; Anthropic không nhận âm thanh (giao diện dùng nhận dạng của trình duyệt) |
+
+   Bản Node: đặt các biến môi trường cùng tên trước khi chạy `node server.js`. Không đặt `AI_KEY_SECRET` thì máy chủ tự sinh tệp `<DATA_DIR>/ai-key.secret`; sao lưu thư mục dữ liệu phải kèm tệp này.
+2. Đăng nhập quản trị › **Quản trị › Trợ lý AI**: bật trợ lý cho đơn vị, đặt hạn mức token mỗi người mỗi ngày (mặc định 200.000). Chỉ đánh dấu "Cho phép gửi thông tin cá nhân" khi có văn bản đồng ý của đơn vị.
+3. Mỗi người dùng: **Tài khoản › Trợ lý AI của tôi** → chọn nhà cung cấp, mô hình, dán khóa API → **Lưu cấu hình** → **Kiểm tra kết nối**.
+4. Kiểm tra: nút **Trợ lý** hiện ở góc phải dưới; hỏi "Hôm nay tôi cần làm gì?".
+5. Chi phí: theo token, tính vào tài khoản của khóa được dùng (cá nhân hoặc chung). Thống kê 30 ngày tại Quản trị › Trợ lý AI.
+
+### A.4.1. Hướng dẫn quản trị Cloudflare khai báo bí mật `AI_KEY_SECRET`
+
+**Mục đích:**
+- Mã hóa khóa API trợ lý AI cá nhân (Anthropic, OpenAI, Gemini) của người dùng trước khi lưu vào cơ sở dữ liệu (AES-256-GCM, `ai-key.js`).
+- Tạo mã nội bộ để Worker chứng minh với Durable Object rằng yêu cầu lấy khóa đến từ máy chủ, không phải từ trình duyệt.
+
+Bí mật này **không** mã hóa dữ liệu nghiệp vụ, mẫu giọng, bản ghi âm hay khóa chung `AI_API_KEY`.
+
+**Thời điểm:** làm **trước** khi hợp nhất bản có trợ lý AI vào `main`. Thiếu bí mật này thì người dùng lưu khóa cá nhân sẽ nhận lỗi "Máy chủ chưa khai báo bí mật AI_KEY_SECRET…".
+
+**Người thực hiện:** quản trị Cloudflare của đơn vị (tài khoản có quyền sửa Worker `smart-office`). Trợ lý AI không nhập bí mật thay quản trị (CLAUDE.md mục 4.3).
+
+**Bước 1. Tạo giá trị bí mật**
+
+- **Tên** biến là `AI_KEY_SECRET`. **Giá trị** phải là chuỗi ngẫu nhiên, tối thiểu 32 ký tự.
+- Không dùng chính chữ `AI_KEY_SECRET`, tên đơn vị, mật khẩu đang dùng ở nơi khác, hay chuỗi đã ghi trong tài liệu, tin nhắn, kho mã. Ai biết giá trị này và có tệp sao lưu dữ liệu đều giải mã được toàn bộ khóa API của người dùng.
+- Tạo chuỗi trên máy của quản trị bằng **một** trong các cách sau, rồi sao chép kết quả (64 ký tự hex):
+  - Windows PowerShell:
+    ```powershell
+    $b = New-Object byte[] 32; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b); -join ($b | ForEach-Object { $_.ToString('x2') })
+    ```
+    Dùng bộ sinh số ngẫu nhiên mật mã của Windows; chạy được trên Windows PowerShell 5.1.
+  - Node.js (máy đã cài để chạy SmartOffice):
+    ```bash
+    node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+    ```
+  - OpenSSL (Git Bash, Linux, macOS):
+    ```bash
+    openssl rand -hex 32
+    ```
+- Lưu chuỗi vào kho mật khẩu của đơn vị (hoặc phong bì niêm phong theo quy chế), ghi chú "SmartOffice – AI_KEY_SECRET – ngày khai báo". Không gửi qua thư điện tử, Zalo, không ghi vào kho mã.
+
+**Bước 2. Khai báo trên trang quản trị Cloudflare**
+
+1. Đăng nhập https://dash.cloudflare.com bằng tài khoản quản trị của đơn vị.
+2. Vào *Workers & Pages* → chọn Worker `smart-office` → thẻ *Settings* → mục *Variables and Secrets* → bấm *Add*.
+3. Nhập:
+   - *Type*: **Secret** (không chọn *Text*: giá trị kiểu Text hiện công khai trên trang quản trị và có thể bị cấu hình `vars` trong `wrangler.jsonc` ghi đè khi triển khai);
+   - *Variable name*: `AI_KEY_SECRET` (đúng chữ hoa, dấu gạch dưới);
+   - *Value*: dán chuỗi đã tạo ở Bước 1.
+4. Bấm *Deploy* (hoặc *Save and deploy*). Cloudflare tạo một phiên bản Worker mới mang bí mật này; dữ liệu Durable Object giữ nguyên.
+5. Kiểm tra lại danh sách: dòng `AI_KEY_SECRET`, loại *Secret*, giá trị hiển thị dạng ẩn. Sau khi lưu, Cloudflare không cho xem lại giá trị; đây là lý do phải lưu chuỗi ở Bước 1.
+
+Cách khác bằng dòng lệnh (máy đã đăng nhập `wrangler`):
+```bash
+npx wrangler secret put AI_KEY_SECRET
+```
+Lệnh hỏi giá trị; dán chuỗi đã tạo rồi Enter.
+
+**Bước 3. Kiểm tra sau khi bản có trợ lý AI đã triển khai**
+
+1. Đăng nhập SmartOffice bằng một tài khoản thử → **Tài khoản › Trợ lý AI của tôi** → chọn nhà cung cấp, dán khóa API → **Lưu cấu hình**.
+2. Đạt khi lưu được, không hiện lỗi "chưa khai báo bí mật AI_KEY_SECRET", và **Kiểm tra kết nối** trả kết quả thành công.
+3. Ghi kết quả vào `docs/07-nhat-ky/NHAT-KY-PHIEN.md` (ngày, người khai báo, kết quả kiểm tra; **không** ghi giá trị bí mật).
+
+**Lưu ý vận hành:**
+- **Không đổi, không xóa** `AI_KEY_SECRET` sau khi đã có người lưu khóa. Đổi bí mật thì mọi khóa đã lưu không giải mã được, hệ thống coi như người dùng chưa có khóa và họ phải nhập lại.
+- **Khi lộ bí mật** (nghi ngờ người khác biết giá trị):
+  1. tạo chuỗi mới, khai báo đè lên `AI_KEY_SECRET`;
+  2. thông báo người dùng nhập lại khóa API;
+  3. khuyến nghị người dùng thu hồi khóa cũ tại trang của nhà cung cấp.
+- **Khôi phục dữ liệu vào Worker mới** (ADR-009): phải khai báo đúng `AI_KEY_SECRET` cũ thì khóa trong bản sao lưu mới dùng được.
+
 # PHẦN B. CLOUDFLARE TUNNEL (MÁY CHỦ CỦA ĐƠN VỊ)
 
 ## I. MỤC ĐÍCH, PHẠM VI

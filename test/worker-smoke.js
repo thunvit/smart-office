@@ -64,6 +64,12 @@ const chk = (label, cond, info = '') => { if (!cond) { FAILS++; console.log('SAI
   chk('danh mục sao lưu', r.status === 200 && r.body.tables.length > 60 && r.body.files.length === 1, r.status);
   if (r.status === 200) { const t = r.body.tables.find(x => x.name === 'users'); const p = await call('GET', `/api/admin/export/rows?table=users&after=0&max=${t.max_rowid}`); chk('xuất bảng users', p.status === 200 && p.body.rows.length === t.rows, p.status);
     const f = r.body.files[0], c = await call('GET', `/api/admin/export/file?name=${f.name}&seq=2`); chk('xuất khối tệp thứ 3', c.status === 200 && Buffer.from(c.body.data, 'base64').length === f.size - 2 * 1048576, c.status); }
+  /* ADR-010: bảng trợ lý AI tạo được trên ctx.storage.sql; mặc định tắt (403); quản trị bật được; lập đề nghị chờ xác nhận */
+  r = await call('POST', '/api/ai/turn', {}); const aiOff = r.status;
+  const aiOn = (await call('PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000 })).status;
+  r = await call('POST', '/api/ai/pending', { tool: 'binh_luan_cong_viec', args: { task_id: 1, body: 'Kiểm thử' } });
+  console.log('ai', aiOff, aiOn, r.status); chk('trợ lý AI mặc định tắt, bật được, lập đề nghị chờ xác nhận', aiOff === 403 && aiOn === 200 && r.status === 200 && r.body.id > 0, { aiOff, aiOn, s: r.status });
+  await call('PUT', '/api/admin/ai-settings', { enabled: false, daily_tokens: 200000 });
   r = await call('GET', '/api/admin/restore/check'); console.log('restore-check', r.status, r.body && r.body.ok); chk('kiểm tra khả năng khôi phục', r.status === 200 && r.body.ok === true, r.body);
   // Durable Object được khởi tạo lại trong cùng isolate: storage cũ không còn dùng được
   st1.kill();

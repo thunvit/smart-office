@@ -164,7 +164,8 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
     const rows = after ? all('SELECT * FROM messages WHERE conv_id=? AND id>? ORDER BY id', m.conv_id, after)
       : all('SELECT * FROM (SELECT * FROM messages WHERE conv_id=? ORDER BY id DESC LIMIT 200) ORDER BY id', m.conv_id);
     const last = rows.length ? rows[rows.length - 1].id : 0;
-    if (last > m.last_read) run('UPDATE conv_members SET last_read=? WHERE conv_id=? AND user_id=?', last, m.conv_id, user.id);
+    /* peek=1 (trợ lý AI đọc thay người dùng): không đánh dấu đã đọc, để người dùng vẫn thấy tin mới */
+    if (last > m.last_read && query.peek !== '1') run('UPDATE conv_members SET last_read=? WHERE conv_id=? AND user_id=?', last, m.conv_id, user.id);
     return rows;
   });
   route('POST', '/api/chat/conversations/:id/messages', ({ user, params, body }) => {
