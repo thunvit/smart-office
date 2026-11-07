@@ -558,6 +558,13 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - **Trình duyệt (máy chủ thử 3100):** thay micro bằng âm thanh tổng hợp trong trang để chạy `AudioArchive` thật. Kết quả: gửi lên, kết thúc, tải về tệp WebM hợp lệ (đầu tệp EBML `1a 45 df a3`), danh sách hiển thị, không tràn ngang ở 375 px. Phát hiện và đã sửa: thời lượng tính cả thời gian gửi nốt; dung lượng nhỏ hiện "0,0 MB". Đã xóa bản ghi thử.
 - **Chưa kiểm chứng:** ghi âm bằng micro thật; tệp nhiều phần (trên 30 giây) phát lại trên các trình duyệt; Safari (`audio/mp4`); chạy trên Cloudflare.
 
+## 07/11/2026. Miễn hạn mức AI cho người dùng khóa API riêng (so-1.16.3)
+- **Mục tiêu (theo yêu cầu của chủ sở hữu):** người dùng đã nhập khóa API riêng tự trả phí cho nhà cung cấp nên không bị tính hạn mức token ngày của đơn vị.
+- **Đã làm:** `ai-core.js` (`/api/ai/turn`, `/api/ai/status`, `myUsage`), `ai.js` (`quotaLeft` null), `public/ai.js` (hiện "Không giới hạn", ghi chú phạm vi ở ô hạn mức), ADR-010 mục 2H, `public/sw.js` so-1.16.3.
+- **Lỗ hổng phát hiện nhờ kiểm thử trong lúc làm:** bản đầu miễn theo việc đã lưu khóa riêng; khi mã nội bộ sai hoặc khóa không giải mã được, cổng AI rơi về khóa chung của đơn vị mà vẫn không bị giới hạn. Đã sửa: chỉ miễn khi cổng nhận được khóa riêng đã giải mã.
+- **Kiểm thử (cục bộ/mô phỏng):** `ai-test` 335 đạt, 0 không đạt (thêm các điều kiện Q: miễn khi vượt hạn mức, gọi bằng khóa riêng, mã nội bộ sai vẫn 429, xóa khóa lại bị tính); `worker-smoke` đạt (`ai 403 200 200`).
+- **Chưa kiểm chứng:** trên Cloudflare thật; hiển thị giao diện trên trình duyệt (chưa chạy `work-ui`); các bộ `auth-test`, `backup-test`, `work-*` chưa chạy lại vì thay đổi không chạm.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

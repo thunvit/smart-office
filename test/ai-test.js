@@ -625,6 +625,25 @@ async function personal(U) {
   const turnWith = async tok => { const h = { 'content-type': 'application/json', host: 'so.example.workers.dev', origin: B, cookie: sessions['mai.bt'], 'x-so-ai-internal': tok }; const x = await core.handleRequest(app, new Request(B + '/api/ai/turn', { method: 'POST', headers: h, body: '{}' })); return (await x.json()).personal; };
   ok(!('key' in await turnWith('sai-ma-noi-bo')) && !('key' in await turnWith(KEY.internalToken('bi-mat-khac'))), 'mã nội bộ sai: không có khóa');
   ok((await turnWith(KEY.internalToken(SECRET))).key === MAI_KEY, 'mã nội bộ đúng (cổng AI tại Worker): nhận khóa đã giải mã');
+  // Người dùng khóa riêng được miễn hạn mức ngày (tự trả phí cho nhà cung cấp); người dùng khóa chung vẫn bị giới hạn
+  await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 1000 });
+  const maiUsed = (await call('mai.bt', 'GET', '/api/ai/me/usage')).b;
+  ok(maiUsed.used_today >= 1000, 'Q: điều kiện thử: Mai đã dùng vượt hạn mức 1.000', maiUsed.used_today);
+  const turnAs = async tok => { const h = { 'content-type': 'application/json', host: 'so.example.workers.dev', origin: B, cookie: sessions['mai.bt'], 'x-so-ai-internal': tok }; const x = await core.handleRequest(app, new Request(B + '/api/ai/turn', { method: 'POST', headers: h, body: '{}' })); return { s: x.status, b: await x.json() }; };
+  r = await turnAs(KEY.internalToken(SECRET));
+  ok(r.s === 200 && r.b.quota_left === null && r.b.quota_exempt === true, 'Q: khóa riêng qua cổng AI: /api/ai/turn không chặn, quota_left null', r.b.quota_left);
+  r = await turnAs('sai-ma-noi-bo');
+  ok(r.s === 429, 'Q: mã nội bộ sai (cổng không nhận được khóa riêng): vẫn tính hạn mức, 429', r.s);
+  r = await call('mai.bt', 'GET', '/api/ai/status');
+  ok(r.s === 200 && r.b.quota_exempt === true && r.b.quota_left === null, 'Q: khóa riêng: trạng thái báo miễn hạn mức', r.b);
+  r = await call('mai.bt', 'GET', '/api/ai/me/usage');
+  ok(r.s === 200 && r.b.quota_exempt === true && r.b.quota_left === null, 'Q: khóa riêng: số liệu sử dụng báo miễn hạn mức', r.b);
+  r = await viaWorker('chat', 'mai.bt', 'x', [A.text('vẫn dùng được')], WENV);
+  ok(!r.err && r.calls.length === 1 && r.text === 'vẫn dùng được', 'Q: khóa riêng vượt hạn mức vẫn chat được, gọi bằng khóa riêng', { err: r.err, n: r.calls.length });
+  ok(r.calls[0] && r.calls[0].headers['x-api-key'] === MAI_KEY, 'Q: lượt miễn hạn mức dùng khóa riêng, không dùng khóa chung');
+  r = await viaWorker('chat', 'mai.bt', 'x', [A.text('x')], { AI_KEY_SECRET: 'bi-mat-khac', AI_API_KEY: 'khoa-chung-don-vi' });
+  ok(r.err && r.err.status === 429 && r.calls.length === 0, 'Q: khóa riêng không giải mã được (rơi về khóa chung): vẫn bị hạn mức, 429', r.err);
+  await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000 });
   // Hội thoại qua Worker dùng khóa, mô hình, mức suy luận, tên và cách trả lời của chính người dùng
   r = await viaWorker('chat', 'mai.bt', 'Lịch họp tuần này?', [A.tool('lich_hop', {}), A.text('- Không có cuộc họp.')], { ...WENV, AI_BASE_URL: 'https://cong-la.example' });
   const w0 = r.calls[0];
@@ -653,6 +672,11 @@ async function personal(U) {
   ok(r.s === 200 && r.b.has_key === false && D.get('SELECT key_enc FROM ai_user_config WHERE user_id=?', U['mai.bt'].id).key_enc === null && (await call('admin', 'GET', '/api/admin/security-log?event=ai_key_clear')).b.length === 1, 'xóa khóa cá nhân, ghi nhật ký');
   r = await call('mai.bt', 'GET', '/api/ai/status');
   ok(r.s === 200 && r.b.personal === false && r.b.configured === false, 'trạng thái: chưa cấu hình sau khi xóa khóa', r.b);
+  ok(r.b.quota_exempt === false && typeof r.b.quota_left === 'number', 'Q: xóa khóa riêng thì lại bị tính hạn mức', r.b);
+  await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 1000 });
+  r = await call('mai.bt', 'POST', '/api/ai/turn', {});
+  ok(r.s === 429, 'Q: xóa khóa riêng rồi, vượt hạn mức: 429', r.s);
+  await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000 });
 }
 
 /** Kiểm tra tĩnh (không cần thư viện): tệp giao diện không dùng trần tên khai báo ở cấp ngoài cùng của app.js mà tự nó không khai báo.

@@ -75,7 +75,8 @@ function myUsage(uid) {
   const days = all(`SELECT day, COUNT(*) turns, COALESCE(SUM(tokens_in),0) tokens_in, COALESCE(SUM(tokens_out),0) tokens_out, COALESCE(SUM(tokens_cached),0) tokens_cached, COALESCE(SUM(${BILLED}),0) billed, COALESCE(SUM(web_requests),0) web_requests, COALESCE(SUM(web_fetches),0) web_fetches FROM ai_log WHERE user_id=? AND day>=? GROUP BY day ORDER BY day DESC`, uid, from);
   const today = days.find(d => d.day === D.today()) || { day: D.today(), turns: 0, tokens_in: 0, tokens_out: 0, tokens_cached: 0, billed: 0, web_requests: 0, web_fetches: 0 };
   const sum = k => days.reduce((a, d) => a + Number(d[k] || 0), 0);
-  return { quota: s.daily_tokens, used_today: Number(today.billed), quota_left: Math.max(0, s.daily_tokens - Number(today.billed)), cache_weight: 0.1, web_search_tokens: WEB_SEARCH_TOKENS, today,
+  const own = get('SELECT key_enc FROM ai_user_config WHERE user_id=?', uid), exempt = !!(own && own.key_enc);
+  return { quota: s.daily_tokens, quota_exempt: exempt, used_today: Number(today.billed), quota_left: exempt ? null : Math.max(0, s.daily_tokens - Number(today.billed)), cache_weight: 0.1, web_search_tokens: WEB_SEARCH_TOKENS, today,
     total_30d: { turns: sum('turns'), tokens_in: sum('tokens_in'), tokens_out: sum('tokens_out'), tokens_cached: sum('tokens_cached'), billed: sum('billed'), web_requests: sum('web_requests'), web_fetches: sum('web_fetches') }, days };
 }
 
@@ -154,21 +155,25 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
   route('POST', '/api/ai/turn', ({ user, req }) => {
     const s = aiSettings();
     if (!s.enabled) forbid('Trợ lý AI chưa được quản trị viên bật.');
-    const used = usedToday(user.id);
-    if (used >= s.daily_tokens) throw new HttpError(429, 'Bạn đã dùng hết hạn mức trợ lý AI hôm nay.');
-    const dept = get('SELECT name FROM departments WHERE id=?', user.dept_id);
     const c = myConfig(user.id);
-    const out = { user: { id: user.id, full_name: user.full_name, title: user.title, dept: dept ? dept.name : '' }, org_name: D.getSettings().org_name, today: D.today(), now: D.now().slice(0, 16), allow_pii: s.allow_pii, quota_left: s.daily_tokens - used,
-      web: s.web_search && s.web_domains.length ? { domains: s.web_domains } : null,
-      personal: c ? { provider: c.provider, model: c.model, stt_model: c.stt_model || '', effort: c.effort, assistant_name: c.assistant_name, instructions: c.instructions, has_key: !!c.key_enc } : null };
     /* Khóa đã giải mã CHỈ trả cho cổng AI: bản Node gọi nội bộ (req.soInternal), Cloudflare có mã nội bộ x-so-ai-internal do Worker tính từ AI_KEY_SECRET */
     const internal = req.soInternal === true || KEY.safeEqual(req.headers['x-so-ai-internal'], KEY.internalToken());
-    if (internal && c && c.key_enc) out.personal.key = KEY.decrypt(c.key_enc);
+    const personalKey = internal && c && c.key_enc ? KEY.decrypt(c.key_enc) : '';
+    /* Người dùng dùng khóa API riêng tự trả phí cho nhà cung cấp nên được miễn hạn mức của đơn vị (quyết định 07/11/2026, ADR-010).
+     * Chỉ miễn khi cổng AI thực sự nhận được khóa riêng (mã nội bộ đúng và giải mã được); nếu không, cổng sẽ rơi về khóa chung của đơn vị nên vẫn tính hạn mức. */
+    const exempt = !!personalKey;
+    const used = usedToday(user.id);
+    if (!exempt && used >= s.daily_tokens) throw new HttpError(429, 'Bạn đã dùng hết hạn mức trợ lý AI hôm nay.');
+    const dept = get('SELECT name FROM departments WHERE id=?', user.dept_id);
+    const out = { user: { id: user.id, full_name: user.full_name, title: user.title, dept: dept ? dept.name : '' }, org_name: D.getSettings().org_name, today: D.today(), now: D.now().slice(0, 16), allow_pii: s.allow_pii, quota_left: exempt ? null : s.daily_tokens - used, quota_exempt: exempt,
+      web: s.web_search && s.web_domains.length ? { domains: s.web_domains } : null,
+      personal: c ? { provider: c.provider, model: c.model, stt_model: c.stt_model || '', effort: c.effort, assistant_name: c.assistant_name, instructions: c.instructions, has_key: !!c.key_enc } : null };
+    if (personalKey) out.personal.key = personalKey;
     return out;
   });
   route('GET', '/api/ai/status', ({ user }) => {
     const s = aiSettings(), c = myConfig(user.id);
-    return { enabled: s.enabled, allow_pii: s.allow_pii, quota_left: Math.max(0, s.daily_tokens - usedToday(user.id)), configured: !!(c && c.key_enc) || orgKeyAvailable(), personal: !!(c && c.key_enc), org_key: orgKeyAvailable(), assistant_name: c && c.assistant_name || '', provider: effectiveProvider(c), audio_server: ['openai', 'gemini'].includes(effectiveProvider(c)),
+    return { enabled: s.enabled, allow_pii: s.allow_pii, quota_exempt: !!(c && c.key_enc), quota_left: c && c.key_enc ? null : Math.max(0, s.daily_tokens - usedToday(user.id)), configured: !!(c && c.key_enc) || orgKeyAvailable(), personal: !!(c && c.key_enc), org_key: orgKeyAvailable(), assistant_name: c && c.assistant_name || '', provider: effectiveProvider(c), audio_server: ['openai', 'gemini'].includes(effectiveProvider(c)),
       web_search: s.web_search && s.web_domains.length > 0 && effectiveProvider(c) === 'anthropic', web_domains: s.web_search ? s.web_domains : [], auto_brief: !!(c && c.auto_brief), keep_days: s.keep_days };
   });
 
