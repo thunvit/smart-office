@@ -89,6 +89,8 @@ Mỗi người dùng một trợ lý riêng: người dùng tự chọn nhà cun
 4. Kiểm tra: nút **Trợ lý** hiện ở góc phải dưới; hỏi "Hôm nay tôi cần làm gì?".
 5. Chi phí: theo token, tính vào tài khoản của khóa được dùng (cá nhân hoặc chung). Thống kê 30 ngày tại Quản trị › Trợ lý AI.
 
+6. **Vị trí chạy:** `wrangler.jsonc` đặt `"placement": { "region": "azure:southeastasia" }` để Worker gọi nhà cung cấp AI từ Singapore. Không có cấu hình này, người dùng Việt Nam thường được phục vụ tại Hồng Kông (xem `colo=` ở `/cdn-cgi/trace`), nơi Anthropic, OpenAI, Gemini không phục vụ, và nhận lỗi `403 Request not allowed` (ADR-010 mục 2I). Không xóa khối này khi sửa `wrangler.jsonc`.
+
 ### A.4.1. Hướng dẫn quản trị Cloudflare khai báo bí mật `AI_KEY_SECRET`
 
 **Mục đích:**

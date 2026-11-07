@@ -32,6 +32,12 @@
   // Bật sau khi tên miền vnptninhbinh.com.vn đã nằm trên tài khoản Cloudflare (xem docs/03-trien-khai/TRIEN-KHAI-CLOUDFLARE.md):
   // "routes": [{ "pattern": "smartoffice.vnptninhbinh.com.vn", "custom_domain": true }],
 
+  // Vị trí chạy Worker (ADR-010, bổ sung 07/11/2026): người dùng Việt Nam thường vào Cloudflare tại Hồng Kông (colo=HKG);
+  // Anthropic, OpenAI, Gemini không phục vụ Hồng Kông nên trả 403 "Request not allowed". Cho Worker chạy gần Singapore
+  // (azure:southeastasia) để lệnh gọi nhà cung cấp AI đi ra từ khu vực được hỗ trợ. Chỉ ảnh hưởng /api/* và /healthz;
+  // giao diện tĩnh vẫn phục vụ tại điểm gần người dùng. Gỡ khối này là quay về như cũ.
+  "placement": { "region": "azure:southeastasia" },
+
   "workers_dev": true,
   "observability": { "enabled": true }
 }
