@@ -68,21 +68,25 @@ Nếu muốn triển khai bằng GitHub Actions thay cho Workers Builds, khai b�
 
 Trợ lý mặc định **tắt**. Chỉ cấu hình sau khi pháp chế xác nhận điều kiện gửi dữ liệu tới nhà cung cấp AI (Luật Bảo vệ dữ liệu cá nhân 2025).
 
+Mỗi người dùng một trợ lý riêng: người dùng tự chọn nhà cung cấp, mô hình và nhập khóa API của mình tại **Tài khoản › Trợ lý AI của tôi**. Quản trị hệ thống chỉ cần khai báo bí mật mã hóa khóa; khóa chung của đơn vị là tùy chọn.
+
 1. Trên trang Cloudflare: *Workers & Pages › smart-office › Settings › Variables and Secrets*, thêm:
 
    | Tên | Loại | Giá trị |
    |---|---|---|
-   | `AI_API_KEY` | **Secret** | Khóa API của nhà cung cấp. Không ghi vào kho mã, không gửi qua chat |
-   | `AI_PROVIDER` | Text | `anthropic` (mặc định), `openai` hoặc `gemini` |
-   | `AI_MODEL` | Text | Bắt buộc với `openai`, `gemini` (tên mô hình theo tài liệu nhà cung cấp). Anthropic để trống thì dùng `claude-opus-5-5` |
-   | `AI_EFFORT` | Text (tùy chọn) | Anthropic: `low`, `medium` (mặc định), `high` |
-   | `AI_FALLBACK` | Text (tùy chọn) | Anthropic: đặt `0` để tắt cơ chế tự chuyển mô hình dự phòng khi mô hình chính từ chối |
-   | `AI_BASE_URL` | Text (tùy chọn) | Địa chỉ API tương thích (ví dụ cổng AI Gateway của đơn vị) |
+   | `AI_KEY_SECRET` | **Secret**, bắt buộc | Chuỗi ngẫu nhiên dài (tối thiểu 32 ký tự) dùng mã hóa khóa API cá nhân trong CSDL. Thiếu bí mật này thì người dùng không lưu được khóa. **Không đổi, không xóa** sau khi đã dùng: đổi bí mật thì mọi khóa đã lưu không giải mã được, người dùng phải nhập lại |
+   | `AI_API_KEY` | Secret, tùy chọn | Khóa chung của đơn vị, dùng cho người chưa nhập khóa cá nhân |
+   | `AI_PROVIDER` | Text, tùy chọn | Nhà cung cấp của khóa chung: `anthropic` (mặc định), `openai`, `gemini` |
+   | `AI_MODEL` | Text, tùy chọn | Mô hình của khóa chung; bắt buộc với `openai`, `gemini`. Anthropic để trống thì dùng `claude-opus-5-5` |
+   | `AI_EFFORT` | Text, tùy chọn | Mức suy luận mặc định của khóa chung (Anthropic): `low`, `medium`, `high` |
+   | `AI_FALLBACK` | Text, tùy chọn | Anthropic: đặt `0` để tắt cơ chế tự chuyển mô hình dự phòng khi mô hình chính từ chối |
+   | `AI_BASE_URL` | Text, tùy chọn | Địa chỉ API tương thích, **chỉ áp dụng cho khóa chung**; khóa cá nhân luôn gửi tới địa chỉ chính thức của nhà cung cấp |
 
-   Bản Node: đặt các biến môi trường cùng tên trước khi chạy `node server.js`.
-2. Đăng nhập quản trị › **Quản trị › Trợ lý AI**: bật trợ lý, đặt hạn mức token mỗi người mỗi ngày (mặc định 200.000). Chỉ đánh dấu "Cho phép gửi thông tin cá nhân" khi có văn bản đồng ý của đơn vị.
-3. Kiểm tra: nút **Trợ lý** hiện ở góc phải dưới; hỏi "Hôm nay tôi cần làm gì?". Nếu báo "chưa cấu hình khóa API" thì kiểm tra lại bước 1 (cần triển khai lại hoặc chờ biến có hiệu lực).
-4. Chi phí: theo token của nhà cung cấp. Xem thống kê sử dụng 30 ngày tại màn hình Quản trị › Trợ lý AI.
+   Bản Node: đặt các biến môi trường cùng tên trước khi chạy `node server.js`. Không đặt `AI_KEY_SECRET` thì máy chủ tự sinh tệp `<DATA_DIR>/ai-key.secret`; sao lưu thư mục dữ liệu phải kèm tệp này.
+2. Đăng nhập quản trị › **Quản trị › Trợ lý AI**: bật trợ lý cho đơn vị, đặt hạn mức token mỗi người mỗi ngày (mặc định 200.000). Chỉ đánh dấu "Cho phép gửi thông tin cá nhân" khi có văn bản đồng ý của đơn vị.
+3. Mỗi người dùng: **Tài khoản › Trợ lý AI của tôi** → chọn nhà cung cấp, mô hình, dán khóa API → **Lưu cấu hình** → **Kiểm tra kết nối**.
+4. Kiểm tra: nút **Trợ lý** hiện ở góc phải dưới; hỏi "Hôm nay tôi cần làm gì?".
+5. Chi phí: theo token, tính vào tài khoản của khóa được dùng (cá nhân hoặc chung). Thống kê 30 ngày tại Quản trị › Trợ lý AI.
 
 # PHẦN B. CLOUDFLARE TUNNEL (MÁY CHỦ CỦA ĐƠN VỊ)
 

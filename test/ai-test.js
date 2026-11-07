@@ -7,7 +7,8 @@ const { fakeStorage } = require('./fake-do.js');
 const core = require(path.join(__dirname, '..', 'worker', 'do-core.js'));
 const DBF = path.join(os.tmpdir(), 'so-ai-test.db');
 for (const f of [DBF, DBF + '-wal', DBF + '-shm']) { try { fs.unlinkSync(f); } catch (e) {} }
-const app = core.createApp(fakeStorage(DBF), { SO_DEMO: '1' });
+const SECRET = 'bi-mat-thu-nghiem-' + crypto.randomBytes(8).toString('hex');
+const app = core.createApp(fakeStorage(DBF), { SO_DEMO: '1', AI_KEY_SECRET: SECRET });
 const D = require(path.join(__dirname, '..', 'db.js'));
 const AI = require(path.join(__dirname, '..', 'ai.js'));
 const { TOOLS } = require(path.join(__dirname, '..', 'ai-tools.js'));
@@ -70,7 +71,7 @@ const toolResults = req => (req.body.messages || []).flatMap(m => Array.isArray(
   r = await chat('mai.bt', 'xin chào', [A.text('x')], { AI_API_KEY: 'test-key' }, 'https://evil.example');
   ok(r.err && r.err.status === 403 && r.calls.length === 0, 'Origin lạ (CSRF): 403', r.err);
   r = await chat('mai.bt', 'xin chào', [A.text('x')], {});
-  ok(r.err && r.err.status === 503 && /AI_API_KEY/.test(r.err.message), 'thiếu khóa API: 503 có hướng dẫn', r.err);
+  ok(r.err && r.err.status === 412 && /Tài khoản › Trợ lý AI của tôi/.test(r.err.message) && r.calls.length === 0, 'chưa có khóa cá nhân, không có khóa chung: 412, hướng dẫn vào Tài khoản', r.err);
   r = await chat('mai.bt', 'xin chào', [A.text('x')], { AI_API_KEY: 'k', AI_PROVIDER: 'openai' });
   ok(r.err && r.err.status === 503 && /AI_MODEL/.test(r.err.message), 'OpenAI thiếu AI_MODEL: 503', r.err);
 
@@ -183,12 +184,84 @@ const toolResults = req => (req.body.messages || []).flatMap(m => Array.isArray(
   ok(r.s === 200 && r.b.usage_30d.some(x => x.user_id === U['mai.bt'].id), 'quản trị xem thống kê sử dụng 30 ngày');
   await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000 });
 
+  // P. Cấu hình AI cá nhân: mỗi người một nhà cung cấp, mô hình, khóa, tên, cách trả lời; chạy qua đúng đường Worker (workerChat/workerTest)
+  await personal(U);
+
   // M. Bản Node thật: SSE qua /api/ai/chat, gọi nhà cung cấp bằng fetch tới máy chủ giả lập Anthropic (AI_BASE_URL)
   await nodeE2E();
 
   console.log(`ai-test: ${pass} đạt, ${fail} không đạt`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(2); });
+
+/* Gọi đúng mã Worker: workerChat/workerTest với stub Durable Object mô phỏng; fetch toàn cục thay bằng nhà cung cấp giả lập trong lúc gọi */
+async function viaWorker(kind, who, text, script, env) {
+  const mf = mockFetch(script), orig = globalThis.fetch; globalThis.fetch = mf;
+  const stub = { fetch: r => core.handleRequest(app, r) };
+  const req = new Request(B + '/api/ai/' + kind, { method: 'POST', headers: { 'content-type': 'application/json', origin: B, cookie: sessions[who] || '', 'cf-connecting-ip': '198.51.100.77' }, body: JSON.stringify({ messages: [{ role: 'user', text }] }) });
+  try {
+    if (kind === 'test') { const r = await AI.workerTest(req, env, stub); return { json: await r.json(), calls: mf.calls }; }
+    let job = null; const res = AI.workerChat(req, env, stub, { waitUntil: p => { job = p; } });
+    const raw = await res.text(); await job;
+    const events = raw.split('\n\n').filter(Boolean).map(l => JSON.parse(l.replace(/^data: /, '')));
+    return { events, calls: mf.calls, err: events.find(e => e.type === 'error'), text: (events.find(e => e.type === 'text') || {}).text };
+  } finally { globalThis.fetch = orig; }
+}
+async function personal(U) {
+  const KEY = require(path.join(__dirname, '..', 'ai-key.js'));
+  const WENV = { AI_KEY_SECRET: SECRET };
+  let r = await call('mai.bt', 'GET', '/api/ai/me');
+  ok(r.s === 200 && r.b.has_key === false && Object.keys(r.b.providers).join() === 'anthropic,openai,gemini' && r.b.can_store_key === true && r.b.enabled === true, 'xem cấu hình AI cá nhân mặc định', r.b);
+  ok((await call('mai.bt', 'PUT', '/api/ai/me', { provider: 'khac' })).s === 400, 'nhà cung cấp không hợp lệ bị từ chối');
+  ok((await call('mai.bt', 'PUT', '/api/ai/me', { provider: 'openai', api_key: 'sk-openai-thu-123456' })).s === 400, 'OpenAI phải nhập tên mô hình');
+  ok((await call('mai.bt', 'PUT', '/api/ai/me', { provider: 'anthropic', api_key: 'co khoang trang 123' })).s === 400, 'khóa có khoảng trắng bị từ chối');
+  ok((await call('mai.bt', 'PUT', '/api/ai/me', { provider: 'anthropic', model: 'mo hinh;drop' })).s === 400, 'tên mô hình có ký tự lạ bị từ chối');
+  const MAI_KEY = 'sk-ant-thu-nghiem-mai-' + crypto.randomBytes(6).toString('hex');
+  r = await call('mai.bt', 'PUT', '/api/ai/me', { provider: 'anthropic', model: 'claude-sonnet-5-5', effort: 'low', api_key: MAI_KEY, assistant_name: 'Bé Mai', instructions: 'Luôn trả lời thật ngắn, gạch đầu dòng.' });
+  ok(r.s === 200 && r.b.has_key === true && r.b.key_hint === '••••' + MAI_KEY.slice(-4) && r.b.model === 'claude-sonnet-5-5' && !JSON.stringify(r.b).includes(MAI_KEY), 'lưu cấu hình cá nhân; phản hồi chỉ có 4 ký tự cuối của khóa', r.b);
+  ok(!JSON.stringify((await call('mai.bt', 'GET', '/api/ai/me')).b).includes(MAI_KEY), 'xem lại cấu hình không trả khóa');
+  const row = D.get('SELECT * FROM ai_user_config WHERE user_id=?', U['mai.bt'].id);
+  ok(row && !JSON.stringify(row).includes(MAI_KEY) && /^v1:/.test(row.key_enc) && KEY.decrypt(row.key_enc, SECRET) === MAI_KEY && KEY.decrypt(row.key_enc, 'bi-mat-khac') === '', 'CSDL chỉ lưu bản mã AES-GCM; sai bí mật không giải được', row && row.key_enc.slice(0, 12));
+  const sl = await call('admin', 'GET', '/api/admin/security-log?event=ai_key_set');
+  ok(sl.b.length === 1 && !JSON.stringify(sl.b).includes(MAI_KEY), 'nhật ký an ninh ghi việc đặt khóa, không ghi khóa', sl.b);
+  const tb = (await call('admin', 'GET', '/api/admin/export/manifest')).b.tables.find(t => t.name === 'ai_user_config');
+  const ex = await call('admin', 'GET', `/api/admin/export/rows?table=ai_user_config&after=0&max=${tb.max_rowid}`);
+  ok(ex.s === 200 && JSON.stringify(ex.b).includes('v1:') && !JSON.stringify(ex.b).includes(MAI_KEY), 'bản sao lưu chỉ chứa bản mã của khóa', ex.s);
+  // Trình duyệt không lấy được khóa: thiếu hoặc sai mã nội bộ
+  r = await call('mai.bt', 'POST', '/api/ai/turn', {});
+  ok(r.s === 200 && r.b.personal && r.b.personal.has_key === true && !('key' in r.b.personal) && r.b.personal.assistant_name === 'Bé Mai', 'gọi /api/ai/turn từ trình duyệt: không có khóa', r.b.personal);
+  const turnWith = async tok => { const h = { 'content-type': 'application/json', host: 'so.example.workers.dev', origin: B, cookie: sessions['mai.bt'], 'x-so-ai-internal': tok }; const x = await core.handleRequest(app, new Request(B + '/api/ai/turn', { method: 'POST', headers: h, body: '{}' })); return (await x.json()).personal; };
+  ok(!('key' in await turnWith('sai-ma-noi-bo')) && !('key' in await turnWith(KEY.internalToken('bi-mat-khac'))), 'mã nội bộ sai: không có khóa');
+  ok((await turnWith(KEY.internalToken(SECRET))).key === MAI_KEY, 'mã nội bộ đúng (cổng AI tại Worker): nhận khóa đã giải mã');
+  // Hội thoại qua Worker dùng khóa, mô hình, mức suy luận, tên và cách trả lời của chính người dùng
+  r = await viaWorker('chat', 'mai.bt', 'Lịch họp tuần này?', [A.tool('lich_hop', {}), A.text('- Không có cuộc họp.')], { ...WENV, AI_BASE_URL: 'https://cong-la.example' });
+  const w0 = r.calls[0];
+  ok(w0 && w0.headers['x-api-key'] === MAI_KEY && w0.body.model === 'claude-sonnet-5-5' && w0.body.output_config.effort === 'low', 'Worker: dùng khóa, mô hình, mức suy luận cá nhân', w0 && { m: w0.body.model, e: w0.body.output_config });
+  ok(w0 && w0.url === 'https://api.anthropic.com/v1/messages', 'khóa cá nhân chỉ gửi tới địa chỉ chính thức, không theo AI_BASE_URL', w0 && w0.url);
+  ok(w0 && w0.body.messages[0].content.includes('Bé Mai') && w0.body.messages[0].content.includes('Luôn trả lời thật ngắn') && !w0.body.system[0].text.includes('Bé Mai'), 'tên và cách trả lời riêng nằm ở tin nhắn đầu, lời nhắc hệ thống giữ nguyên');
+  ok(r.text === '- Không có cuộc họp.' && r.events[r.events.length - 1].type === 'done', 'Worker: SSE trả câu trả lời', r.events);
+  // Người khác không dùng chung khóa của Mai
+  r = await viaWorker('chat', 'long.hd', 'x', [A.text('x')], WENV);
+  ok(r.err && r.err.status === 412 && r.calls.length === 0, 'người chưa cấu hình không dùng được khóa của người khác (412)', r.err);
+  r = await viaWorker('chat', 'long.hd', 'x', [A.text('chào')], { ...WENV, AI_API_KEY: 'khoa-chung-don-vi', AI_MODEL: 'claude-haiku-5-5' });
+  ok(r.calls[0] && r.calls[0].headers['x-api-key'] === 'khoa-chung-don-vi' && r.calls[0].body.model === 'claude-haiku-5-5', 'người chưa cấu hình dùng khóa chung của máy chủ (nếu có)', r.calls[0] && r.calls[0].headers);
+  // Kiểm tra kết nối
+  r = await viaWorker('test', 'mai.bt', '', [A.text('OK')], WENV);
+  ok(r.json.ok === true && r.json.provider === 'anthropic' && r.json.source === 'personal' && r.json.reply === 'OK' && r.calls[0].headers['x-api-key'] === MAI_KEY, 'kiểm tra kết nối bằng cấu hình cá nhân', r.json);
+  r = await viaWorker('test', 'mai.bt', '', [{ __status: 401, error: { message: 'invalid x-api-key' } }], WENV);
+  ok(r.json.ok === false && /Khóa API/.test(r.json.error) && !r.json.error.includes(MAI_KEY), 'kiểm tra kết nối báo khóa sai, không lộ khóa', r.json);
+  // Đổi sang Gemini: phải nhập khóa mới; dùng đúng khóa Gemini
+  ok((await call('mai.bt', 'PUT', '/api/ai/me', { provider: 'gemini', model: 'mo-hinh-g' })).s === 400, 'đổi nhà cung cấp mà không nhập khóa mới: từ chối');
+  const G_KEY = 'AIza-thu-nghiem-' + crypto.randomBytes(6).toString('hex');
+  ok((await call('mai.bt', 'PUT', '/api/ai/me', { provider: 'gemini', model: 'mo-hinh-g', api_key: G_KEY })).s === 200, 'đổi sang Gemini với khóa mới');
+  r = await viaWorker('chat', 'mai.bt', 'x', [{ candidates: [{ finishReason: 'STOP', content: { role: 'model', parts: [{ text: 'Chào bạn' }] } }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 2 } }], WENV);
+  ok(r.calls[0] && r.calls[0].headers['x-goog-api-key'] === G_KEY && /mo-hinh-g:generateContent$/.test(r.calls[0].url) && r.text === 'Chào bạn', 'Worker: Gemini cá nhân', r.calls[0] && r.calls[0].url);
+  // Xóa khóa
+  r = await call('mai.bt', 'PUT', '/api/ai/me', { provider: 'gemini', model: 'mo-hinh-g', clear_key: true });
+  ok(r.s === 200 && r.b.has_key === false && D.get('SELECT key_enc FROM ai_user_config WHERE user_id=?', U['mai.bt'].id).key_enc === null && (await call('admin', 'GET', '/api/admin/security-log?event=ai_key_clear')).b.length === 1, 'xóa khóa cá nhân, ghi nhật ký');
+  r = await call('mai.bt', 'GET', '/api/ai/status');
+  ok(r.s === 200 && r.b.personal === false && r.b.configured === false, 'trạng thái: chưa cấu hình sau khi xóa khóa', r.b);
+}
 
 async function nodeE2E() {
   const seen = [];
@@ -200,7 +273,8 @@ async function nodeE2E() {
   }); }).listen(0, '127.0.0.1');
   await new Promise(r => mock.on('listening', r));
   const DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'so-ai-e2e-')), PORT = 3990 + Math.floor(Math.random() * 5);
-  const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], { env: { ...process.env, DATA_DIR: DIR, PORT: String(PORT), AI_PROVIDER: 'anthropic', AI_API_KEY: 'e2e-key', AI_BASE_URL: `http://127.0.0.1:${mock.address().port}` }, stdio: 'ignore' });
+  const cenv = { ...process.env }; delete cenv.AI_KEY_SECRET; delete cenv.SO_AI_ORG_KEY; // tiến trình con tự sinh bí mật trong DATA_DIR
+  const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], { env: { ...cenv, DATA_DIR: DIR, PORT: String(PORT), AI_PROVIDER: 'anthropic', AI_API_KEY: 'e2e-key', AI_BASE_URL: `http://127.0.0.1:${mock.address().port}` }, stdio: 'ignore' });
   const base = `http://localhost:${PORT}`; let ck = {};
   const req = async (who, method, p, body) => { const r = await fetch(base + p, { method, headers: { 'content-type': 'application/json', origin: base, cookie: ck[who] || '' }, body: body ? JSON.stringify(body) : undefined }); const sc = r.headers.get('set-cookie'); if (sc) ck[who] = sc.split(';')[0]; return r; };
   try {
@@ -217,5 +291,14 @@ async function nodeE2E() {
     ok(seen.length === 2 && seen[0].url === '/v1/messages' && seen[0].key === 'e2e-key' && toolResults({ body: seen[1].body })[0].content.startsWith('<du_lieu nguon="tim_cong_viec">'), 'Node: gọi nhà cung cấp bằng fetch, công cụ chạy qua API nội bộ', seen.map(s => s.url));
     const anon = await fetch(base + '/api/ai/chat', { method: 'POST', headers: { 'content-type': 'application/json', origin: base }, body: JSON.stringify({ messages: [{ role: 'user', text: 'x' }] }) });
     ok((await anon.text()).includes('"status":401') && seen.length === 2, 'Node: chưa đăng nhập không gọi được nhà cung cấp');
+    const tr = await (await req('m', 'POST', '/api/ai/test', {})).json();
+    ok(tr.ok === true && tr.source === 'org' && seen.length === 3, 'Node: /api/ai/test dùng khóa chung khi chưa có khóa cá nhân', tr);
+    const NK = 'sk-ant-node-' + crypto.randomBytes(6).toString('hex');
+    ok((await req('m', 'PUT', '/api/ai/me', { provider: 'anthropic', api_key: NK })).status === 200, 'Node: lưu khóa cá nhân (bí mật tự sinh trong DATA_DIR)');
+    const turnTxt = await (await req('m', 'POST', '/api/ai/turn', {})).text();
+    ok(turnTxt.includes('"has_key":true') && !turnTxt.includes(NK), 'Node: gọi /api/ai/turn qua HTTP không nhận được khóa', turnTxt.slice(0, 200));
+    ok(fs.existsSync(path.join(DIR, 'ai-key.secret')), 'Node: không có AI_KEY_SECRET thì tự sinh bí mật trong DATA_DIR (ngoài CSDL)');
+    const dbBytes = Buffer.concat(['smartoffice.db', 'smartoffice.db-wal'].map(n => path.join(DIR, n)).filter(p => fs.existsSync(p)).map(p => fs.readFileSync(p)));
+    ok(dbBytes.length > 0 && !dbBytes.includes(Buffer.from(NK)), 'Node: tệp CSDL và WAL không chứa khóa dạng rõ');
   } finally { child.kill(); mock.close(); }
 }

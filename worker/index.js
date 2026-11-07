@@ -27,6 +27,7 @@ export default {
       // Trợ lý AI (ADR-010): chạy tại Worker không trạng thái, giữ khóa AI_API_KEY ngoài Durable Object;
       // dữ liệu lấy qua stub bằng cookie của người dùng nên đi qua đúng kiểm tra phân quyền.
       if (url.pathname === '/api/ai/chat' && request.method === 'POST') return ai.workerChat(request, env, stub, ctx);
+      if (url.pathname === '/api/ai/test' && request.method === 'POST') return ai.workerTest(request, env, stub);
       return stub.fetch(request);
     }
     return env.ASSETS.fetch(request);

@@ -694,7 +694,8 @@ VIEWS['tai-khoan'] = async main => {
   main.innerHTML = `<div class="page-head"><div><h1>Tài khoản của tôi</h1><p>${esc(B.me.username)}</p></div></div>
   <div class="grid2"><section class="card"><div class="card-b"><div class="profile-head">${av(B.me.id, 'lg')}<div><h2 style="font-size:18px">${esc(B.me.full_name)}</h2><div class="muted">${esc(B.me.title)} · ${esc(Dp(B.me.dept_id).name)}</div></div></div>
   <dl class="kv" style="margin-top:14px"><dt>Email</dt><dd>${esc(B.me.email) || '—'}</dd><dt>Điện thoại</dt><dd>${esc(B.me.phone) || '—'}</dd><dt>Quyền</dt><dd>${B.me.role === 'admin' ? 'Quản trị viên' : 'Người dùng'}${B.me.is_hr ? ' · Quản lý nhân sự' : ''}</dd></dl>
-  <div class="actions" style="margin-top:14px"><button class="btn" data-emp="${B.me.id}">Xem hồ sơ & ngày phép</button><button class="btn primary" data-act="change-pw">Đổi mật khẩu</button></div></div></section></div>`;
+  <div class="actions" style="margin-top:14px"><button class="btn" data-emp="${B.me.id}">Xem hồ sơ & ngày phép</button><button class="btn primary" data-act="change-pw">Đổi mật khẩu</button></div></div></section><div id="ai-me"></div></div>`;
+  if (window.SO_AI) window.SO_AI.mountAccount(document.getElementById('ai-me'));
 };
 function passwordModal(force) {
   openModal(`${force ? '<div class="modal-h"><div><h2>Đổi mật khẩu lần đầu</h2></div></div>' : mh('Đổi mật khẩu')}<div class="modal-b">

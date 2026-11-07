@@ -287,6 +287,14 @@ Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hìn
 
 ## XII. TRỢ LÝ AI (PHIÊN BẢN 1.11, KHI QUẢN TRỊ VIÊN ĐÃ BẬT)
 
+0. **Cấu hình trợ lý của bạn (lần đầu):** mỗi người một trợ lý riêng. Vào **Tài khoản › Trợ lý AI của tôi** (hoặc bấm ⚙ trong khung trợ lý):
+   - chọn **Nhà cung cấp**: Anthropic (Claude), OpenAI hoặc Google Gemini;
+   - chọn hoặc nhập **Mô hình** (Anthropic để trống thì dùng `claude-opus-5-5`; OpenAI, Gemini phải nhập tên mô hình theo tài liệu của nhà cung cấp);
+   - dán **Khóa API** lấy từ trang quản lý khóa của nhà cung cấp. Khóa được mã hóa khi lưu, không hiển thị lại (chỉ thấy 4 ký tự cuối); để trống nếu giữ khóa cũ; bấm **Xóa khóa** để gỡ;
+   - tùy chọn: **Tên trợ lý**, **Cách trả lời mong muốn** (ví dụ "trả lời ngắn, gạch đầu dòng"), **Mức suy luận** (Anthropic);
+   - bấm **Lưu cấu hình**, rồi **Kiểm tra kết nối** để thử khóa.
+
+   Chi phí sử dụng tính vào tài khoản của khóa bạn nhập. Không chia sẻ khóa cho người khác.
 1. **Mở trợ lý:** bấm nút **Trợ lý** ở góc phải dưới màn hình, hoặc nhấn `Ctrl + /`. Nhấn `Esc` để đóng.
 2. **Hỏi bằng tiếng Việt thông thường**, một câu có thể gồm nhiều việc. Ví dụ:
    - "Hôm nay tôi cần làm gì?"; "Việc nào của tôi đang quá hạn?";

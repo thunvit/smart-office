@@ -1,5 +1,6 @@
 /* SmartOffice — Trợ lý AI hội thoại đa nhiệm (ADR-010).
  * - Nút "Trợ lý" chỉ hiện khi quản trị viên đã bật (GET /api/ai/status).
+ * - Mỗi người tự cấu hình trợ lý của mình tại Tài khoản › Trợ lý AI của tôi: nhà cung cấp, mô hình, khóa API, tên, cách trả lời.
  * - Hội thoại giữ trong bộ nhớ trang (không lưu trình duyệt, không lưu máy chủ); tải lại trang là bắt đầu lại.
  * - Thao tác ghi do trợ lý đề nghị hiện thẻ xác nhận; chỉ khi người dùng bấm "Xác nhận" máy chủ mới thực hiện.
  * - Phím tắt: Ctrl + / (hoặc ⌘ + /) mở/đóng; Esc đóng. */
@@ -8,7 +9,10 @@
 const S = window.SO;
 const { $, esc, GET, POST, PUT, toast, showErr, render, ACTIONS } = S;
 const SUGGEST = ['Hôm nay tôi cần làm gì?', 'Đề xuất nào đang chờ tôi duyệt?', 'Lịch họp tuần này của tôi', 'Tìm quy chế chi tiêu nội bộ'];
-let enabled = false, open = false, busy = false, hist = [], items = [];
+let enabled = false, open = false, busy = false, hist = [], items = [], status = {};
+const MODELS = { anthropic: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'], openai: [], gemini: [] };
+const MODEL_PH = { anthropic: 'Để trống = claude-opus-5-5', openai: 'Bắt buộc, theo tài liệu của OpenAI', gemini: 'Bắt buộc, theo tài liệu của Google' };
+const goConfig = () => { toggle(false); if (location.hash !== '#tai-khoan') location.hash = 'tai-khoan'; else render(); setTimeout(() => { const el = document.getElementById('ai-me'); if (el) el.scrollIntoView({ block: 'start' }); }, 300); };
 
 /* Văn bản trả lời: chỉ thoát HTML, giữ xuống dòng, đậm **...**, mã #123 → mở công việc */
 const fmt = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/(^|[\s(])#(\d{1,7})\b/g, '$1<button type="button" class="ai-link" data-task="$2">#$2</button>').replace(/\n/g, '<br>');
@@ -19,6 +23,7 @@ function ensurePanel() {
   <button class="ai-fab" id="ai-fab" data-act="ai-toggle" aria-controls="ai-panel" aria-expanded="false" title="Trợ lý AI (Ctrl + /)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z"/><path d="M19 15l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg><span>Trợ lý</span></button>
   <aside class="ai-panel" id="ai-panel" role="dialog" aria-modal="false" aria-labelledby="ai-title" hidden>
     <header class="ai-head"><h2 id="ai-title">Trợ lý AI</h2><span class="spacer"></span>
+      <button class="btn sm ai-x" data-act="ai-config" aria-label="Cấu hình trợ lý của tôi" title="Cấu hình trợ lý của tôi">⚙</button>
       <button class="btn sm" data-act="ai-new" title="Bắt đầu cuộc trò chuyện mới">Cuộc trò chuyện mới</button>
       <button class="btn sm ai-x" data-act="ai-toggle" aria-label="Đóng trợ lý">✕</button></header>
     <div class="ai-log" id="ai-log" aria-live="polite"></div>
@@ -37,13 +42,14 @@ function draw() {
   log.innerHTML = items.length ? items.map(it => {
     if (it.k === 'user') return `<div class="ai-msg me"><div class="ai-bub">${esc(it.text).replace(/\n/g, '<br>')}</div></div>`;
     if (it.k === 'bot') return `<div class="ai-msg"><div class="ai-bub">${fmt(it.text)}</div></div>`;
-    if (it.k === 'err') return `<div class="ai-msg"><p class="err" role="alert">${esc(it.text)}</p></div>`;
+    if (it.k === 'err') return `<div class="ai-msg"><div><p class="err" role="alert">${esc(it.text)}</p>${it.cfg ? '<button class="btn sm" data-act="ai-config" style="margin-top:6px">Cấu hình trợ lý của tôi</button>' : ''}</div></div>`;
     if (it.k === 'act') return `<div class="ai-act ${it.st}" data-aid="${it.id}"><div class="ai-act-h">Đề nghị: ${esc(it.label)}</div><p>${esc(it.summary)}</p>
       ${it.st === 'pending' ? `<div class="actions"><button class="btn primary sm" data-act="ai-ok" data-id="${it.id}">Xác nhận</button><button class="btn sm" data-act="ai-no" data-id="${it.id}">Bỏ qua</button></div>`
         : `<p class="ai-act-st">${it.st === 'done' ? '✓ Đã thực hiện.' : it.st === 'cancelled' ? 'Đã bỏ qua.' : '✗ ' + esc(it.msg || 'Không thực hiện được.')}</p>`}</div>`;
     return '';
   }).join('') + (busy ? `<div class="ai-msg"><div class="ai-bub ai-wait"><span class="ai-dots" aria-hidden="true"></span> ${esc(busy === true ? 'Đang xử lý…' : busy)}</div></div>` : '')
-    : `<div class="ai-empty"><p>Tôi có thể tra cứu công việc, đề xuất, lịch họp, tài liệu và lập đề nghị giao việc, gửi đề xuất, đặt lịch họp để bạn xác nhận.</p><div class="ai-sug">${SUGGEST.map(s => `<button class="chip" data-act="ai-sug">${esc(s)}</button>`).join('')}</div></div>`;
+    : !status.configured ? `<div class="ai-empty"><p class="notice info">Bạn chưa cấu hình trợ lý AI. Mỗi người dùng một trợ lý riêng: chọn nhà cung cấp (Anthropic, OpenAI hoặc Google Gemini), mô hình và nhập khóa API của bạn.</p><div class="actions" style="margin-top:10px"><button class="btn primary sm" data-act="ai-config">Cấu hình trợ lý của tôi</button></div></div>`
+    : `<div class="ai-empty"><p>${status.assistant_name ? '<b>' + esc(status.assistant_name) + '</b> sẵn sàng. ' : ''}Tôi có thể tra cứu công việc, đề xuất, lịch họp, tài liệu và lập đề nghị giao việc, gửi đề xuất, đặt lịch họp để bạn xác nhận.</p><div class="ai-sug">${SUGGEST.map(s => `<button class="chip" data-act="ai-sug">${esc(s)}</button>`).join('')}</div></div>`;
   log.scrollTop = log.scrollHeight;
   const b = $('#ai-send'); if (b) b.disabled = !!busy;
 }
@@ -70,7 +76,7 @@ async function send(text) {
     if (ev.type === 'status') { busy = ev.text + '…'; draw(); }
     else if (ev.type === 'action') { items.push({ k: 'act', id: ev.id, label: ev.label, summary: ev.summary, st: 'pending' }); draw(); }
     else if (ev.type === 'text') { items.push({ k: 'bot', text: ev.text }); hist.push({ role: 'assistant', text: ev.text }); draw(); }
-    else if (ev.type === 'error') { items.push({ k: 'err', text: ev.message }); if (ev.status === 403 || ev.status === 401) check(); draw(); }
+    else if (ev.type === 'error') { items.push({ k: 'err', text: ev.message, cfg: ev.status === 412 || /Khóa API/.test(ev.message) }); if (ev.status === 403 || ev.status === 401 || ev.status === 412) check(); draw(); }
   }
 }
 
@@ -94,14 +100,27 @@ function toggle(force) {
 }
 
 async function check() {
-  try { enabled = !!(await GET('/api/ai/status')).enabled; } catch (e) { enabled = false; }
+  try { status = await GET('/api/ai/status'); enabled = !!status.enabled; } catch (e) { enabled = false; status = {}; }
   if (enabled) ensurePanel();
+  const t = $('#ai-title'); if (t) t.textContent = status.assistant_name || 'Trợ lý AI';
+  draw();
   const fab = $('#ai-fab'); if (fab) fab.hidden = !enabled;
   if (!enabled && open) { open = false; const p = $('#ai-panel'); if (p) p.hidden = true; document.body.classList.remove('ai-open'); }
 }
 
 Object.assign(ACTIONS, {
   'ai-toggle': () => toggle(),
+  'ai-config': () => goConfig(),
+  'ai-me-save': btn => S.busy(btn, async () => { try { await saveMe(false); toast('Đã lưu cấu hình trợ lý của bạn'); } catch (e) { showErr('#aime-err', e); } }),
+  'ai-me-clear': btn => { if (!S.armed(btn, 'Bấm lần nữa để xóa khóa')) return; S.busy(btn, async () => { try { await saveMe(true); toast('Đã xóa khóa API'); } catch (e) { showErr('#aime-err', e); } }); },
+  'ai-me-test': btn => S.busy(btn, async () => {
+    const out = $('#aime-test'); out.className = 'hint'; out.textContent = 'Đang kiểm tra kết nối…';
+    try {
+      const res = await fetch('/api/ai/test', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const r = await res.json();
+      out.className = r.ok ? 'notice ok' : 'err'; out.textContent = r.ok ? `Kết nối thành công: ${r.provider} · ${r.model}${r.source === 'org' ? ' (đang dùng khóa chung của đơn vị)' : ''}. Trả lời thử: “${r.reply}”` : (r.error || 'Kết nối không thành công.');
+    } catch (e) { out.className = 'err'; out.textContent = e.message; }
+  }),
   'ai-new': () => { if (busy) return; hist = []; items = []; draw(); $('#ai-in').focus(); },
   'ai-sug': b => send(b.textContent),
   'ai-ok': b => decide(Number(b.dataset.id), true),
@@ -118,6 +137,44 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Escape' && open && $('#overlay').hidden) toggle(false);
 });
 
+/* Tài khoản › Trợ lý AI của tôi: mỗi người một cấu hình riêng */
+let ME = null;
+async function mountAccount(el) {
+  if (!el) return;
+  try { ME = await GET('/api/ai/me'); } catch (e) { el.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  const m = ME, opt = (o, v) => Object.entries(o).map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
+  el.innerHTML = `<section class="card"><div class="card-h"><h2>Trợ lý AI của tôi</h2></div><div class="card-b stack" style="gap:12px">
+    ${m.enabled ? '' : '<p class="notice warn">Quản trị viên chưa bật trợ lý AI cho đơn vị. Bạn vẫn có thể lưu cấu hình trước.</p>'}
+    <p class="hint" style="margin:0">Mỗi người dùng một trợ lý riêng, dùng khóa API của chính bạn. Khóa được mã hóa khi lưu và không hiển thị lại.${m.org_key ? ' Nếu không nhập khóa, trợ lý dùng khóa chung của đơn vị.' : ''}</p>
+    <div class="form">
+      <div class="field"><label for="aime-p">Nhà cung cấp</label><select id="aime-p">${opt(m.providers, m.provider)}</select></div>
+      <div class="field"><label for="aime-m">Mô hình</label><input id="aime-m" list="aime-ml" autocomplete="off" value="${esc(m.model)}"><datalist id="aime-ml"></datalist></div>
+      <div class="field full"><label for="aime-k">Khóa API</label><input id="aime-k" type="password" autocomplete="off" spellcheck="false" placeholder="${m.has_key ? 'Đã lưu khóa ' + esc(m.key_hint) + ' — để trống nếu giữ nguyên' : 'Dán khóa API lấy từ trang quản lý khóa của nhà cung cấp'}">
+        <span class="hint">${m.can_store_key ? 'Không chia sẻ khóa cho người khác. Chi phí sử dụng tính vào tài khoản của khóa này.' : 'Máy chủ chưa khai báo AI_KEY_SECRET nên chưa lưu được khóa. Liên hệ quản trị hệ thống.'}</span></div>
+      <div class="field" id="aime-ef"><label for="aime-e">Mức suy luận (Anthropic)</label><select id="aime-e">${opt({ '': 'Mặc định (vừa)', low: 'Thấp – nhanh, rẻ', medium: 'Vừa', high: 'Cao – kỹ hơn, chậm hơn' }, m.effort)}</select></div>
+      <div class="field"><label for="aime-n">Tên trợ lý</label><input id="aime-n" maxlength="40" value="${esc(m.assistant_name)}" placeholder="Ví dụ: Trợ lý của Long"></div>
+      <div class="field full"><label for="aime-i">Cách trả lời mong muốn</label><textarea id="aime-i" maxlength="1000" rows="3" placeholder="Ví dụ: trả lời ngắn gọn, gạch đầu dòng; luôn nêu hạn hoàn thành.">${esc(m.instructions)}</textarea></div>
+    </div>
+    <p class="err" id="aime-err" hidden></p><div id="aime-test" aria-live="polite"></div></div>
+    <div class="modal-f">${m.has_key ? '<button class="btn danger" data-act="ai-me-clear" style="margin-right:auto">Xóa khóa</button>' : ''}<button class="btn" data-act="ai-me-test">Kiểm tra kết nối</button><button class="btn primary" data-act="ai-me-save">Lưu cấu hình</button></div></section>`;
+  $('#aime-p').addEventListener('change', provChanged);
+  provChanged();
+}
+function provChanged() {
+  const p = $('#aime-p') && $('#aime-p').value; if (!p) return;
+  $('#aime-ml').innerHTML = (MODELS[p] || []).map(x => `<option value="${x}">`).join('');
+  $('#aime-m').placeholder = MODEL_PH[p] || '';
+  $('#aime-ef').hidden = p !== 'anthropic';
+  if (ME && ME.has_key && p !== ME.provider) $('#aime-k').placeholder = 'Đổi nhà cung cấp: nhập khóa API của nhà cung cấp mới';
+}
+async function saveMe(clear) {
+  const body = { provider: $('#aime-p').value, model: $('#aime-m').value.trim(), effort: $('#aime-e').value, assistant_name: $('#aime-n').value, instructions: $('#aime-i').value };
+  if (clear) body.clear_key = true; else if ($('#aime-k').value.trim()) body.api_key = $('#aime-k').value.trim();
+  await PUT('/api/ai/me', body);
+  $('#aime-k').value = '';
+  await mountAccount(document.getElementById('ai-me')); check();
+}
+
 /* Màn hình Quản trị › Trợ lý AI */
 async function adminHtml() {
   const s = await GET('/api/admin/ai-settings');
@@ -127,11 +184,11 @@ async function adminHtml() {
     <label class="check"><input type="checkbox" id="ai-pii" ${s.allow_pii ? 'checked' : ''}> Cho phép gửi thông tin cá nhân (thư điện tử, số điện thoại, ngày sinh, số giấy tờ, tài khoản ngân hàng, lương) tới nhà cung cấp AI</label>
     <div class="field" style="max-width:320px"><label for="ai-q">Hạn mức token mỗi người mỗi ngày</label><input id="ai-q" inputmode="numeric" value="${n(s.daily_tokens)}"></div>
     <p class="err" id="ai-err" hidden></p></div><div class="modal-f"><button class="btn primary" data-act="ai-save">Lưu cấu hình</button></div></section>
-  <p class="notice warn" style="margin-top:14px" role="note">Câu hỏi của người dùng và dữ liệu tra cứu được gửi tới nhà cung cấp AI ở nước ngoài. Chỉ bật khi đơn vị đã hoàn tất thủ tục theo quy định về bảo vệ dữ liệu cá nhân. Chỉ cho phép gửi thông tin cá nhân khi có văn bản đồng ý. Nhà cung cấp và khóa API do quản trị hệ thống khai báo tại máy chủ (biến môi trường <span class="mono">AI_PROVIDER</span>, <span class="mono">AI_API_KEY</span>, <span class="mono">AI_MODEL</span>).</p>
+  <p class="notice warn" style="margin-top:14px" role="note">Câu hỏi của người dùng và dữ liệu tra cứu được gửi tới nhà cung cấp AI ở nước ngoài. Chỉ bật khi đơn vị đã hoàn tất thủ tục theo quy định về bảo vệ dữ liệu cá nhân. Chỉ cho phép gửi thông tin cá nhân khi có văn bản đồng ý. Mỗi người dùng tự cấu hình nhà cung cấp, mô hình và khóa API của mình tại <b>Tài khoản › Trợ lý AI của tôi</b>; khóa được mã hóa bằng bí mật <span class="mono">AI_KEY_SECRET</span> của máy chủ. Khóa chung của đơn vị (tùy chọn) khai báo tại máy chủ: <span class="mono">AI_PROVIDER</span>, <span class="mono">AI_API_KEY</span>, <span class="mono">AI_MODEL</span>.</p>
   <section class="card" style="margin-top:14px"><div class="card-h"><h2>Sử dụng 30 ngày gần nhất</h2></div><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Người dùng</th><th class="r">Số lượt</th><th class="r">Token vào</th><th class="r">Token ra</th></tr></thead><tbody>
     ${s.usage_30d.length ? s.usage_30d.map(u => `<tr><td>${esc(u.full_name || '#' + u.user_id)}</td><td class="r num">${n(u.turns)}</td><td class="r num">${n(u.tokens_in)}</td><td class="r num">${n(u.tokens_out)}</td></tr>`).join('') : '<tr><td colspan="4" class="hint">Chưa có lượt sử dụng.</td></tr>'}</tbody></table></div></section>`;
 }
-window.SO_AI = { adminHtml, check };
+window.SO_AI = { adminHtml, check, mountAccount };
 
 /* Khởi động khi giao diện chính xuất hiện (sau đăng nhập), ẩn khi trở về màn hình đăng nhập; không gọi máy chủ định kỳ */
 let shown = false;

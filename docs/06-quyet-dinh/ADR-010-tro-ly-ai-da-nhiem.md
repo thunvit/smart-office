@@ -23,6 +23,18 @@ Kế hoạch phát triển có Phiên 16 "Trợ lý AI" với tiêu chí: dữ l
 7. **Hạn mức token theo người theo ngày** (mặc định 200.000), ghi `ai_log` (người, thời điểm, nhà cung cấp, mô hình, token, công cụ đã gọi; không lưu nội dung hội thoại). Thao tác ghi đã xác nhận ghi `security_log` sự kiện `ai_action`.
 8. **Hội thoại lưu phía trình duyệt** (bộ nhớ trang), máy chủ không lưu nội dung hội thoại.
 
+## 2A. Sửa đổi 07/11/2026: mỗi người dùng một trợ lý AI riêng (theo yêu cầu của chủ sở hữu)
+
+1. **Cấu hình theo cá nhân, động trên giao diện** (Tài khoản › Trợ lý AI của tôi): nhà cung cấp (Anthropic, OpenAI, Gemini), mô hình, khóa API, mức suy luận (Anthropic), tên trợ lý, cách trả lời mong muốn. Bảng `ai_user_config`, khóa chính `user_id`.
+2. **Thứ tự dùng khóa:** khóa cá nhân → khóa chung của máy chủ (`AI_API_KEY`, tùy chọn) → báo người dùng cấu hình (HTTP 412). Không người dùng nào dùng được khóa của người khác.
+3. **Bảo vệ khóa cá nhân:**
+   - Mã hóa AES-256-GCM trước khi lưu (`ai-key.js`); bản sao lưu chỉ chứa bản mã. Bí mật `AI_KEY_SECRET`: Cloudflare bắt buộc khai báo Secret; bản Node tự sinh tại `<DATA_DIR>/ai-key.secret` nếu không có biến môi trường.
+   - API không bao giờ trả khóa về trình duyệt (chỉ 4 ký tự cuối). Khóa đã giải mã chỉ trả cho cổng AI: bản Node qua lời gọi nội bộ trong tiến trình; Cloudflare qua mã nội bộ `x-so-ai-internal` tính từ `AI_KEY_SECRET` (trình duyệt không tính được).
+   - Khóa cá nhân chỉ gửi tới địa chỉ chính thức của nhà cung cấp; `AI_BASE_URL` chỉ áp dụng cho khóa chung (tránh gửi khóa tới địa chỉ tùy ý, tránh SSRF).
+   - Nhật ký an ninh `ai_key_set`, `ai_key_clear` (không ghi khóa).
+4. **Tên và cách trả lời riêng** đặt ở tin nhắn ngữ cảnh đầu lượt, ghi rõ chỉ áp dụng khi không trái quy tắc hệ thống; lời nhắc hệ thống giữ nguyên.
+5. Quản trị viên vẫn quyết định bật/tắt toàn đơn vị, che dữ liệu cá nhân, hạn mức token/người/ngày.
+
 ## 3. Hệ quả
 
 - Có thể đổi nhà cung cấp bằng cấu hình, không sửa mã.

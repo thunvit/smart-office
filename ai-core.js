@@ -18,7 +18,16 @@ CREATE TABLE IF NOT EXISTS ai_pending (id INTEGER PRIMARY KEY, user_id INTEGER N
 CREATE INDEX IF NOT EXISTS idx_ai_pending_user ON ai_pending(user_id, status);
 CREATE TABLE IF NOT EXISTS ai_log (id INTEGER PRIMARY KEY, user_id INTEGER, at TEXT, day TEXT, provider TEXT, model TEXT, tokens_in INTEGER DEFAULT 0, tokens_out INTEGER DEFAULT 0, tools TEXT, status TEXT);
 CREATE INDEX IF NOT EXISTS idx_ai_log_user_day ON ai_log(user_id, day);
+CREATE TABLE IF NOT EXISTS ai_user_config (user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, provider TEXT NOT NULL DEFAULT 'anthropic', model TEXT DEFAULT '',
+  key_enc TEXT, key_hint TEXT, effort TEXT DEFAULT '', assistant_name TEXT DEFAULT '', instructions TEXT DEFAULT '', updated_at TEXT);
 `);
+const KEY = require('./ai-key');
+/* Mỗi người dùng một cấu hình AI riêng (nhà cung cấp, mô hình, khóa API, cách trả lời). Khóa chỉ lưu dạng mã hóa. */
+const PROVIDERS = { anthropic: 'Anthropic (Claude)', openai: 'OpenAI', gemini: 'Google Gemini' };
+const MODEL_RE = /^[A-Za-z0-9._:\/@-]{1,80}$/;
+const orgKeyAvailable = () => !!(process.env.AI_API_KEY || process.env.SO_AI_ORG_KEY === '1');
+const myConfig = uid => get('SELECT * FROM ai_user_config WHERE user_id=?', uid);
+const publicConfig = c => ({ provider: c ? c.provider : 'anthropic', model: c ? c.model : '', effort: c ? c.effort : '', assistant_name: c ? c.assistant_name : '', instructions: c ? c.instructions : '', has_key: !!(c && c.key_enc), key_hint: c && c.key_enc ? c.key_hint : '', updated_at: c ? c.updated_at : null });
 
 const PENDING_MS = 10 * 60e3;
 const DEFAULT_QUOTA = 200000;
@@ -39,15 +48,47 @@ const ctxNames = () => ({
 
 function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, HttpError, internalCall }) {
   /* Mở lượt hội thoại. Gọi bằng cookie của người dùng (qua cổng AI), nên đã qua kiểm tra phiên, Origin, ép đổi mật khẩu. */
-  route('POST', '/api/ai/turn', ({ user }) => {
+  route('POST', '/api/ai/turn', ({ user, req }) => {
     const s = aiSettings();
     if (!s.enabled) forbid('Trợ lý AI chưa được quản trị viên bật.');
     const used = usedToday(user.id);
     if (used >= s.daily_tokens) throw new HttpError(429, 'Bạn đã dùng hết hạn mức trợ lý AI hôm nay.');
     const dept = get('SELECT name FROM departments WHERE id=?', user.dept_id);
-    return { user: { id: user.id, full_name: user.full_name, title: user.title, dept: dept ? dept.name : '' }, org_name: D.getSettings().org_name, today: D.today(), now: D.now().slice(0, 16), allow_pii: s.allow_pii, quota_left: s.daily_tokens - used };
+    const c = myConfig(user.id);
+    const out = { user: { id: user.id, full_name: user.full_name, title: user.title, dept: dept ? dept.name : '' }, org_name: D.getSettings().org_name, today: D.today(), now: D.now().slice(0, 16), allow_pii: s.allow_pii, quota_left: s.daily_tokens - used,
+      personal: c ? { provider: c.provider, model: c.model, effort: c.effort, assistant_name: c.assistant_name, instructions: c.instructions, has_key: !!c.key_enc } : null };
+    /* Khóa đã giải mã CHỈ trả cho cổng AI: bản Node gọi nội bộ (req.soInternal), Cloudflare có mã nội bộ x-so-ai-internal do Worker tính từ AI_KEY_SECRET */
+    const internal = req.soInternal === true || KEY.safeEqual(req.headers['x-so-ai-internal'], KEY.internalToken());
+    if (internal && c && c.key_enc) out.personal.key = KEY.decrypt(c.key_enc);
+    return out;
   });
-  route('GET', '/api/ai/status', ({ user }) => { const s = aiSettings(); return { enabled: s.enabled, allow_pii: s.allow_pii, quota_left: Math.max(0, s.daily_tokens - usedToday(user.id)) }; });
+  route('GET', '/api/ai/status', ({ user }) => {
+    const s = aiSettings(), c = myConfig(user.id);
+    return { enabled: s.enabled, allow_pii: s.allow_pii, quota_left: Math.max(0, s.daily_tokens - usedToday(user.id)), configured: !!(c && c.key_enc) || orgKeyAvailable(), personal: !!(c && c.key_enc), org_key: orgKeyAvailable(), assistant_name: c && c.assistant_name || '' };
+  });
+
+  /* Cấu hình AI cá nhân: mỗi người tự chọn nhà cung cấp, mô hình, khóa API, tên và cách trả lời của trợ lý. */
+  route('GET', '/api/ai/me', ({ user }) => ({ ...publicConfig(myConfig(user.id)), providers: PROVIDERS, org_key: orgKeyAvailable(), enabled: aiSettings().enabled, can_store_key: !!KEY.getSecret() }));
+  route('PUT', '/api/ai/me', ({ user, body, req }) => {
+    const provider = String(body.provider || 'anthropic'); if (!PROVIDERS[provider]) bad('Nhà cung cấp AI không hợp lệ.');
+    const model = str(body.model, 80); if (model && !MODEL_RE.test(model)) bad('Tên mô hình chỉ gồm chữ, số và các ký tự . _ - : / @.');
+    if (!model && provider !== 'anthropic') bad('Vui lòng nhập tên mô hình theo tài liệu của nhà cung cấp.');
+    const effort = ['', 'low', 'medium', 'high'].includes(body.effort) ? body.effort : '';
+    const old = myConfig(user.id);
+    let keyEnc = old ? old.key_enc : null, keyHint = old ? old.key_hint : null, keyEvent = '';
+    if (body.clear_key) { keyEnc = null; keyHint = null; keyEvent = 'ai_key_clear'; }
+    else if (typeof body.api_key === 'string' && body.api_key.trim()) {
+      const k = body.api_key.trim(); if (k.length < 10 || k.length > 400 || /\s/.test(k)) bad('Khóa API không hợp lệ.');
+      try { keyEnc = KEY.encrypt(k); } catch (e) { throw new HttpError(503, 'Máy chủ chưa khai báo bí mật AI_KEY_SECRET để mã hóa khóa API. Vui lòng liên hệ quản trị hệ thống.'); }
+      keyHint = KEY.hint(k); keyEvent = 'ai_key_set';
+    }
+    if (old && old.provider !== provider && keyEnc && !keyEvent) bad('Đổi nhà cung cấp thì cần nhập khóa API của nhà cung cấp mới (hoặc xóa khóa cũ).');
+    run(`INSERT INTO ai_user_config(user_id,provider,model,key_enc,key_hint,effort,assistant_name,instructions,updated_at) VALUES(?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(user_id) DO UPDATE SET provider=excluded.provider, model=excluded.model, key_enc=excluded.key_enc, key_hint=excluded.key_hint, effort=excluded.effort, assistant_name=excluded.assistant_name, instructions=excluded.instructions, updated_at=excluded.updated_at`,
+      user.id, provider, model, keyEnc, keyHint, effort, str(body.assistant_name, 40), str(body.instructions, 1000), now());
+    if (keyEvent) secLog(keyEvent, { user_id: user.id, username: user.username, ip: clientIp(req), detail: keyEvent === 'ai_key_set' ? `${provider} ${keyHint}` : provider }); // không ghi khóa
+    return { ...publicConfig(myConfig(user.id)), providers: PROVIDERS, org_key: orgKeyAvailable(), enabled: aiSettings().enabled, can_store_key: !!KEY.getSecret() };
+  });
   route('POST', '/api/ai/usage', ({ user, body }) => {
     const n = v => Math.max(0, Math.min(5e6, int(v)));
     run('INSERT INTO ai_log(user_id,at,day,provider,model,tokens_in,tokens_out,tools,status) VALUES(?,?,?,?,?,?,?,?,?)', user.id, now(), D.today(), str(body.provider, 30), str(body.model, 80), n(body.tokens_in), n(body.tokens_out), str((Array.isArray(body.tools) ? body.tools : []).join(','), 500), str(body.status, 30));
@@ -105,4 +146,4 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
   }, { admin: true });
 }
 
-module.exports = { register, aiSettings };
+module.exports = { register, aiSettings, PROVIDERS };

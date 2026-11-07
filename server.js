@@ -677,7 +677,7 @@ async function internalCall(orig, method, path, body) {
   const { ResShim } = require('./worker/do-core.js');
   const h = {}; for (const k of ['cookie', 'origin', 'host', 'x-forwarded-proto', 'x-forwarded-host', 'x-forwarded-for', 'cf-connecting-ip', 'user-agent']) if (orig.headers[k]) h[k] = orig.headers[k];
   if (body !== undefined) h['content-type'] = 'application/json';
-  const req = { method, url: path, headers: h, socket: orig.socket, rawBody: body !== undefined ? Buffer.from(JSON.stringify(body)) : null, on() {}, destroy() {} };
+  const req = { method, url: path, headers: h, socket: orig.socket, rawBody: body !== undefined ? Buffer.from(JSON.stringify(body)) : null, soInternal: true, on() {}, destroy() {} };
   const res = new ResShim();
   await handle(req, res);
   let json = null; try { json = JSON.parse(Buffer.concat(res.chunks).toString('utf8')); } catch (e) {}
@@ -746,6 +746,10 @@ async function handle(req, res) {
     res.writeHead(200, AI.SSE_HEADERS);
     await AI.handleChat({ body, env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b), emit: ev => res.write('data: ' + JSON.stringify(ev) + '\n\n') });
     return res.end();
+  }
+  if (url.pathname === '/api/ai/test' && req.method === 'POST' && !IS_WORKER) {
+    const r = await AI.handleTest({ env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b) });
+    return json(r.status, r.json);
   }
   try {
     let m = null, rt = null;

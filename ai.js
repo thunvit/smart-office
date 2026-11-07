@@ -12,6 +12,7 @@
  * Gọi bằng fetch, không dùng SDK (giữ ADR-001: không phụ thuộc npm).
  */
 const TOOLS_MOD = require('./ai-tools');
+const KEY = require('./ai-key');
 const { TOOLS, BY_NAME, shapeResult } = TOOLS_MOD;
 
 const MAX_STEPS = 8, MAX_HISTORY = 20, MAX_TEXT = 4000, STEP_TIMEOUT = 90e3;
@@ -120,7 +121,15 @@ function gemini(cfg, fetchImpl) {
 
 const PROVIDERS = { anthropic, openai, gemini };
 function configFrom(env = {}) {
-  return { provider: String(env.AI_PROVIDER || 'anthropic').toLowerCase(), key: env.AI_API_KEY || '', model: env.AI_MODEL || '', baseUrl: (env.AI_BASE_URL || '').replace(/\/+$/, ''), effort: env.AI_EFFORT || '', fallback: env.AI_FALLBACK !== '0' };
+  return { provider: String(env.AI_PROVIDER || 'anthropic').toLowerCase(), key: env.AI_API_KEY || '', model: env.AI_MODEL || '', baseUrl: (env.AI_BASE_URL || '').replace(/\/+$/, ''), effort: env.AI_EFFORT || '', fallback: env.AI_FALLBACK !== '0', source: 'org' };
+}
+/* Cấu hình dùng cho lượt hội thoại: khóa cá nhân của người dùng (ưu tiên) → khóa chung của máy chủ → báo chưa cấu hình.
+ * Khóa cá nhân luôn gọi địa chỉ chính thức của nhà cung cấp (AI_BASE_URL chỉ áp dụng cho khóa chung) để không gửi khóa tới địa chỉ khác. */
+function configFor(turn, env = {}) {
+  const p = turn && turn.personal, org = configFrom(env);
+  if (p && p.key) return { provider: p.provider, key: p.key, model: p.model || '', baseUrl: '', effort: p.effort || '', fallback: env.AI_FALLBACK !== '0', source: 'personal' };
+  if (org.key) return org;
+  throw new AiError(412, 'Bạn chưa cấu hình trợ lý AI cá nhân. Vào Tài khoản › Trợ lý AI của tôi để chọn nhà cung cấp và nhập khóa API.');
 }
 function makeProvider(cfg, fetchImpl) {
   const f = PROVIDERS[cfg.provider]; if (!f) throw new AiError(503, `Nhà cung cấp AI "${cfg.provider}" không được hỗ trợ (anthropic, openai, gemini).`);
@@ -143,9 +152,12 @@ async function handleChat({ body, env, callApi, emit, fetchImpl }) {
     const t = await callApi('POST', '/api/ai/turn', {});
     if (t.status !== 200) throw new AiError(t.status, (t.json && t.json.error) || 'Không mở được phiên trợ lý.');
     turn = t.json;
-    prov = makeProvider(configFrom(env), fetchImpl || fetch);
+    prov = makeProvider(configFor(turn, env), fetchImpl || fetch);
     /* Ngữ cảnh thay đổi theo ngày đặt ở tin nhắn đầu (không đặt trong lời nhắc hệ thống) để tận dụng bộ đệm lời nhắc */
-    const ctx = `[Ngữ cảnh hệ thống] Hôm nay: ${turn.today.split('-').reverse().join('/')} (giờ Việt Nam ${turn.now.slice(11)}). Người dùng: ${turn.user.full_name}${turn.user.title ? ', ' + turn.user.title : ''}${turn.user.dept ? ', ' + turn.user.dept : ''}, mã người dùng ${turn.user.id}. Đơn vị: ${turn.org_name}.`;
+    const pers = turn.personal || {};
+    const ctx = `[Ngữ cảnh hệ thống] Hôm nay: ${turn.today.split('-').reverse().join('/')} (giờ Việt Nam ${turn.now.slice(11)}). Người dùng: ${turn.user.full_name}${turn.user.title ? ', ' + turn.user.title : ''}${turn.user.dept ? ', ' + turn.user.dept : ''}, mã người dùng ${turn.user.id}. Đơn vị: ${turn.org_name}.`
+      + (pers.assistant_name ? `\nNgười dùng đặt tên cho bạn là "${String(pers.assistant_name).slice(0, 40)}".` : '')
+      + (pers.instructions ? `\nMong muốn riêng của người dùng về cách trả lời (chỉ áp dụng khi không trái quy tắc hệ thống): ${String(pers.instructions).slice(0, 1000)}` : '');
     const msgs = hist.map((m, i) => m.role === 'user' ? prov.user((i === 0 ? ctx + '\n\n' : '') + m.text.slice(0, MAX_TEXT)) : prov.assistant(m.text.slice(0, MAX_TEXT)));
     if (hist[0].role !== 'user') msgs.unshift(prov.user(ctx));
     for (let step = 0; ; step++) {
@@ -187,16 +199,40 @@ async function runTool(c, { callApi, emit, allowPii, toolsUsed }) {
   return out(`<du_lieu nguon="${t.name}">${shapeResult(t, r.json, allowPii)}</du_lieu>`);
 }
 
+/** Kiểm tra kết nối với cấu hình AI hiện tại của người dùng: một yêu cầu rất ngắn, có ghi nhận token. */
+async function handleTest({ env, callApi, fetchImpl }) {
+  const t = await callApi('POST', '/api/ai/turn', {});
+  if (t.status !== 200) return { status: t.status, json: { ok: false, error: (t.json && t.json.error) || 'Không mở được phiên trợ lý.' } };
+  let prov;
+  try {
+    const cfg = configFor(t.json, env); prov = makeProvider(cfg, fetchImpl || fetch);
+    const r = await prov.step([prov.user('Kiểm tra kết nối. Trả lời đúng một từ: OK')]);
+    try { await callApi('POST', '/api/ai/usage', { provider: prov.name, model: prov.model, tokens_in: r.usage.in, tokens_out: r.usage.out, tools: [], status: 'test' }); } catch (e) {}
+    return { status: 200, json: { ok: true, provider: prov.name, model: prov.model, source: cfg.source, reply: String(r.text || '').slice(0, 200) } };
+  } catch (e) { return { status: 200, json: { ok: false, provider: prov && prov.name, error: e.message } }; }
+}
+
 /* ================= Gắn vào môi trường chạy ================= */
 /** Cloudflare Worker: trả Response SSE; dữ liệu lấy qua stub Durable Object với cookie người dùng. */
-function workerChat(request, env, stub, ctx) {
+/* Gọi Durable Object bằng cookie người dùng. Riêng /api/ai/turn kèm mã nội bộ (tính từ AI_KEY_SECRET) để nhận khóa cá nhân đã giải mã;
+ * trình duyệt không tính được mã này nên không bao giờ nhận được khóa. */
+function workerApi(request, env, stub) {
   const url = new URL(request.url);
   const fwd = {}; for (const k of ['cookie', 'origin', 'cf-connecting-ip', 'user-agent']) { const v = request.headers.get(k); if (v) fwd[k] = v; }
-  const callApi = async (method, path, body) => {
-    const r = await stub.fetch(new Request(url.origin + path, { method, headers: { ...fwd, ...(body !== undefined ? { 'content-type': 'application/json' } : {}) }, body: body !== undefined ? JSON.stringify(body) : undefined }));
+  const tok = env.AI_KEY_SECRET ? KEY.internalToken(env.AI_KEY_SECRET) : '';
+  return async (method, path, body) => {
+    const h = { ...fwd, ...(body !== undefined ? { 'content-type': 'application/json' } : {}), ...(path === '/api/ai/turn' && tok ? { 'x-so-ai-internal': tok } : {}) };
+    const r = await stub.fetch(new Request(url.origin + path, { method, headers: h, body: body !== undefined ? JSON.stringify(body) : undefined }));
     let json = null; try { json = await r.json(); } catch (e) {}
     return { status: r.status, json };
   };
+}
+async function workerTest(request, env, stub) {
+  const r = await handleTest({ env, callApi: workerApi(request, env, stub) });
+  return new Response(JSON.stringify(r.json), { status: r.status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
+}
+function workerChat(request, env, stub, ctx) {
+  const callApi = workerApi(request, env, stub);
   const ts = new TransformStream(), w = ts.writable.getWriter(), enc = new TextEncoder();
   const emit = ev => { w.write(enc.encode('data: ' + JSON.stringify(ev) + '\n\n')).catch(() => {}); };
   const job = (async () => {
@@ -209,4 +245,4 @@ function workerChat(request, env, stub, ctx) {
 }
 const SSE_HEADERS = { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 
-module.exports = { handleChat, workerChat, configFrom, makeProvider, SSE_HEADERS, SYSTEM, AiError, _providers: PROVIDERS };
+module.exports = { handleChat, handleTest, workerChat, workerTest, configFrom, configFor, makeProvider, SSE_HEADERS, SYSTEM, AiError, _providers: PROVIDERS };

@@ -263,6 +263,30 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Chưa kiểm chứng:** gọi Anthropic thật bằng khóa của chủ sở hữu (trợ lý AI không tự nhập khóa, CLAUDE.md 4.3); OpenAI, Gemini với khóa thật; chạy trên Cloudflare thật (Worker → Durable Object qua stub, SSE qua TransformStream); chất lượng trả lời tiếng Việt; chi phí thực tế.
 - **Còn dở:** truyền từng chữ (token streaming); pháp chế xác nhận điều kiện gửi dữ liệu ra nước ngoài trước khi bật trên hệ thống thật.
 
+## 07/11/2026. Tách nhánh; trợ lý AI cấu hình theo từng người (so-1.11.1), theo yêu cầu của chủ sở hữu
+- **Yêu cầu:** "tách nhánh riêng chứ, chạy local cho tôi test đã, việc cấu hình AI cần cấu hình động ở màn hình người dùng, theo cá nhân, mỗi người 1 con AI".
+- **Nhánh (cục bộ, chưa đẩy):**
+  - `sua-loi/trung-duong-dan-bang-tin` (`260a75a`): báo cáo rà soát và sửa lỗi Bảng tin;
+  - `tinh-nang/tro-ly-ai-ca-nhan`: trợ lý AI, gồm cả bản sửa lỗi trên.
+- **Việc đã làm:**
+  - `ai-key.js`: mã hóa AES-256-GCM khóa API cá nhân; bí mật `AI_KEY_SECRET` (Node tự sinh tại `DATA_DIR`); mã nội bộ để cổng AI tại Worker nhận khóa đã giải mã.
+  - `ai-core.js`: bảng `ai_user_config`; `GET/PUT /api/ai/me` (không trả khóa); `/api/ai/turn` trả khóa chỉ cho lời gọi nội bộ; `/api/ai/status` báo đã cấu hình hay chưa; nhật ký `ai_key_set`, `ai_key_clear`.
+  - `ai.js`: thứ tự khóa cá nhân → khóa chung → 412; khóa cá nhân chỉ gửi địa chỉ chính thức; tên và cách trả lời riêng; `POST /api/ai/test` (kiểm tra kết nối) cho Worker và Node.
+  - Giao diện: Tài khoản › Trợ lý AI của tôi; nút ⚙ và lời nhắc cấu hình trong khung trợ lý; tiêu đề khung theo tên trợ lý; `sw.js` lên `so-1.11.1`.
+  - ADR-010 mục 2A; `TRIEN-KHAI-CLOUDFLARE.md` A.4 (thêm `AI_KEY_SECRET`); `HUONG-DAN-SU-DUNG.md` XII.0.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 87 đạt, 0 không đạt. Thêm phần P chạy qua đúng mã Worker (`workerChat`, `workerTest` với stub mô phỏng):
+    - phản hồi không chứa khóa; CSDL và bản sao lưu chỉ có bản mã; sai bí mật không giải được;
+    - mã nội bộ sai không nhận khóa; khóa, mô hình, mức suy luận, tên, cách trả lời đúng của từng người;
+    - người khác không dùng khóa của nhau; dùng khóa chung khi có; khóa cá nhân không theo `AI_BASE_URL`;
+    - kiểm tra kết nối; đổi sang Gemini phải nhập khóa mới; xóa khóa.
+    - Bản Node: tự sinh `ai-key.secret`; tệp CSDL và WAL không chứa khóa dạng rõ; `/api/ai/turn` qua HTTP không trả khóa.
+  - Lần chạy đầu của kiểm tra bản Node báo "không đạt" vì tiến trình con thừa hưởng `AI_KEY_SECRET` từ tiến trình kiểm thử, không phải lỗi mã. Đã tách điều kiện và bỏ biến này khỏi môi trường tiến trình con.
+  - `worker-smoke` đạt (`ai 403 200 200`, `backup-manifest 200 72 1`); `work-test` 125/0, `work-plan-test` 21/0, `work-ext-test` 98/0, `auth-test` 78/0, `backup-test` 48/0; `node --check` toàn bộ.
+  - Giao diện, trình duyệt tích hợp, cổng 3100: khung trợ lý báo chưa cấu hình và dẫn sang Tài khoản; đổi nhà cung cấp đổi gợi ý mô hình, ẩn/hiện mức suy luận; lưu khóa giả chỉ hiện `••••0000`, phản hồi không chứa khóa, tiêu đề khung đổi theo tên trợ lý; xóa khóa. Đã xóa khóa giả, trả dữ liệu thử về trạng thái chưa cấu hình.
+- **Bản chạy thử cho chủ sở hữu:** Node cổng 3100, dữ liệu mẫu trong thư mục tạm của phiên, trợ lý đã bật sẵn (ghi trực tiếp `ai_enabled=1` vào CSDL thử), không có khóa chung.
+- **Chưa kiểm chứng:** gọi nhà cung cấp thật (chờ chủ sở hữu tự nhập khóa trên bản chạy thử); Cloudflare thật.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
