@@ -147,12 +147,12 @@ function anthropic(cfg, fetchImpl) {
     async webAsk(query) {
       if (!web) throw new AiError(400, 'Tìm kiếm Internet chưa được bật.');
       const msgs = [{ role: 'user', content: 'Câu hỏi cần tra cứu trên Internet: ' + query }];
-      const usage = { in: 0, out: 0, cached: 0, web: 0 }, sources = [], queries = []; let text = '';
+      const usage = { in: 0, out: 0, cached: 0, web: 0, fetch: 0 }, sources = [], queries = []; let text = '';
       for (let i = 0; i < 4; i++) {
         const body = { model, max_tokens: 6000, system: [{ type: 'text', text: WEB_SUB_SYSTEM }], messages: msgs, tools: webTools, output_config: { effort: cfg.effort || 'low' } };
         const j = await send(body);
         const content = Array.isArray(j.content) ? j.content : [], u = j.usage || {}, st = u.server_tool_use || {};
-        usage.in += (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0); usage.cached += u.cache_read_input_tokens || 0; usage.out += u.output_tokens || 0; usage.web += (st.web_search_requests || 0) + (st.web_fetch_requests || 0);
+        usage.in += (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0); usage.cached += u.cache_read_input_tokens || 0; usage.out += u.output_tokens || 0; usage.web += st.web_search_requests || 0; usage.fetch += st.web_fetch_requests || 0; // chỉ lượt tìm có phí theo lượt
         for (const b of content) if (b.type === 'server_tool_use') queries.push(b.name === 'web_fetch' ? 'Đọc trang ' + String((b.input && b.input.url) || '').slice(0, 200) : 'Tìm trên Internet: ' + String((b.input && b.input.query) || '').slice(0, 200));
         for (const x of webSources(content, web)) if (!sources.some(y => y.url === x.url)) sources.push(x);
         const t = joinText(content); if (t) text += (text ? '\n\n' : '') + t;
@@ -276,7 +276,7 @@ async function handleChat({ body, env, callApi, emit: emitOut, fetchImpl }) {
     emitOut(ev);
   };
   let threadId = 0;
-  const toolsUsed = [], usage = { in: 0, out: 0, cached: 0, web: 0 }, sources = [];
+  const toolsUsed = [], usage = { in: 0, out: 0, cached: 0, web: 0, fetch: 0 }, sources = [];
   let carry = ''; // văn bản của các bước bị tạm dừng (pause_turn) để ghép vào câu trả lời cuối
   const st = { internalTried: false, sources, usage }; // ưu tiên nội bộ: tim_internet chỉ chạy sau khi đã gọi ít nhất một công cụ đọc nội bộ
   let prov = null, turn = null, status = 'ok';
@@ -286,6 +286,7 @@ async function handleChat({ body, env, callApi, emit: emitOut, fetchImpl }) {
     const t = await callApi('POST', '/api/ai/turn', {});
     if (t.status !== 200) throw new AiError(t.status, (t.json && t.json.error) || 'Không mở được phiên trợ lý.');
     turn = t.json;
+    st.quotaLeft = Number.isFinite(Number(turn.quota_left)) ? Number(turn.quota_left) : null;
     prov = makeProvider(configFor(turn, env), fetchImpl || fetch);
     /* Lưu câu hỏi vào cuộc trò chuyện (tạo mới nếu chưa có hoặc không phải của người dùng). Lỗi lưu không làm hỏng câu trả lời. */
     if (!(body && body.no_save)) {
@@ -327,7 +328,7 @@ async function handleChat({ body, env, callApi, emit: emitOut, fetchImpl }) {
     if (!(e instanceof AiError) && typeof console !== 'undefined') console.error('ai', e && e.stack || e);
   }
   if (threadId && rec.length) { try { await callApi('POST', `/api/ai/threads/${threadId}/items`, { items: rec }); } catch (e) {} }
-  if (turn && prov) { try { await callApi('POST', '/api/ai/usage', { provider: prov.name, model: prov.model, tokens_in: usage.in, tokens_out: usage.out, tokens_cached: usage.cached, web_requests: usage.web, tools: toolsUsed, status }); } catch (e) {} }
+  if (turn && prov) { try { await callApi('POST', '/api/ai/usage', { provider: prov.name, model: prov.model, tokens_in: usage.in, tokens_out: usage.out, tokens_cached: usage.cached, web_requests: usage.web, web_fetches: usage.fetch, tools: toolsUsed, status }); } catch (e) {} }
   emit({ type: 'done', usage });
 }
 
@@ -340,10 +341,14 @@ async function runTool(c, { callApi, emit, allowPii, toolsUsed, today, prov, st 
     if (!st || !st.internalTried) return out('Chưa tra cứu dữ liệu nội bộ. Hãy tra cứu nội bộ trước (tim_tai_lieu, doc_du_lieu, các công cụ nội bộ khác); chỉ tìm Internet khi nội bộ không có hoặc không đủ.', true);
     const q = String((c.args && c.args.cau_hoi) || '').trim().slice(0, 300);
     if (!q) return out('Thiếu câu hỏi cần tìm.', true);
+    if (st.quotaLeft != null) { /* mỗi lượt tìm tính WEB_SEARCH_TOKENS vào hạn mức: hạn mức còn lại (trừ phần đã dùng trong lượt này) phải đủ cho ít nhất một lượt tìm */
+      const u = st.usage, spent = u.in + u.out + Math.ceil(u.cached / 10) + u.web * TOOLS_MOD.WEB_SEARCH_TOKENS;
+      if (st.quotaLeft - spent < TOOLS_MOD.WEB_SEARCH_TOKENS) return out('Hạn mức trợ lý AI hôm nay của người dùng không đủ để tìm Internet. Trả lời bằng dữ liệu nội bộ đã có và nói rõ chưa tìm Internet vì hết hạn mức.', true);
+    }
     toolsUsed.push(WEB_TOOL.name); emit({ type: 'status', text: 'Tìm trên Internet: ' + q });
     try {
       const w = await prov.webAsk(q);
-      st.usage.in += w.usage.in; st.usage.out += w.usage.out; st.usage.cached += w.usage.cached; st.usage.web += w.usage.web;
+      st.usage.in += w.usage.in; st.usage.out += w.usage.out; st.usage.cached += w.usage.cached; st.usage.web += w.usage.web; st.usage.fetch += w.usage.fetch;
       for (const x of w.queries) emit({ type: 'status', text: x });
       for (const x of w.sources) if (!st.sources.some(y => y.url === x.url)) st.sources.push(x);
       return out(`<du_lieu nguon="internet">${w.text || 'Không tìm thấy thông tin phù hợp trên các trang được phép.'}${w.sources.length ? '\nNguồn: ' + w.sources.map(x => x.title + ' – ' + x.url).join('; ') : ''}</du_lieu>`);

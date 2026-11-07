@@ -440,6 +440,20 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - pháp chế về thời hạn lưu nội dung trò chuyện.
 - **Tài liệu:** ADR-010 (mục 8 được thay bằng 2F; 2C.2, 2F, 2G); hướng dẫn XII.13–14; CLAUDE.md 3g (điều kiện "HỢP ĐỒNG API"); `public/sw.js` so-1.15.0.
 
+## 07/11/2026. Quy phí tìm Internet vào hạn mức (so-1.15.1)
+- **Mục tiêu:** chủ sở hữu hỏi tìm Internet có tốn phí không, rồi đồng ý quy phí tìm vào hạn mức ("Có, làm luôn").
+- **Việc đã làm:**
+  - tách số lượt tìm (có phí 10 USD/1.000 lượt) và số lượt đọc trang (chỉ tính token): cột mới `ai_log.web_fetches`;
+  - hạn mức ngày cộng 2.500 token mỗi lượt tìm (`WEB_SEARCH_TOKENS` trong `ai-tools.js`); áp cho kiểm tra hạn mức, trang token của người dùng và thống kê quản trị;
+  - `tim_internet` bị từ chối khi hạn mức còn lại không đủ một lượt tìm; mô hình trả lời bằng dữ liệu nội bộ;
+  - sửa câu chữ trên giao diện: trước ghi "mỗi lượt tìm, đọc trang được tính phí riêng", nay chỉ lượt tìm.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 237 đạt, 0 không đạt (thêm: ghi riêng lượt tìm/đọc trang; hạn mức cộng 2.500 token mỗi lượt tìm; quản trị thấy số liệu; hết hạn mức thì không tìm Internet);
+  - đối chứng: bộ kiểm thử mới chạy trên mã so-1.15.0 dừng với lỗi `no such column: web_fetches`;
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Chưa kiểm chứng:** đơn giá lấy theo tài liệu Anthropic, chưa đối chiếu hóa đơn thật; dữ liệu `ai_log` ghi trước so-1.15.1 có `web_requests` gộp lượt đọc trang nên có thể tính hạn mức cao hơn thực tế trong ngày nâng cấp (chỉ có trên máy thử, nhánh chưa triển khai).
+- **Tài liệu:** ADR-010 2C.7, 2E.7; hướng dẫn XII; `public/sw.js` so-1.15.1.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

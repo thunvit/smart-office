@@ -335,8 +335,18 @@ async function webSearch(U) {
   ok(src && src.items.length === 2 && src.items.some(x => x.url === 'https://vanban.chinhphu.vn/?pageid=1' && x.title === 'Nghị định lương cơ sở') && src.items.some(x => x.url === 'https://congbao.chinhphu.vn/van-ban/1' && x.title === 'Công báo số 1'), 'W: trả nguồn tham khảo (trích dẫn + trang đã đọc)', src);
   ok(src && !JSON.stringify(src).includes('evil.example') && !JSON.stringify(src).includes('javascript:'), 'W: bỏ nguồn ngoài tên miền được phép và địa chỉ không phải http(s)');
   ok(r.events.some(e => e.type === 'status' && e.text === 'Tìm trên Internet: mức lương cơ sở 2026') && r.events.some(e => e.type === 'status' && /^Đọc trang https:\/\/congbao/.test(e.text)), 'W: hiện cho người dùng câu truy vấn và trang đã đọc', r.events.filter(e => e.type === 'status'));
-  const lg = D.get('SELECT web_requests, tools FROM ai_log WHERE user_id=? ORDER BY id DESC LIMIT 1', U['mai.bt'].id);
-  ok(lg && lg.web_requests === 2 && /tim_internet/.test(lg.tools) && /tim_tai_lieu/.test(lg.tools), 'W: ghi số lượt tìm/đọc trang vào ai_log', lg);
+  const lg = D.get('SELECT web_requests, web_fetches, tools FROM ai_log WHERE user_id=? ORDER BY id DESC LIMIT 1', U['mai.bt'].id);
+  ok(lg && lg.web_requests === 1 && lg.web_fetches === 1 && /tim_internet/.test(lg.tools) && /tim_tai_lieu/.test(lg.tools), 'W: ghi riêng số lượt tìm (có phí theo lượt) và số lượt đọc trang vào ai_log', lg);
+
+  // Hạn mức còn lại không đủ cho một lượt tìm (2.500 token) → tim_internet bị từ chối, không gọi cuộc tìm kiếm có phí
+  {
+    const used = (await call('mai.bt', 'GET', '/api/ai/me/usage')).b.used_today;
+    await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: used + 2000, web_search: true, web_domains: DOMS.join('\n') });
+    r = await chat('mai.bt', 'Văn bản mới về đấu thầu?', [A.tool('tim_tai_lieu', { q: 'đấu thầu' }), A.tool('tim_internet', { cau_hoi: 'luật đấu thầu' }), A.text('Chưa tìm Internet vì hết hạn mức')]);
+    wtr = r.calls[2] && toolResults(r.calls[2]).find(x => x.is_error && /hạn mức/.test(x.content));
+    ok(!r.err && r.calls.length === 3 && wtr && !r.calls.some(c => (c.body.tools || []).some(t => t.type === 'web_search_20260209')) && sameSys(r.calls), 'W: hạn mức còn lại không đủ một lượt tìm → không tìm Internet, vẫn trả lời', { err: r.err, n: r.calls.length, wtr });
+    await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000, web_search: true, web_domains: DOMS.join('\n') });
+  }
 
   // Dự phòng: cuộc gọi tìm Internet bị nhà cung cấp từ chối → kết quả công cụ báo lỗi, hội thoại chính vẫn trả lời, công cụ không đổi
   const reject = { __status: 400, type: 'error', error: { type: 'invalid_request_error', message: 'tools.0.web_search_20260209: Country code VN is not supported.' } };
@@ -379,13 +389,22 @@ async function webSearch(U) {
 
   // U. Người dùng xem token AI của chính mình
   r = await call('mai.bt', 'GET', '/api/ai/me/usage');
-  const dbMai = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out+(COALESCE(tokens_cached,0)+9)/10),0) n, COUNT(*) c, COALESCE(SUM(web_requests),0) w FROM ai_log WHERE user_id=? AND day=?', U['mai.bt'].id, D.today());
+  const dbMai = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out+(COALESCE(tokens_cached,0)+9)/10+COALESCE(web_requests,0)*2500),0) n, COUNT(*) c, COALESCE(SUM(web_requests),0) w FROM ai_log WHERE user_id=? AND day=?', U['mai.bt'].id, D.today());
   ok(r.s === 200 && r.b.quota === 200000 && r.b.used_today === dbMai.n && r.b.today.turns === dbMai.c && r.b.today.web_requests === dbMai.w && r.b.quota_left === 200000 - dbMai.n, 'U: người dùng xem token đã dùng hôm nay, hạn mức còn lại', { api: r.b.used_today, db: dbMai });
   ok(r.b.days.length >= 1 && r.b.days[0].day === D.today() && r.b.total_30d.turns >= dbMai.c, 'U: thống kê theo ngày trong 30 ngày', r.b.days);
-  const dbHuy = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out+(COALESCE(tokens_cached,0)+9)/10),0) n FROM ai_log WHERE user_id=? AND day=?', U['huy.dq'].id, D.today()).n;
+  const dbHuy = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out+(COALESCE(tokens_cached,0)+9)/10+COALESCE(web_requests,0)*2500),0) n FROM ai_log WHERE user_id=? AND day=?', U['huy.dq'].id, D.today()).n;
   r = await call('huy.dq', 'GET', '/api/ai/me/usage');
   ok(r.s === 200 && r.b.used_today === dbHuy && r.b.used_today !== dbMai.n, 'U: mỗi người chỉ thấy số liệu của mình', { huy: r.b.used_today, mai: dbMai.n });
   sessions.anon = ''; ok((await call('anon', 'GET', '/api/ai/me/usage')).s === 401, 'U: chưa đăng nhập không xem được');
+  // Phí tìm Internet quy ra token (yêu cầu chủ sở hữu 07/11/2026): mỗi lượt tìm tính 2.500 token; lượt đọc trang không tính thêm (đã có trong token vào)
+  {
+    const b0 = (await call('mai.bt', 'GET', '/api/ai/me/usage')).b;
+    ok((await call('mai.bt', 'POST', '/api/ai/usage', { provider: 'anthropic', model: 'm', tokens_in: 100, tokens_out: 10, tokens_cached: 0, web_requests: 2, web_fetches: 3, tools: ['tim_internet'], status: 'ok' })).s === 200, 'U: ghi lượt có tìm Internet');
+    const b1 = (await call('mai.bt', 'GET', '/api/ai/me/usage')).b;
+    ok(b1.used_today - b0.used_today === 110 + 2 * 2500 && b1.web_search_tokens === 2500 && b1.today.web_requests - b0.today.web_requests === 2 && b1.today.web_fetches - b0.today.web_fetches === 3, 'U: hạn mức tính 2.500 token mỗi lượt tìm Internet, không tính lượt đọc trang', { diff: b1.used_today - b0.used_today, b1: b1.today });
+    const ad = (await call('admin', 'GET', '/api/admin/ai-settings')).b.usage_30d.find(x => x.user_id === U['mai.bt'].id);
+    ok(ad && ad.web_fetches >= 3 && ad.web_requests >= 2 && ad.billed >= b1.used_today, 'U: quản trị thấy lượt tìm, lượt đọc trang và token tính hạn mức gồm phí tìm', ad);
+  }
 
   // C. Token đọc từ bộ đệm lời nhắc: ghi riêng, chỉ tính 10% vào hạn mức (ba nhà cung cấp)
   const lastLog = uid => D.get('SELECT tokens_in, tokens_out, tokens_cached FROM ai_log WHERE user_id=? ORDER BY id DESC LIMIT 1', uid);

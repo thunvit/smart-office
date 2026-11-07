@@ -233,4 +233,8 @@ function shapeResult(tool, data, allowPii) {
   return s.length > 14000 ? s.slice(0, 14000) + '…(đã cắt bớt)' : s;
 }
 
-module.exports = { TOOLS, BY_NAME, shapeResult, compact, redactText, RTYPES, CATALOG, safeApiPath, SCREENS, DETAILS };
+/* Phí tìm kiếm Internet quy ra token để tính hạn mức (07/11/2026, theo yêu cầu của chủ sở hữu).
+ * Anthropic tính 10 USD/1.000 lượt web_search (0,01 USD/lượt) ngoài token; giá token vào Opus 5.5 là 4 USD/1 triệu
+ * → 0,01 USD ≈ 2.500 token vào. web_fetch không tính phí theo lượt (chỉ tính token nội dung trang) nên không quy đổi. */
+const WEB_SEARCH_TOKENS = 2500;
+module.exports = { WEB_SEARCH_TOKENS, TOOLS, BY_NAME, shapeResult, compact, redactText, RTYPES, CATALOG, safeApiPath, SCREENS, DETAILS };
