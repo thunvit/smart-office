@@ -2,11 +2,13 @@
  * 1. Soạn văn bản hành chính (Tài liệu › Soạn văn bản bằng AI; nút trong khung trợ lý).
  * 2. Trợ lý cuộc họp: ghi âm → chép lời theo từng người phát biểu (gợi ý người nói bằng mẫu giọng, ADR-011) → biên bản và thông báo kết luận
  *    theo thể thức Nghị định 30/2020/NĐ-CP → bóc tách đầu việc, đề xuất người chủ trì/phối hợp → giao việc (Lịch họp › chi tiết cuộc họp).
- * 3. Mẫu giọng nói của tôi (Tài khoản): tự đăng ký, có đồng ý; chỉ lưu đặc trưng, không lưu âm thanh.
+ * 3. Mẫu giọng nói của tôi (Tài khoản): tự đăng ký, có đồng ý; chỉ lưu đặc trưng, không lưu âm thanh; cập nhật thêm từ đoạn phát biểu đã xác nhận;
+ *    tự xóa khi tài khoản ngừng hoạt động.
  * Ghi âm:
  *  - Nhà cung cấp OpenAI/Gemini: thu âm thanh tại trình duyệt (WAV 16 kHz, đoạn 60 giây), máy chủ chuyển thành chữ qua nhà cung cấp.
  *  - Anthropic (không nhận âm thanh): dùng nhận dạng giọng nói của trình duyệt (Chrome/Edge; âm thanh do hãng trình duyệt xử lý).
- *  - Âm thanh không được lưu trên máy chủ; chỉ giữ phần chữ. */
+ *  - Bản ghi âm cuộc họp (chủ trì/người tạo cuộc họp chọn lưu): nén Opus tại trình duyệt, gửi từng phần, máy chủ giữ 24 giờ để tải về rồi tự xóa
+ *    (quyết định của chủ sở hữu khi duyệt ADR-011). Âm thanh lấy mẫu giọng không được lưu. */
 (function () {
 'use strict';
 const S = window.SO;
@@ -133,6 +135,51 @@ function Recorder(on) {
   }
   return { start, stop, kind, get active() { return active; } };
 }
+/** Lưu bản ghi âm cuộc họp lên máy chủ 24 giờ để tải về (ADR-011).
+ * MediaRecorder nén Opus khoảng 24 kbit/s (khoảng 11 MB/giờ), cứ 30 giây gửi một phần theo thứ tự.
+ * Gửi lỗi thì giữ phần đó và thử lại ở lần sau; toàn bộ âm thanh vẫn giữ tại trình duyệt để tải trực tiếp nếu không gửi được. */
+const ARCH_MIME = () => { const MR = window.MediaRecorder; if (!MR || !MR.isTypeSupported || !hasMic()) return ''; return ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4', 'audio/webm'].find(t => MR.isTypeSupported(t)) || ''; };
+function AudioArchive(meetingId, onChange) {
+  const mime = ARCH_MIME(), PART = 900 * 1024;
+  let stream = null, mr = null, info = null, seq = 0, started = 0, ended = 0, waiting = [], local = [], sending = false, lastErr = null;
+  const secs = () => ((ended || Date.now()) - started) / 1000; // thời lượng tính đến lúc bấm dừng, không tính thời gian gửi nốt
+  const changed = () => onChange && onChange({ uploading: waiting.length, error: lastErr, info });
+  async function pump() {
+    if (sending || !info) return; sending = true;
+    try {
+      while (waiting.length) {
+        const blob = waiting[0];
+        try { info = await PUT(`/api/meetings/${meetingId}/audio/${info.id}/parts/${seq}`, { data: b64(await blob.arrayBuffer()), seconds: Math.round(secs()) }); seq++; waiting.shift(); lastErr = null; }
+        catch (e) { lastErr = e; break; }
+      }
+    } finally { sending = false; changed(); }
+  }
+  const push = blob => { if (!blob || !blob.size) return; local.push(blob); for (let i = 0; i < blob.size; i += PART) waiting.push(blob.slice(i, i + PART)); pump(); };
+  return {
+    mime,
+    async start() {
+      if (!mime) throw new Error('Trình duyệt không hỗ trợ nén âm thanh để lưu.');
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }); } catch (e) { throw micError(e); }
+      try { info = await POST(`/api/meetings/${meetingId}/audio/start`, { mime }); mr = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 24000 }); }
+      catch (e) { stream.getTracks().forEach(t => t.stop()); stream = null; throw e; }
+      mr.ondataavailable = e => push(e.data);
+      started = Date.now(); mr.start(30000); changed();
+    },
+    async stop() {
+      if (!ended) ended = Date.now();
+      if (mr && mr.state !== 'inactive') await new Promise(r => { mr.onstop = r; try { mr.stop(); } catch (e) { r(); } });
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      mr = null; stream = null;
+      for (let i = 0; i < 3 && waiting.length; i++) { await pump(); if (waiting.length) await new Promise(r => setTimeout(r, 2000)); }
+      if (!waiting.length && info) { try { info = await POST(`/api/meetings/${meetingId}/audio/${info.id}/finish`, { seconds: Math.round(secs()) }); } catch (e) { lastErr = e; } }
+      changed();
+      return { ok: !waiting.length && !lastErr, error: lastErr };
+    },
+    /* Âm thanh giữ tại trình duyệt: dùng khi không gửi được lên máy chủ */
+    localBlob: () => local.length ? new Blob(local, { type: mime.split(';')[0] }) : null,
+    get uploading() { return waiting.length; }
+  };
+}
 /* Dừng ghi âm khi hộp thoại bị đóng */
 let CURRENT = null;
 new MutationObserver(() => { if (CURRENT && !document.getElementById(CURRENT.anchor)) { CURRENT.rec.stop(); CURRENT = null; } }).observe(document.getElementById('modal'), { childList: true });
@@ -230,7 +277,9 @@ async function meetingAssistant(id) {
     <h3 class="sec-t">1. Ghi âm, nhận dạng người phát biểu</h3>
     <div class="actions">${kind !== 'none' && inMeeting ? '<button class="btn" data-act="aim-mic" id="aim-mic" aria-pressed="false">● Ghi âm</button>' : ''}<span class="hint" id="aim-ms" aria-live="polite"></span></div>
     <p class="hint" style="margin:0">${esc(ENGINE_NOTE[kind](st0.provider))} Chỉ ghi âm khi các thành phần dự họp đã được thông báo.</p>
-    ${inMeeting ? `<p class="hint" style="margin:0">Người nói được <b>gợi ý</b> theo mẫu giọng (tính tại trình duyệt, không gửi đi). Thư ký chọn lại người nói ở đoạn sai; trợ lý học thêm từ các đoạn đã chọn. Thành viên chưa có mẫu giọng: bấm “Lấy mẫu” khi người đó đang nói (6 giây, chỉ dùng trong phiên này) hoặc tự đăng ký tại Tài khoản › Mẫu giọng nói của tôi.</p>
+    ${m.can_edit && kind !== 'none' && ARCH_MIME() ? '<div class="field full"><label class="check"><input type="checkbox" id="aim-keep" checked> Lưu bản ghi âm trên máy chủ 24 giờ để thành phần cuộc họp tải về (sau 24 giờ tự xóa)</label></div>' : ''}
+    ${inMeeting ? '<div id="aim-audio" class="aim-audio"></div>' : ''}
+    ${inMeeting ? `<p class="hint" style="margin:0">Người nói được <b>gợi ý</b> theo mẫu giọng (tính tại trình duyệt, không gửi đi). Thư ký chọn lại người nói ở đoạn sai; trợ lý học thêm từ các đoạn đã chọn. Khi lưu bản ghi phát biểu, mẫu giọng của người đã đăng ký được cập nhật từ các đoạn đã xác nhận, để cuộc họp sau nhận ra ngay. Thành viên chưa có mẫu giọng: bấm “Lấy mẫu” khi người đó đang nói (6 giây, chỉ dùng trong phiên này) hoặc tự đăng ký tại Tài khoản › Mẫu giọng nói của tôi.</p>
     <div class="aim-people" id="aim-people"></div><div class="hint" id="aim-stat" aria-live="polite"></div>` : '<p class="notice warn">Bạn không trong thành phần cuộc họp: không ghi âm, không xem bản ghi phát biểu. Có thể gõ ghi chép bên dưới để lập biên bản.</p>'}
     <div class="aim-segs" id="aim-segs" role="list" aria-label="Bản ghi phát biểu"></div><span class="hint" id="aim-mi"></span>
     ${inMeeting ? `<div class="actions"><button class="btn sm" data-act="aim-add">+ Thêm đoạn</button>${m.can_edit ? '<button class="btn sm" data-act="aim-savetr">Lưu bản ghi phát biểu</button>' : ''}<span class="hint" id="aim-trs">${saved && saved.updated_at ? 'Đã lưu lúc ' + esc(fmtD(saved.updated_at)) + ' ' + esc(String(saved.updated_at).slice(11, 16)) : ''}</span></div>` : ''}
@@ -276,7 +325,15 @@ async function meetingAssistant(id) {
     'aim-add': () => { S0.segs.push({ t: S0.segs.length ? S0.segs[S0.segs.length - 1].t + 1 : 0, uid: null, text: '', emb: null, spk: null, sure: true, manual: true }); S0.dirty = true; segs_(); const ta = document.querySelector(`.aim-st[data-i="${S0.segs.length - 1}"]`); if (ta) ta.focus(); },
     'aim-del': b => { S0.segs.splice(Number(b.dataset.i), 1); S0.dirty = true; segs_(); },
     'aim-savetr': btn => S.busy(btn, async () => {
-      try { const r = await PUT(`/api/meetings/${m.id}/transcript`, { segments: S0.segs.filter(s => s.text.trim()).map(s => ({ t: Math.round(s.t), uid: s.uid, text: s.text })) }); S0.dirty = false; $('#aim-trs').textContent = `Đã lưu ${r.segments} đoạn phát biểu.`; toast('Đã lưu bản ghi phát biểu'); }
+      try {
+        /* Học thêm mẫu giọng: đoạn có dấu giọng, đã được thư ký chọn hoặc trợ lý nhận chắc chắn, của người đã đăng ký mẫu; mỗi đoạn chỉ gửi một lần */
+        const g = new Map();
+        S0.segs.forEach(s => { if (s.uid && s.emb && !s.adapted && (s.manual || s.sure) && enrolled.has(s.uid) && s.text.trim()) { if (!g.has(s.uid)) g.set(s.uid, []); g.get(s.uid).push(s); } });
+        const adapt = V ? [...g].map(([uid, l]) => ({ uid, n: l.length, vec: V.mean(l.map(x => x.emb)) })).filter(a => a.vec) : [];
+        const r = await PUT(`/api/meetings/${m.id}/transcript`, { segments: S0.segs.filter(s => s.text.trim()).map(s => ({ t: Math.round(s.t), uid: s.uid, text: s.text })), adapt });
+        (r.adapted || []).forEach(uid => (g.get(uid) || []).forEach(s => { s.adapted = true; }));
+        S0.dirty = false; $('#aim-trs').textContent = `Đã lưu ${r.segments} đoạn phát biểu${(r.adapted || []).length ? `; cập nhật mẫu giọng của ${r.adapted.length} người` : ''}.`; toast('Đã lưu bản ghi phát biểu');
+      }
       catch (e) { showErr('#aim-err', e); }
     }),
     'aim-go': btn => S.busy(btn, async () => {
@@ -295,6 +352,8 @@ async function meetingAssistant(id) {
         $('#aim-out').scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (e) { $('#aim-st').textContent = ''; showErr('#aim-err', e); }
     }),
+    'aim-adel': b => S.busy(b, async () => { if (!confirm('Xóa bản ghi âm này? Không khôi phục được.')) return; try { await DEL(`/api/meetings/${m.id}/audio/${b.dataset.id}`); toast('Đã xóa bản ghi âm'); audio_(); } catch (e) { showErr('#aim-err', e); } }),
+    'aim-alocal': () => { if (!archLocal) return; const a = document.createElement('a'); a.href = URL.createObjectURL(archLocal); a.download = `ghi-am-cuoc-hop-${m.id}-${TODAY()}.${/ogg/.test(archLocal.type) ? 'ogg' : /mp4/.test(archLocal.type) ? 'm4a' : 'webm'}`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); },
     'aim-tab': b => { document.querySelectorAll('#aim-root [data-act=aim-tab]').forEach(t => t.setAttribute('aria-pressed', String(t === b))); doc_(); },
     'aim-save': btn => S.busy(btn, async () => { try { await POST(`/api/meetings/${m.id}/minutes`, { minutes: docs().bb.text.slice(0, 20000) }); toast('Đã lưu biên bản cuộc họp'); S.render(); } catch (e) { showErr('#aim-err', e); } }),
     'aim-doc-bb': () => downloadHtml(ND().wordDoc(docs().bb.html, 'Biên bản cuộc họp'), 'bien-ban-hop'),
@@ -356,15 +415,53 @@ async function meetingAssistant(id) {
     el.insertAdjacentHTML('beforeend', segRow(S0.segs[S0.segs.length - 1], S0.segs.length - 1));
     el.scrollTop = el.scrollHeight; stat_();
   }
+  /* Danh sách bản ghi âm còn hạn (24 giờ) */
+  let ARCH = null, archLocal = null;
+  async function audio_() {
+    const el = $('#aim-audio'); if (!el) return;
+    let r; try { r = await GET(`/api/meetings/${m.id}/audio`); } catch (e) { el.innerHTML = ''; return; }
+    const left = ms => { const h = Math.max(0, (ms - Date.now()) / 3600000); return h >= 1 ? `còn ${Math.floor(h)} giờ` : `còn ${Math.max(1, Math.round(h * 60))} phút`; };
+    const rows = r.items.map(a => `<li><span>${esc(fmtD(a.created_at))} ${esc(String(a.created_at || '').slice(11, 16))} · ${mmss(a.seconds || 0)} · ${a.size >= 1048576 ? (a.size / 1048576).toFixed(1).replace('.', ',') + ' MB' : Math.max(1, Math.round(a.size / 1024)) + ' KB'}${a.done ? '' : ' · đang ghi'} · <span class="hint">${left(a.expires_ms)}</span></span>
+      <span class="actions"><a class="btn sm" href="/api/meetings/${m.id}/audio/${a.id}/file" download>Tải về</a>${r.can_edit ? `<button class="btn sm ghost" data-act="aim-adel" data-id="${a.id}" aria-label="Xóa bản ghi âm lúc ${esc(String(a.created_at || '').slice(11, 16))}">Xóa</button>` : ''}</span></li>`).join('');
+    el.innerHTML = (rows ? `<p class="hint" style="margin:0">Bản ghi âm (tự xóa sau ${r.ttl_hours} giờ; mỗi lần tải đều ghi nhật ký an ninh):</p><ul class="aim-alist">${rows}</ul>` : '')
+      + (archLocal ? '<p class="notice warn" style="margin:0">Chưa gửi được toàn bộ bản ghi âm lên máy chủ. <button class="btn sm" data-act="aim-alocal">Tải bản ghi trên máy này</button></p>' : '');
+  }
+  function archState(st) {
+    const s = $('#aim-ms'); if (!s || !ARCH) return;
+    s.dataset.arch = st.error ? ` · lưu âm thanh: lỗi, sẽ thử lại (${st.error.message})` : st.uploading ? ` · đang gửi âm thanh (${st.uploading} phần)` : ' · đang lưu âm thanh';
+  }
   function bindMeetingRecorder() {
     const rec = Recorder({
       onSeg: addSeg,
       onInterim: t => { const el = $('#aim-mi'); if (el) el.textContent = t ? '… ' + t : ''; },
-      onState: st => { const b = $('#aim-mic'), s = $('#aim-ms'); if (b) { b.textContent = st.active ? '■ Dừng ghi âm' : '● Ghi âm'; b.classList.toggle('danger', st.active); b.setAttribute('aria-pressed', String(st.active)); } if (s) s.textContent = st.active ? `Đang ghi ${mmss(st.secs)}${st.pending ? ` · đang chuyển ${st.pending} đoạn` : ''}` : st.pending ? `Đang chuyển ${st.pending} đoạn còn lại…` : ''; },
+      onState: st => { const b = $('#aim-mic'), s = $('#aim-ms'); if (b) { b.textContent = st.active ? '■ Dừng ghi âm' : '● Ghi âm'; b.classList.toggle('danger', st.active); b.setAttribute('aria-pressed', String(st.active)); } if (s) s.textContent = st.active ? `Đang ghi ${mmss(st.secs)}${st.pending ? ` · đang chuyển ${st.pending} đoạn` : ''}${ARCH ? (s.dataset.arch || '') : ''}` : st.pending ? `Đang chuyển ${st.pending} đoạn còn lại…` : ''; },
       onError: e => toast(e.message, true)
     });
-    CURRENT = { anchor: 'aim-root', rec };
-    return rec;
+    /* Bộ chép lời và bộ lưu âm thanh chạy song song; đóng hộp thoại thì dừng cả hai (phần âm thanh còn lại vẫn được gửi nốt) */
+    const both = {
+      kind: rec.kind, get active() { return rec.active; },
+      async start() {
+        await rec.start();
+        const keep = $('#aim-keep');
+        if (keep && keep.checked) {
+          const a = AudioArchive(m.id, archState);
+          try { await a.start(); ARCH = a; archLocal = null; } catch (e) { toast('Không lưu được bản ghi âm: ' + e.message, true); }
+        }
+      },
+      async stop() {
+        const q = rec.stop();
+        if (ARCH) {
+          const a = ARCH; ARCH = null;
+          const s = $('#aim-ms'); if (s) s.dataset.arch = '';
+          const r = await a.stop();
+          if (!r.ok) { archLocal = a.localBlob(); toast('Chưa gửi được toàn bộ bản ghi âm lên máy chủ; có thể tải bản trên máy này.', true); }
+          audio_();
+        }
+        return q;
+      }
+    };
+    CURRENT = { anchor: 'aim-root', rec: both };
+    return both;
   }
   const segBox = $('#aim-segs');
   segBox.addEventListener('change', e => {
@@ -438,7 +535,7 @@ async function meetingAssistant(id) {
   }
   let tmr = null; const later = () => { clearTimeout(tmr); tmr = setTimeout(doc_, 300); };
   $('#aim-out').addEventListener('input', later); $('#aim-out').addEventListener('change', later);
-  people_(); segs_();
+  people_(); segs_(); audio_();
 }
 function downloadHtml(html, name) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + html], { type: 'application/msword' }));
@@ -453,9 +550,9 @@ async function mountVoice(el) {
   let st = {}; try { st = await GET('/api/me/voice'); } catch (e) { box.innerHTML = `<div class="card-b"><p class="err">${esc(e.message)}</p></div>`; return; }
   const draw = () => {
     box.innerHTML = `<div class="card-h"><h2>Mẫu giọng nói của tôi</h2></div><div class="card-b stack" style="gap:10px">
-      <p class="hint" style="margin:0">Dùng để trợ lý cuộc họp gợi ý người phát biểu trong các cuộc họp bạn tham dự. Hệ thống <b>không lưu âm thanh</b>: trình duyệt tính dãy số đặc trưng giọng (57 số) và chỉ gửi dãy số này. Đặc trưng giọng là dữ liệu sinh trắc học; chỉ chủ trì, người tạo và thành phần cuộc họp có bạn tham dự mới dùng được, mỗi lần đọc đều ghi nhật ký an ninh. Bạn xóa được bất kỳ lúc nào.</p>
-      <p>${st.enrolled ? `<span class="tag aim-ok">Đã đăng ký</span> lúc ${esc(fmtD(st.updated_at))} ${esc(String(st.updated_at || '').slice(11, 16))} (${Math.round(st.seconds)} giây)` : st.outdated ? '<span class="tag aim-warn">Mẫu cũ, cần ghi lại</span>' : '<span class="tag">Chưa đăng ký</span>'}</p>
-      <div class="field full"><label class="check"><input type="checkbox" id="vm-ok"> Tôi đồng ý cho hệ thống lưu đặc trưng giọng nói của tôi để nhận dạng người phát biểu trong cuộc họp.</label></div>
+      <p class="hint" style="margin:0">Dùng để trợ lý cuộc họp gợi ý người phát biểu trong các cuộc họp bạn tham dự. Hệ thống <b>không lưu âm thanh</b>: trình duyệt tính dãy số đặc trưng giọng (57 số) và chỉ gửi dãy số này. Đặc trưng giọng là dữ liệu sinh trắc học; chỉ chủ trì, người tạo và thành phần cuộc họp có bạn tham dự mới dùng được, mỗi lần đọc đều ghi nhật ký an ninh. Mẫu được cập nhật thêm từ các đoạn phát biểu của bạn mà thư ký cuộc họp đã xác nhận (chỉ cập nhật dãy số), để lần họp sau nhận ra ngay. Bạn xóa được bất kỳ lúc nào; mẫu tự xóa khi tài khoản ngừng hoạt động.</p>
+      <p>${st.enrolled ? `<span class="tag aim-ok">Đã đăng ký</span> lúc ${esc(fmtD(st.updated_at))} ${esc(String(st.updated_at || '').slice(11, 16))} (${Math.round(st.seconds)} giây)${st.adapt_n ? `, đã học thêm từ cuộc họp (${st.adapt_n} đoạn, lần cuối ${esc(fmtD(st.adapted_at))})` : ''}` : st.outdated ? '<span class="tag aim-warn">Mẫu cũ, cần ghi lại</span>' : '<span class="tag">Chưa đăng ký</span>'}</p>
+      <div class="field full"><label class="check"><input type="checkbox" id="vm-ok"> Tôi đồng ý cho hệ thống lưu đặc trưng giọng nói của tôi, và cập nhật đặc trưng này từ các đoạn phát biểu đã được xác nhận, để nhận dạng người phát biểu trong cuộc họp.</label></div>
       <p class="hint" style="margin:0">Khi bấm ghi, đọc to, tự nhiên đoạn sau (khoảng 20 giây), nên dùng đúng micro thường dùng khi họp:</p>
       <blockquote class="post-body" style="margin:0">${esc(VOICE_TEXT)}</blockquote>
       <div class="actions"><button class="btn primary" data-act="vm-rec" ${hasMic() ? '' : 'disabled title="Trình duyệt không hỗ trợ micro"'}>● Ghi mẫu giọng (20 giây)</button>${st.enrolled || st.outdated ? '<button class="btn danger" data-act="vm-del">Xóa mẫu giọng</button>' : ''}<span class="hint" id="vm-st" aria-live="polite"></span></div>
@@ -481,5 +578,5 @@ Object.assign(ACTIONS, {
   'ai-draft': () => draftModal(),
   'ai-meeting': b => meetingAssistant(Number(b.dataset.id)).catch(e => toast(e.message, true))
 });
-window.SO_AI_OFFICE = { draftModal, meetingAssistant, Recorder, wavFrom, engine, mountVoice, captureSeconds };
+window.SO_AI_OFFICE = { draftModal, meetingAssistant, Recorder, AudioArchive, wavFrom, engine, mountVoice, captureSeconds };
 })();

@@ -615,7 +615,11 @@ route('PUT', '/api/admin/users/:id', ({ user, params, body, req }) => {
   run('UPDATE users SET full_name=?, title=?, dept_id=?, role=?, email=?, phone=?, active=? WHERE id=?',
     str(body.full_name ?? u.full_name, 120) || u.full_name, str(body.title ?? u.title, 120), int(body.dept_id ?? u.dept_id),
     (body.role ?? u.role) === 'admin' ? 'admin' : 'user', str(body.email ?? u.email, 120), str(body.phone ?? u.phone, 30), (body.active ?? !!u.active) ? 1 : 0, u.id);
-  if (body.active === false) { run('DELETE FROM sessions WHERE user_id=?', u.id); secLog('account_disabled', { user_id: u.id, username: u.username, ip: clientIp(req), detail: 'bởi ' + user.username }); }
+  if (body.active === false) {
+    run('DELETE FROM sessions WHERE user_id=?', u.id); secLog('account_disabled', { user_id: u.id, username: u.username, ip: clientIp(req), detail: 'bởi ' + user.username });
+    /* ADR-011: mẫu giọng tự xóa khi tài khoản ngừng hoạt động */
+    if (require('./meeting-ai').onUserDisabled(u.id)) secLog('voice_delete', { user_id: u.id, username: u.username, ip: clientIp(req), detail: 'tự xóa mẫu giọng do tài khoản ngừng hoạt động, bởi ' + user.username });
+  }
   if (body.password) {
     if (String(body.password).length < 8) bad('Mật khẩu tối thiểu 8 ký tự.');
     run('UPDATE users SET pass_hash=?, must_change_pw=1 WHERE id=?', D.hashPw(body.password), u.id);
@@ -699,7 +703,8 @@ async function internalCall(orig, method, path, body) {
   return { status: res.statusCode, json };
 }
 require('./ai-core').register({ route, bad, forbid, notFound, str, int, secLog, clientIp, HttpError, internalCall });
-require('./meeting-ai').register({ route, bad, forbid, notFound, str, int, secLog, clientIp }); // trợ lý cuộc họp: mẫu giọng, bản ghi phát biểu, tư vấn phân công (ADR-011)
+const MEETING_AI = require('./meeting-ai');
+MEETING_AI.register({ route, bad, forbid, notFound, str, int, secLog, clientIp }); // trợ lý cuộc họp: mẫu giọng, bản ghi phát biểu, tư vấn phân công (ADR-011)
 const AI = require('./ai');
 
 /* ================= Máy chủ HTTP ================= */
@@ -779,6 +784,8 @@ async function handle(req, res) {
     if (!rt) throw new HttpError(404, 'Không tìm thấy chức năng.');
     if (req.method !== 'GET' && !originAllowed(req)) throw new HttpError(403, 'Yêu cầu không hợp lệ.');
     const user = userFromReq(req);
+    /* Dọn dữ liệu hết hạn (bản ghi âm cuộc họp quá 24 giờ, mẫu giọng của tài khoản ngừng hoạt động; ADR-011), tối đa 10 phút một lần */
+    if (user) { try { MEETING_AI.maintain(); } catch (e) { console.error('maintain', e && e.message); } }
     if (!rt.public && !user) throw new HttpError(401, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
     /* P0-6: tài khoản phải đổi mật khẩu lần đầu chỉ được gọi các API tối thiểu để đổi mật khẩu */
     if (user && user.must_change_pw && !rt.public && !MUST_CHANGE_OK.has(url.pathname)) forbid('Vui lòng đổi mật khẩu lần đầu trước khi sử dụng hệ thống.');

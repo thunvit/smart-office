@@ -785,7 +785,7 @@ async function meetingVoice(U) {
   let r = await call('mai.bt', 'PUT', '/api/me/voice', { vec, version: VX.VERSION, seconds: 20, consent: true, audio: 'UklGRg==' });
   ok(r.s === 200 && r.b.enabled !== false && r.b.enrolled === true && r.b.consent_at, 'mẫu giọng: lưu khi có đồng ý', r.b);
   const row = D.get('SELECT * FROM voice_profiles WHERE user_id=?', U['mai.bt'].id);
-  ok(row && JSON.parse(row.vec).length === VX.DIMS && !/UklGRg/.test(JSON.stringify(row)) && Object.keys(row).every(k => ['user_id', 'vec', 'version', 'seconds', 'consent_at', 'updated_at'].includes(k)), 'mẫu giọng: chỉ lưu dãy đặc trưng, không lưu âm thanh', row && Object.keys(row));
+  ok(row && JSON.parse(row.vec).length === VX.DIMS && !/UklGRg/.test(JSON.stringify(row)) && Object.keys(row).every(k => ['user_id', 'vec', 'version', 'seconds', 'consent_at', 'updated_at', 'adapt_n', 'adapted_at'].includes(k)), 'mẫu giọng: chỉ lưu dãy đặc trưng, không lưu âm thanh', row && Object.keys(row));
   ok((await call('mai.bt', 'GET', '/api/me/voice')).b.enrolled === true && (await call('huy.dq', 'GET', '/api/me/voice')).b.enrolled === false, 'mẫu giọng: mỗi người chỉ thấy trạng thái của mình');
   await call('huy.dq', 'PUT', '/api/me/voice', { vec: vec.map(x => -x), version: VX.VERSION, seconds: 15, consent: true });
   await call('quan.lm', 'PUT', '/api/me/voice', { vec: vec.map(x => x / 2), version: VX.VERSION, seconds: 15, consent: true });
@@ -817,9 +817,64 @@ async function meetingVoice(U) {
   ok(r.b.candidates.find(c => c.id === U['mai.bt'].id).open_tasks === openMai, 'tư vấn phân công: số việc đang làm khớp dữ liệu', openMai);
   r = await call('mai.bt', 'GET', `/api/meetings/${mt.id}/assign-context`);
   ok(r.s === 200 && r.b.workload === false && r.b.candidates.every(c => !('open_tasks' in c)), 'tư vấn phân công: thành viên thường không thấy tải công việc của người khác');
+  // 3B. Học thêm mẫu giọng từ đoạn đã xác nhận (quyết định khi duyệt ADR-011: "vào họp là nó biết luôn, đỡ phải học lại")
+  const vec2 = vec.map((x, i) => x + (i % 3) * 0.5), long = U['long.hd'].id;
+  ok((await call('mai.bt', 'PUT', `/api/meetings/${mt.id}/transcript`, { segments: segs, adapt: [{ uid: U['mai.bt'].id, n: 5, vec: vec2 }] })).s === 403, 'học thêm mẫu giọng: thành viên không chủ trì không gửi được');
+  r = await call('long.hd', 'PUT', `/api/meetings/${mt.id}/transcript`, { segments: segs, adapt: [{ uid: U['mai.bt'].id, n: 5, vec: vec2 }, { uid: U['mai.bt'].id, n: 20, vec: vec2.map(x => -x) }, { uid: quan.id, n: 5, vec: vec2 }, { uid: long, n: 5, vec: vec2 }, { uid: U['huy.dq'].id, n: 3, vec: vec2.slice(1) }] });
+  const mai1 = D.get('SELECT vec, adapt_n, adapted_at FROM voice_profiles WHERE user_id=?', U['mai.bt'].id), want = vec.map((x, i) => (x * 10 + vec2[i] * 5) / 15);
+  ok(r.s === 200 && JSON.stringify(r.b.adapted) === JSON.stringify([U['mai.bt'].id]) && mai1.adapt_n === 5 && mai1.adapted_at && JSON.parse(mai1.vec).every((x, i) => Math.abs(x - want[i]) < 1e-5), 'học thêm mẫu giọng: chỉ cập nhật người trong thành phần họp đã tự đăng ký (không tạo mẫu mới cho người chưa đăng ký, bỏ người ngoài cuộc họp, bỏ dấu giọng sai số chiều, mỗi người một lần), trọng số đăng ký 10', r.b);
+  ok(!D.get('SELECT 1 FROM voice_profiles WHERE user_id=?', long) && JSON.parse(D.get('SELECT vec FROM voice_profiles WHERE user_id=?', quan.id).vec)[0] === vec[0] / 2, 'học thêm mẫu giọng: không tạo mẫu cho người chưa đăng ký, không đụng mẫu người ngoài cuộc họp');
+  ok((await call('mai.bt', 'GET', '/api/me/voice')).b.adapt_n === 5 && (await call('admin', 'GET', '/api/admin/security-log?event=voice_adapt')).b.length === 1, 'học thêm mẫu giọng: người dùng thấy số đoạn đã học; ghi nhật ký an ninh');
+  await call('long.hd', 'PUT', `/api/meetings/${mt.id}/transcript`, { segments: segs, adapt: [{ uid: U['mai.bt'].id, n: 999, vec: vec2 }, { uid: U['mai.bt'].id, n: 999, vec: vec2 }, { uid: U['mai.bt'].id, n: 999, vec: vec2 }].slice(0, 1) });
+  await call('long.hd', 'PUT', `/api/meetings/${mt.id}/transcript`, { segments: segs, adapt: [{ uid: U['mai.bt'].id, n: 999, vec: vec2 }] });
+  ok(D.get('SELECT adapt_n FROM voice_profiles WHERE user_id=?', U['mai.bt'].id).adapt_n === 40, 'học thêm mẫu giọng: tối đa 20 đoạn mỗi lần lưu, tổng trọng số học thêm tối đa 40 (trung bình trượt)');
+  // 3C. Bản ghi âm cuộc họp: lưu 24 giờ để tải về rồi tự xóa
+  const raw = async (who, p) => { const r0 = await core.handleRequest(app, new Request(B + p, { method: 'GET', headers: { host: 'so.example.workers.dev', origin: B, cookie: sessions[who] } })); return { s: r0.status, h: r0.headers, buf: Buffer.from(await r0.arrayBuffer()) }; };
+  const AU = `/api/meetings/${mt.id}/audio`;
+  ok((await call('quan.lm', 'POST', AU + '/start', { mime: 'audio/webm' })).s === 403 && (await call('mai.bt', 'POST', AU + '/start', { mime: 'audio/webm' })).s === 403, 'bản ghi âm: người ngoài cuộc họp, thành viên không chủ trì không lưu được');
+  ok((await call('long.hd', 'POST', AU + '/start', { mime: 'video/mp4' })).s === 400 && (await call('long.hd', 'POST', AU + '/start', { mime: 'text/html' })).s === 400, 'bản ghi âm: chỉ nhận định dạng âm thanh');
+  r = await call('long.hd', 'POST', AU + '/start', { mime: 'audio/webm;codecs=opus' });
+  const au = r.b;
+  ok(r.s === 200 && au.id && au.expires_ms > Date.now() + 23.9 * 3600e3 && au.expires_ms <= Date.now() + 24 * 3600e3, 'bản ghi âm: tạo, hạn lưu 24 giờ', au);
+  ok((await call('long.hd', 'PUT', `${AU}/${au.id}/parts/1`, { data: 'AQID' })).s === 400, 'bản ghi âm: phải gửi phần theo thứ tự');
+  r = await call('long.hd', 'PUT', `${AU}/${au.id}/parts/0`, { data: Buffer.from([1, 2, 3]).toString('base64'), seconds: 30 });
+  const again = await call('long.hd', 'PUT', `${AU}/${au.id}/parts/0`, { data: Buffer.from([9, 9, 9]).toString('base64'), seconds: 30 });
+  ok(r.s === 200 && r.b.parts === 1 && again.s === 200 && again.b.parts === 1 && again.b.size === 3, 'bản ghi âm: gửi lại phần đã nhận (mất mạng, thử lại) thì bỏ qua', again.b);
+  await call('long.hd', 'PUT', `${AU}/${au.id}/parts/1`, { data: Buffer.from([4, 5, 6]).toString('base64'), seconds: 60 });
+  ok((await call('long.hd', 'PUT', `${AU}/${au.id}/parts/2`, { data: Buffer.alloc(1024 * 1024 + 1).toString('base64') })).s === 400, 'bản ghi âm: mỗi phần tối đa 1 MB (giới hạn 2 MB/dòng của Durable Object)');
+  r = await call('long.hd', 'POST', `${AU}/${au.id}/finish`, { seconds: 65 });
+  ok(r.s === 200 && r.b.done === true && r.b.size === 6 && r.b.seconds === 65, 'bản ghi âm: kết thúc', r.b);
+  ok((await call('long.hd', 'PUT', `${AU}/${au.id}/parts/2`, { data: 'AQID' })).s === 400, 'bản ghi âm: đã kết thúc thì không nhận thêm');
+  r = await call('mai.bt', 'GET', AU);
+  ok(r.s === 200 && r.b.items.length === 1 && r.b.ttl_hours === 24 && r.b.can_edit === false && (await call('quan.lm', 'GET', AU)).s === 403, 'bản ghi âm: thành phần họp xem danh sách; người ngoài → 403');
+  let fr = await raw('huy.dq', `${AU}/${au.id}/file`);
+  ok(fr.s === 200 && fr.buf.equals(Buffer.from([1, 2, 3, 4, 5, 6])) && /attachment/.test(fr.h.get('content-disposition')) && /\.webm/.test(fr.h.get('content-disposition')) && fr.h.get('content-type') === 'audio/webm', 'bản ghi âm: thành phần họp tải về, ghép đúng các phần, tải dạng tệp đính kèm', [fr.s, fr.buf, fr.h.get('content-disposition')]);
+  ok((await raw('quan.lm', `${AU}/${au.id}/file`)).s === 403 && (await call('admin', 'GET', '/api/admin/security-log?event=meeting_audio_download')).b.length === 1, 'bản ghi âm: người ngoài không tải được; mỗi lần tải ghi nhật ký an ninh');
+  for (const p of [AU, `${AU}/${au.id}/file`]) { let blocked = false; try { T.BY_NAME.doc_du_lieu.req({ duong_dan: p }); } catch (e) { blocked = true; } ok(blocked, 'trợ lý hội thoại không đọc được ' + p.replace(/\d+/g, ':id')); }
+  r = await call('admin', 'GET', '/api/admin/export/manifest');
+  ok(r.s === 200 && r.b.tables.some(t => t.name === 'voice_profiles') && !r.b.tables.some(t => /^meeting_audio/.test(t.name)), 'sao lưu: có mẫu giọng (giữ như hiện nay), không có bản ghi âm (chỉ lưu 24 giờ)', r.b.tables && r.b.tables.map(t => t.name).filter(n => /voice|audio/.test(n)));
+  // Hết hạn: không tải được ngay, được dọn ở lần bảo trì kế tiếp
+  D.run('UPDATE meeting_audio SET expires_ms=? WHERE id=?', Date.now() - 1000, au.id);
+  ok((await raw('huy.dq', `${AU}/${au.id}/file`)).s === 404 && (await call('huy.dq', 'GET', AU)).b.items.length === 0, 'bản ghi âm: quá 24 giờ thì không tải được, không còn trong danh sách');
+  const mres = MA.maintain(true);
+  ok(mres.audio === 1 && !D.get('SELECT 1 FROM meeting_audio WHERE id=?', au.id) && !D.get('SELECT 1 FROM meeting_audio_parts WHERE audio_id=?', au.id), 'bản ghi âm: quá 24 giờ bị xóa cả dữ liệu âm thanh', mres);
+  const au2 = (await call('long.hd', 'POST', AU + '/start', { mime: 'audio/ogg;codecs=opus' })).b;
+  await call('long.hd', 'PUT', `${AU}/${au2.id}/parts/0`, { data: 'AQID' });
+  ok((await call('mai.bt', 'DELETE', `${AU}/${au2.id}`)).s === 403, 'bản ghi âm: thành viên không chủ trì không xóa được');
+  r = await call('long.hd', 'DELETE', `${AU}/${au2.id}`);
+  ok(r.s === 200 && !D.get('SELECT 1 FROM meeting_audio_parts WHERE audio_id=?', au2.id) && (await call('admin', 'GET', '/api/admin/security-log?event=meeting_audio_delete')).b.length === 1, 'bản ghi âm: chủ trì xóa sớm được, xóa cả dữ liệu, ghi nhật ký');
+  const au3 = (await call('long.hd', 'POST', AU + '/start', { mime: 'audio/mp4' })).b;
+  ok((await call('long.hd', 'POST', `${AU}/${au3.id}/finish`, {})).b.deleted === true && !D.get('SELECT 1 FROM meeting_audio WHERE id=?', au3.id), 'bản ghi âm: kết thúc khi chưa có dữ liệu thì xóa luôn');
+  // 3D. Mẫu giọng tự xóa khi tài khoản ngừng hoạt động
+  r = await call('admin', 'PUT', `/api/admin/users/${U['huy.dq'].id}`, { active: false });
+  ok(r.s === 200 && !D.get('SELECT 1 FROM voice_profiles WHERE user_id=?', U['huy.dq'].id) && (await call('admin', 'GET', '/api/admin/security-log?event=voice_delete')).b.some(x => x.user_id === U['huy.dq'].id), 'mẫu giọng: quản trị khóa tài khoản thì xóa ngay mẫu giọng, ghi nhật ký');
+  await call('admin', 'PUT', `/api/admin/users/${U['huy.dq'].id}`, { active: true }); await login('huy.dq');
+  D.run('UPDATE users SET active=0 WHERE id=?', quan.id);
+  ok((await call('long.hd', 'GET', `/api/meetings/${mt.id}/voices`)).b.every(x => x.user_id !== quan.id) && MA.maintain(true).voices === 1 && !D.get('SELECT 1 FROM voice_profiles WHERE user_id=?', quan.id), 'mẫu giọng: tài khoản ngừng hoạt động bằng cách khác (khôi phục, sửa dữ liệu) bị dọn ở lần bảo trì');
+  D.run('UPDATE users SET active=1 WHERE id=?', quan.id);
   // 5. Xóa mẫu giọng
   r = await call('mai.bt', 'DELETE', '/api/me/voice');
-  ok(r.s === 200 && r.b.deleted === true && !D.get('SELECT 1 FROM voice_profiles WHERE user_id=?', U['mai.bt'].id) && (await call('admin', 'GET', '/api/admin/security-log?event=voice_delete')).b.length === 1, 'mẫu giọng: xóa được, ghi nhật ký');
+  ok(r.s === 200 && r.b.deleted === true && !D.get('SELECT 1 FROM voice_profiles WHERE user_id=?', U['mai.bt'].id) && (await call('admin', 'GET', '/api/admin/security-log?event=voice_delete')).b.some(x => x.user_id === U['mai.bt'].id), 'mẫu giọng: xóa được, ghi nhật ký');
   ok((await call('huy.dq', 'GET', `/api/meetings/${mt.id}/voices`)).b.every(x => x.user_id !== U['mai.bt'].id), 'mẫu giọng đã xóa không còn trong cuộc họp');
 
   // 6. Chép lời có mốc thời gian (để so khớp giọng từng đoạn)

@@ -526,6 +526,38 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - tệp Word mở bằng Microsoft Word;
   - chạy trên Cloudflare.
 
+## 07/11/2026. Duyệt ADR-011; bản ghi âm 24 giờ, mẫu giọng học thêm, tự xóa khi khóa tài khoản (so-1.16.1)
+- **Ý kiến của chủ sở hữu khi duyệt ADR-011:**
+  - thời hạn lưu mẫu giọng: tự xóa khi tài khoản ngừng hoạt động;
+  - bản ghi âm phát biểu: xóa sau 24 tiếng, cho tải về;
+  - tệp sao lưu chứa mẫu giọng: giữ như hiện nay;
+  - bật mẫu giọng cho cả đơn vị: "Cho họ lưu mẫu giọng, vào họp là nó biết luôn đỡ phải học lại";
+  - câu hỏi về thông tin thể thức dùng chung chưa có ý kiến: giữ nguyên.
+- **Cách hiểu "bản ghi âm phát biểu":** là âm thanh cuộc họp (lưu 24 giờ để tải về); bản ghi phát biểu dạng chữ vẫn lưu cùng cuộc họp như biên bản. Đã nêu rõ trong ADR-011 mục 6 để chủ sở hữu điều chỉnh nếu hiểu khác.
+- **Việc đã làm:**
+  - `meeting-ai.js`:
+    - bảng `meeting_audio`, `meeting_audio_parts`; API bắt đầu ghi, gửi từng phần theo thứ tự, kết thúc, danh sách, tải về, xóa;
+    - hạn 24 giờ; nhật ký an ninh `meeting_audio_download`, `meeting_audio_delete`;
+    - học thêm mẫu giọng khi lưu bản ghi phát biểu: chỉ cập nhật mẫu đã đăng ký, trọng số giới hạn, nhật ký `voice_adapt`; đăng ký lại thì đặt lại;
+    - `maintain()` dọn bản ghi âm quá hạn và mẫu giọng của tài khoản ngừng hoạt động; mẫu giọng của người ngừng hoạt động không trả cho cuộc họp.
+  - `server.js`: khóa tài khoản thì xóa ngay mẫu giọng; gọi `maintain()` theo yêu cầu đã đăng nhập, tối đa 10 phút một lần.
+  - `backup.js`: không sao lưu bản ghi âm; khôi phục thì xóa bản ghi âm đang có.
+  - `public/ai-office.js`:
+    - bộ lưu âm thanh `AudioArchive` (MediaRecorder Opus 24 kbit/s, phần 30 giây, thử lại, cho tải bản trên máy khi không gửi được);
+    - danh sách bản ghi âm trong trợ lý cuộc họp;
+    - gửi dấu giọng đoạn đã xác nhận khi lưu bản ghi phát biểu;
+    - lời giải thích, nội dung đồng ý ở thẻ mẫu giọng.
+  - `public/sw.js` so-1.16.1; ADR-011 chuyển trạng thái Đã duyệt, thêm mục 6; hướng dẫn sử dụng mục XII.7.
+- **Sự cố trong lúc làm:** đường dẫn `POST /api/meetings/:id/audio` trùng mẫu `POST /api/meetings/:id/:action` của `biz.js` (đăng ký trước) nên trả 404. Kiểm thử phát hiện; đổi thành `POST /api/meetings/:id/audio/start`.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 325 đạt, 0 không đạt (thêm 26 điều kiện):
+    - học thêm mẫu giọng: quyền, chỉ người đã đăng ký trong thành phần họp, trọng số, giới hạn;
+    - bản ghi âm: quyền lưu/xem/tải/xóa, định dạng, thứ tự phần, gửi lại, giới hạn 1 MB/phần, ghép đúng byte, tải dạng tệp đính kèm, nhật ký, quá 24 giờ không tải được và bị dọn, không có trong bản sao lưu, trợ lý hội thoại không đọc được;
+    - mẫu giọng: xóa khi khóa tài khoản, dọn khi ngừng hoạt động theo cách khác.
+  - `worker-smoke` đạt (`backup-manifest 200 76 1`, `ai 403 200 200`, `download 200 true`, `re-instantiate 200`, `lockout persist 429`, `work-template 200 3`, `work-post 200`); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+  - **Trình duyệt (máy chủ thử 3100):** thay micro bằng âm thanh tổng hợp trong trang để chạy `AudioArchive` thật. Kết quả: gửi lên, kết thúc, tải về tệp WebM hợp lệ (đầu tệp EBML `1a 45 df a3`), danh sách hiển thị, không tràn ngang ở 375 px. Phát hiện và đã sửa: thời lượng tính cả thời gian gửi nốt; dung lượng nhỏ hiện "0,0 MB". Đã xóa bản ghi thử.
+- **Chưa kiểm chứng:** ghi âm bằng micro thật; tệp nhiều phần (trên 30 giây) phát lại trên các trình duyệt; Safari (`audio/mp4`); chạy trên Cloudflare.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
@@ -543,4 +575,4 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 4. **Tên miền** `smartoffice.vnptninhbinh.com.vn` chưa gắn; chờ chọn phương án DNS.
 5. **Phân hệ Công việc – Dự án v2** đã triển khai (06/11/2026). Đề xuất P1: service worker tự kích hoạt bản mới khi API thay đổi không tương thích, tránh giao diện cũ gọi API mới.
 6. **Trợ lý AI (Phiên 16, Đợt 2):** đã viết trên nhánh (so-1.11.0, ADR-010 ở trạng thái Đề xuất). Chờ: chủ sở hữu duyệt ADR-010; chủ sở hữu tự khai báo `AI_API_KEY` và thử với Anthropic thật; pháp chế xác nhận điều kiện gửi dữ liệu ra nhà cung cấp AI trước khi bật trên hệ thống thật.
-7. **Trợ lý cuộc họp (ADR-011, so-1.16.0):** chờ chủ sở hữu duyệt ADR-011. Chờ pháp chế xác nhận căn cứ xử lý đặc trưng giọng nói (dữ liệu sinh trắc học) và thời hạn lưu. Cần thử ghi âm thật trong một cuộc họp, đo độ chính xác gợi ý người nói, mở tệp Word bằng Microsoft Word, và đối chiếu với tệp Mẫu 1.4, 1.9 gốc.
+7. **Trợ lý cuộc họp (ADR-011, so-1.16.1):** ADR-011 đã duyệt ngày 07/11/2026 (kèm 4 ý kiến, đã thực hiện trên nhánh). Chờ pháp chế xác nhận căn cứ xử lý đặc trưng giọng nói (dữ liệu sinh trắc học) và bản ghi âm; quy chế cần nêu việc PITR 30 ngày trên Cloudflare có thể đưa bản ghi âm đã xóa trở lại. Cần thử ghi âm thật trong một cuộc họp, đo độ chính xác gợi ý người nói, mở tệp Word bằng Microsoft Word, và đối chiếu với tệp Mẫu 1.4, 1.9 gốc.

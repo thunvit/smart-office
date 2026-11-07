@@ -1,7 +1,7 @@
 # ADR-011. Trợ lý cuộc họp: nhận dạng người phát biểu, biên bản theo Nghị định 30/2020, tư vấn phân công
 
 - Ngày: 07/11/2026
-- Trạng thái: **Đề xuất, chờ chủ sở hữu duyệt** (mã có trong so-1.16.0 trên nhánh `tinh-nang/tro-ly-ai-ca-nhan`, chưa triển khai)
+- Trạng thái: **Đã duyệt ngày 07/11/2026, kèm 4 ý kiến của chủ sở hữu** (mục 6). Mã có trong so-1.16.1 trên nhánh `tinh-nang/tro-ly-ai-ca-nhan`, chưa triển khai lên Cloudflare.
 - Căn cứ:
   - yêu cầu của chủ sở hữu ngày 07/11/2026: "lưu được thành viên nào phát biểu, lưu nhận dạng giọng theo thành viên; kết luận theo thể thức Nghị định 30/2020; bóc tách đầu việc, tư vấn phân công nhiệm vụ cho đúng người";
   - ADR-010 (trợ lý AI đa nhiệm), mục 2E: soạn văn bản, biên bản cuộc họp;
@@ -23,7 +23,7 @@ Ràng buộc:
 
 Tệp: `public/voice-id.js`.
 - **Dấu giọng:** trình duyệt tính MFCC (khung 25 ms, 26 bộ lọc mel, 20 hệ số), chỉ lấy khung có tiếng nói, rồi lấy trung bình, độ lệch chuẩn và độ lệch chuẩn của delta. Kết quả là dãy 57 số, phiên bản `mfcc-v1`.
-- **Âm thanh không rời máy:** âm thanh không gửi lên máy chủ SmartOffice, và mẫu giọng không gửi cho nhà cung cấp AI. Phương án dùng mẫu giọng tham chiếu của OpenAI (`known_speaker_references`) bị loại vì:
+- **Âm thanh dùng để nhận dạng không rời máy:** việc tính dấu giọng không cần gửi âm thanh lên máy chủ SmartOffice, và mẫu giọng không gửi cho nhà cung cấp AI. (Lưu bản ghi âm cuộc họp 24 giờ để tải về là chức năng riêng, xem mục 6.) Phương án dùng mẫu giọng tham chiếu của OpenAI (`known_speaker_references`) bị loại vì:
   - phải gửi giọng nói ra nước ngoài;
   - chỉ dùng được với khóa OpenAI;
   - giới hạn số người.
@@ -50,7 +50,8 @@ Bảng `voice_profiles` lưu: `user_id`, `vec` (57 số), `version`, `seconds`, 
   - chỉ trả mẫu của người trong thành phần cuộc họp đó.
 - **Nhật ký an ninh:** đăng ký (`voice_enroll`), xóa (`voice_delete`) và mỗi lần đọc (`voice_read`) đều được ghi.
 - **Trợ lý hội thoại:** các đường dẫn mẫu giọng và bản ghi phát biểu không có trong danh mục API mà trợ lý được đọc (`ai-tools.js`), nên mô hình không đọc được dấu giọng.
-- **Sao lưu:** bảng nằm trong bản sao lưu (ADR-009) như mọi bảng khác. Tệp sao lưu vì vậy chứa dữ liệu sinh trắc học và phải được quản lý tương ứng.
+- **Sao lưu:** bảng nằm trong bản sao lưu (ADR-009) như mọi bảng khác (chủ sở hữu quyết định giữ nguyên, mục 6). Tệp sao lưu vì vậy chứa dữ liệu sinh trắc học và phải được quản lý tương ứng.
+- **Thời hạn lưu:** tự xóa khi tài khoản ngừng hoạt động (mục 6).
 
 ### 3. Bản ghi phát biểu của cuộc họp
 
@@ -93,13 +94,49 @@ Tệp: `public/nd30.js`.
   - Máy chủ chỉ nhận mã người có trong thành phần họp hoặc danh sách ứng viên. Lý do hiển thị cho người giao việc.
 - **Giao việc:** người chủ trì nhận việc qua `assignee_id`, người phối hợp qua `followers` của phân hệ Công việc. Quyền tạo việc do API Công việc kiểm tra như thường.
 
+### 6. Ý kiến của chủ sở hữu khi duyệt (07/11/2026)
+
+| Nội dung | Ý kiến | Cách thực hiện (so-1.16.1) |
+|---|---|---|
+| Thời hạn lưu mẫu giọng | Tự xóa khi tài khoản ngừng hoạt động | Quản trị viên khóa tài khoản (`PUT /api/admin/users/:id`, `active=false`) thì xóa ngay mẫu giọng, ghi `voice_delete`. Tài khoản ngừng hoạt động theo cách khác (khôi phục bản sao lưu, sửa dữ liệu) được dọn ở lần bảo trì kế tiếp. Mẫu của người ngừng hoạt động không được trả cho cuộc họp. |
+| Bản ghi âm phát biểu | Xóa sau 24 giờ, cho tải về | Bảng `meeting_audio`, `meeting_audio_parts` (mục 6A). |
+| Tệp sao lưu chứa mẫu giọng | Giữ như hiện nay | Không đổi. Bản ghi âm **không** đưa vào bản sao lưu, vì đưa vào là giữ quá 24 giờ. |
+| Bật mẫu giọng cho cả đơn vị | Bật ngay: mỗi người lưu mẫu giọng, vào họp là nhận ra luôn, đỡ phải học lại | Không thêm công tắc. Mẫu giọng học thêm từ cuộc họp (mục 6B). |
+
+Câu hỏi về thông tin thể thức dùng chung cho cả đơn vị chưa có ý kiến; giữ cách nhớ tại trình duyệt (mục 4).
+
+#### 6A. Bản ghi âm cuộc họp lưu 24 giờ
+
+- **Người lưu:** người chủ trì, người tạo cuộc họp hoặc quản trị viên. Họ tích ô "Lưu bản ghi âm trên máy chủ 24 giờ" (mặc định tích) trước khi bấm Ghi âm.
+- **Định dạng:** trình duyệt nén bằng `MediaRecorder` (Opus, khoảng 24 kbit/s, khoảng 11 MB/giờ). Cứ 30 giây gửi một phần, mỗi phần tối đa 1 MB do giới hạn 2 MB/dòng của Durable Object.
+  - Phần phải gửi đúng thứ tự; gửi lại phần đã nhận thì bỏ qua.
+  - Tổng tối đa 100 MB mỗi bản, 20 bản mỗi cuộc họp trong 24 giờ.
+  - Gửi lỗi thì thử lại. Không gửi được thì trình duyệt cho tải bản trên máy.
+- **Người tải:** thành phần cuộc họp. Tải dưới dạng tệp đính kèm; mỗi lần tải ghi `meeting_audio_download`. Người chủ trì xóa sớm được (`meeting_audio_delete`).
+- **Thời hạn:** 24 giờ kể từ lần gửi cuối. Quá hạn thì không tải được ngay.
+  - Dữ liệu bị xóa ở lần bảo trì kế tiếp. Máy chủ gọi `maintain()` (`meeting-ai.js`) theo từng yêu cầu đã đăng nhập, tối đa 10 phút một lần, vì Cloudflare không có tiến trình chạy nền và quyết định này không thêm Durable Object alarm.
+  - Khôi phục bản sao lưu cũng xóa toàn bộ bản ghi âm đang có, vì mã cuộc họp có thể đã khác.
+- **Trợ lý hội thoại** không đọc được các đường dẫn bản ghi âm.
+
+#### 6B. Mẫu giọng học thêm từ cuộc họp
+
+- **Học từ đoạn nào:** khi người chủ trì lưu bản ghi phát biểu, trình duyệt gửi kèm dấu giọng trung bình của các đoạn đã xác nhận cho từng người. Đoạn đã xác nhận là đoạn thư ký đã chọn người nói, hoặc trợ lý nhận chắc chắn. Mỗi đoạn chỉ gửi một lần.
+- **Cập nhật mẫu:** máy chủ chỉ cập nhật mẫu **đã có**, tức người đó đã tự đăng ký và có đồng ý. Người đó phải trong thành phần họp và đang hoạt động. Không tạo mẫu mới từ cuộc họp.
+- **Trọng số:** bản đăng ký tính 10 đơn vị; mỗi lần lưu tính tối đa 20 đoạn; tổng phần học thêm tối đa 40, nên mẫu đi theo giọng và micro gần đây (trung bình trượt). Đăng ký lại thì đặt lại phần học thêm.
+- **Ghi nhận:** ghi nhật ký `voice_adapt`. Người dùng thấy số đoạn đã học tại Tài khoản › Mẫu giọng nói của tôi. Nội dung đồng ý đã nêu việc cập nhật này.
+
 ## Hệ quả
 
 - **Độ chính xác chưa được đo với giọng thật.** Kiểm thử tự động chỉ dùng giọng tổng hợp (12/12 đoạn đúng), tức là kiểm tra cơ chế. Độ chính xác thực tế phụ thuộc micro, phòng họp, số người nói và việc mẫu giọng ghi bằng micro khác với micro phòng họp. Vì vậy giao diện luôn coi kết quả là gợi ý, thư ký xác nhận.
 - **Chép lời bằng trình duyệt cần mở micro hai lần.** Nếu trình duyệt không cho mở luồng thứ hai, vẫn chép lời được nhưng không gợi ý người nói.
 - **Giới hạn dữ liệu sinh trắc học.** Đặc trưng giọng là dữ liệu sinh trắc học. Trước khi dùng thật, đơn vị cần:
   - pháp chế xác nhận căn cứ xử lý dữ liệu theo Luật Bảo vệ dữ liệu cá nhân 2025 (**chưa kiểm chứng**);
-  - quy định thời hạn lưu (hiện chưa có hạn tự xóa).
+  - thời hạn lưu: chủ sở hữu đã quyết định (mục 6); pháp chế xác nhận lại khi ban hành quy chế.
+- **Bản ghi âm là dữ liệu cá nhân của mọi người phát biểu, kể cả người chưa đăng ký mẫu giọng.** Chỉ ghi khi đã thông báo cho người dự họp. Thời hạn 24 giờ áp dụng cho dữ liệu đang dùng.
+  - Trên Cloudflare, khôi phục theo thời điểm (PITR, 30 ngày; ADR-009) vẫn có thể đưa trạng thái cũ, có âm thanh, trở lại. Quy chế cần nêu điều này.
+  - Bản Node chạy với nhật ký WAL; dữ liệu đã xóa có thể còn trong tệp đến lần ghi đè kế tiếp.
+- **Dung lượng:** một cuộc họp 2 giờ khoảng 22 MB, lưu trong SQLite của Durable Object. Chỉ tồn tại tối đa 24 giờ nên không tích lũy.
+- **Học thêm có thể học sai** nếu thư ký chọn nhầm người nói rồi lưu. Ảnh hưởng bị giới hạn bởi trọng số, ghi nhật ký; người dùng tự ghi lại mẫu để đặt lại.
 - **Mẫu cũ khi đổi thuật toán.** Đổi thuật toán đặc trưng phải tăng `VOICE_VERSION`; mẫu cũ bị bỏ qua và người dùng ghi lại.
 - **Nhà cung cấp chưa kiểm chứng với khóa thật:** OpenAI `diarized_json`/`verbose_json` và JSON đoạn của Gemini mới kiểm thử với máy chủ giả lập.
 

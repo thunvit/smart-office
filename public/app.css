@@ -755,6 +755,7 @@ tr.voided td{opacity:.5;text-decoration:line-through}
 .aim-person{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:4px 8px;background:var(--sunken)}
 .tag.aim-ok{color:var(--ok);border-color:var(--ok)} .tag.aim-warn{color:var(--warn);border-color:var(--warn)}
 .aim-segs{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin:8px 0;background:var(--surface)}
+.aim-alist{list-style:none;margin:4px 0;padding:0;display:grid;gap:4px}.aim-alist li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;padding:4px 8px;border:1px solid var(--line);border-radius:8px}.aim-alist .actions{margin:0}
 .aim-seg{display:grid;grid-template-columns:44px minmax(120px,180px) 14px minmax(0,1fr) auto;gap:6px;align-items:start;padding:4px 0;border-bottom:1px dashed var(--line)}
 .aim-seg:last-child{border-bottom:0}
 .aim-seg>.mono{padding-top:6px}
