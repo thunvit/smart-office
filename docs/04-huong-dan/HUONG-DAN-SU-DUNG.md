@@ -19,7 +19,7 @@ SmartOffice là phần mềm văn phòng số nội bộ, gồm 19 phân hệ, b
 | 6 | Chấm công – Bảng công | Chấm công vào/ra ca trên web (nút **Vào ca** trên thanh menu); bảng công tháng tự tổng hợp từ dữ liệu chấm công, nghỉ phép, công tác, làm thêm giờ, giải trình đã duyệt và ngày nghỉ lễ; Phòng HC–NS điều chỉnh có ghi lý do; xuất bảng công. |
 | 7 | Tiền lương | Hồ sơ lương từng người; lập bảng lương tháng từ bảng công; tự tính BHXH, BHYT, BHTN, giảm trừ gia cảnh, thuế TNCN lũy tiến; nhập thưởng, tạm ứng, khấu trừ; chốt bảng lương để phát hành phiếu lương tới từng nhân sự; xuất bảng thanh toán tiền lương. |
 | 8 | Bảng tin | Đăng thông báo, chính sách, sự kiện; ghim tin quan trọng; yêu cầu nhân sự **xác nhận đã đọc**, người đăng theo dõi danh sách chưa đọc, chưa xác nhận; bình luận. |
-| 9 | Lịch họp | Lịch tuần; đặt phòng họp, **tự cảnh báo trùng phòng**; mời thành viên theo phòng ban, theo dõi phản hồi tham dự; biên bản, kết luận; **giao việc trực tiếp từ kết luận** sang phân hệ Công việc. |
+| 9 | Lịch họp | Lịch tuần; đặt phòng họp, **tự cảnh báo trùng phòng**; mời thành viên theo phòng ban, theo dõi phản hồi tham dự; biên bản, kết luận; **giao việc trực tiếp từ kết luận** sang phân hệ Công việc. Từ 1.16: trợ lý cuộc họp ghi ai phát biểu (gợi ý theo mẫu giọng), lập biên bản và thông báo kết luận theo thể thức Nghị định 30/2020, đề xuất người chủ trì, phối hợp cho từng đầu việc. |
 | 10 | Tài liệu – Tri thức | Kho văn bản theo loại (quy phạm pháp luật, quy chế nội bộ, văn bản đến, văn bản đi, biểu mẫu, hướng dẫn, hợp đồng); số ký hiệu, ngày ban hành, cơ quan ban hành; đính kèm tệp (tối đa 20 MB); bài viết hướng dẫn; giới hạn phạm vi xem theo phòng ban; tìm kiếm toàn văn. |
 | 11 | Khách hàng | Danh sách khách hàng; cơ hội bán hàng theo 6 giai đoạn (bảng Kanban kéo thả); lịch sử chăm sóc (gọi điện, gặp mặt, báo giá…); lịch hẹn. Nhân viên xem khách hàng của phòng mình; lãnh đạo xem toàn bộ. |
 | 12 | Thu chi – Ngân sách | Phiếu thu, phiếu chi có số chứng từ tự động; **lập phiếu chi trực tiếp từ đề xuất đã duyệt**; ngân sách năm theo phòng ban và khoản mục, so sánh kế hoạch – thực hiện; tồn quỹ; biểu đồ thu chi theo tháng; hủy chứng từ có ghi lý do; xuất sổ thu chi. Chỉ Ban Giám đốc, Phòng TC–KT, quản trị viên truy cập. |
@@ -309,12 +309,23 @@ Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hìn
    - Bấm **Soạn thảo**. Sửa trực tiếp bản thảo, hoặc nhập yêu cầu chỉnh sửa rồi bấm **Soạn lại theo yêu cầu**.
    - **Sao chép**, **Tải tệp Word (.doc)**, hoặc **Lưu vào Tài liệu** (nếu có quyền cập nhật kho Tài liệu).
    - Bản thảo do AI lập: người soạn kiểm tra nội dung, thể thức, căn cứ trước khi trình ký. Chỗ thiếu thông tin được đánh dấu "[cần bổ sung: …]".
-7. **Ghi âm, biên bản và kết luận cuộc họp:** Lịch họp › mở cuộc họp › **✨ Trợ lý cuộc họp**.
-   - Bấm **● Ghi âm** khi bắt đầu họp; bản chép lời hiện dần kèm mốc thời gian. Có thể gõ, sửa, dán ghi chép trực tiếp. Chỉ ghi âm khi đã thông báo cho người dự họp.
-   - Cách chuyển giọng nói tùy cấu hình của bạn: OpenAI hoặc Gemini thì máy chủ chuyển từng đoạn 60 giây; Anthropic (Claude) không nhận âm thanh nên dùng nhận dạng giọng nói của trình duyệt Chrome/Edge. Trình duyệt sẽ hỏi quyền dùng micro.
-   - Bấm **Lập biên bản và kết luận**: trợ lý lập biên bản, kết luận và danh sách việc cần làm (người thực hiện chọn trong thành phần họp, hạn nếu được nêu).
-   - Kiểm tra, sửa rồi bấm **Lưu vào biên bản cuộc họp** (người chủ trì hoặc người tạo cuộc họp), **Tải tệp Word**, hoặc chọn việc, dự án rồi bấm **Giao các việc đã chọn**.
-   - Âm thanh không được lưu; chỉ lưu phần chữ bạn bấm lưu.
+7. **Ghi âm, nhận dạng người phát biểu, biên bản và kết luận cuộc họp (từ phiên bản 1.16):** Lịch họp › mở cuộc họp › **✨ Trợ lý cuộc họp**.
+   - **Trước cuộc họp (khuyến nghị):** mỗi thành viên vào Tài khoản › **Mẫu giọng nói của tôi**, tích đồng ý, bấm **● Ghi mẫu giọng** và đọc to đoạn văn mẫu trong 20 giây (nên dùng micro thường dùng khi họp). Hệ thống chỉ lưu dãy số đặc trưng giọng, không lưu âm thanh. Xóa được bất kỳ lúc nào.
+   - Bấm **● Ghi âm** khi bắt đầu họp. Từng đoạn phát biểu hiện kèm mốc thời gian và **người nói được gợi ý** theo mẫu giọng. Đoạn có dấu "?" là trợ lý chưa chắc. Chỉ ghi âm khi đã thông báo cho người dự họp.
+   - Thư ký chọn lại người nói ở đoạn sai; trợ lý học thêm từ các đoạn đã chọn trong phiên. Thành viên chưa có mẫu giọng: bấm **Lấy mẫu** cạnh tên khi người đó đang nói (6 giây, chỉ dùng trong phiên). Có thể **+ Thêm đoạn**, sửa, xóa đoạn và thêm **Ghi chép bổ sung**.
+   - Người chủ trì hoặc người tạo cuộc họp bấm **Lưu bản ghi phát biểu** để lưu ai nói gì, lúc nào. Thành phần cuộc họp xem lại được; dòng thống kê cho biết mỗi người phát biểu bao nhiêu lượt, khoảng bao nhiêu phút.
+   - Cách chuyển giọng nói tùy cấu hình của bạn:
+     - OpenAI hoặc Gemini: máy chủ chuyển từng đoạn 60 giây. Với OpenAI, nên chọn mô hình chuyển giọng nói `whisper-1` (có mốc thời gian từng đoạn) hoặc `gpt-4o-transcribe-diarize` (có tách người nói).
+     - Anthropic (Claude) không nhận âm thanh nên dùng nhận dạng giọng nói của trình duyệt Chrome/Edge.
+   - Bấm **✨ Lập biên bản, kết luận và đề xuất phân công**. Trợ lý trả:
+     - ý kiến của từng người phát biểu và kết luận của chủ trì;
+     - các đầu việc kèm **người chủ trì**, **người phối hợp**, hạn và lý do chọn người. Nhãn **Giao trong cuộc họp** là việc đã được giao rõ; **Trợ lý đề xuất** là người trợ lý gợi ý theo chức trách, nội dung phát biểu và số việc đang làm. Người chủ trì cuộc họp thấy số việc đang làm, quá hạn của từng người để cân đối.
+   - Ở mục **Thể thức văn bản**, nhập cơ quan chủ quản, chữ viết tắt tên cơ quan (ký hiệu), địa danh, thư ký, giờ kết thúc, người ký thông báo (trình duyệt nhớ cho lần sau). Sửa trực tiếp diễn biến, kết luận, đầu việc; văn bản xem trước cập nhật ngay.
+   - Hai văn bản theo thể thức Nghị định 30/2020/NĐ-CP:
+     - **Biên bản** (Mẫu 1.9, ký hiệu BB): chữ ký thư ký và chủ tọa;
+     - **Thông báo kết luận** (Mẫu 1.4, ký hiệu TB): nơi nhận, quyền hạn và chức vụ người ký.
+     Số văn bản để trống để Văn thư cấp. Bấm **Tải Word** (khổ A4, lề và phông theo Phụ lục I), **Lưu biên bản vào cuộc họp**, hoặc chọn việc, dự án rồi bấm **Giao các việc đã chọn** (người phối hợp được thêm vào danh sách theo dõi công việc).
+   - Âm thanh không được lưu. Người nói do trợ lý gợi ý, có thể nhầm khi phòng ồn, nhiều người nói chồng tiếng, hoặc mẫu giọng ghi bằng micro khác; thư ký chịu trách nhiệm kiểm tra.
 8. **Tra cứu trên Internet (phiên bản 1.13, khi quản trị viên bật; hiện chỉ với Anthropic):** hỏi về văn bản pháp luật, chỉ đạo của Chính phủ, công báo, thông tin đấu thầu. Ví dụ: "Mức lương cơ sở hiện nay theo văn bản nào?"; "Tra thông báo mời thầu gói mua sắm máy tính trên hệ thống mua sắm công".
    - Trợ lý chỉ tìm trong các trang quản trị viên cho phép. Mặc định: chinhphu.vn, vanban.chinhphu.vn, congbao.chinhphu.vn, muasamcong.mof.gov.vn, dauthau.asia (trang của doanh nghiệp, không phải cổng thông tin nhà nước).
    - Trong lúc xử lý, khung trợ lý hiện câu tìm kiếm và trang đang đọc. Câu trả lời kèm mục **Nguồn tham khảo trên Internet**; bấm để mở trang gốc.

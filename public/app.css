@@ -749,3 +749,19 @@ tr.voided td{opacity:.5;text-decoration:line-through}
   .ai-fab span{display:none}
   .ai-fab{padding:12px}
 }
+
+/* Trợ lý cuộc họp: người phát biểu, bản ghi phát biểu, xem trước văn bản theo thể thức NĐ 30/2020 (ADR-011) */
+.aim-people{display:flex;flex-wrap:wrap;gap:6px 12px;margin:6px 0}
+.aim-person{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:4px 8px;background:var(--sunken)}
+.tag.aim-ok{color:var(--ok);border-color:var(--ok)} .tag.aim-warn{color:var(--warn);border-color:var(--warn)}
+.aim-segs{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:6px;margin:8px 0;background:var(--surface)}
+.aim-seg{display:grid;grid-template-columns:44px minmax(120px,180px) 14px minmax(0,1fr) auto;gap:6px;align-items:start;padding:4px 0;border-bottom:1px dashed var(--line)}
+.aim-seg:last-child{border-bottom:0}
+.aim-seg>.mono{padding-top:6px}
+.aim-seg select,.aim-seg textarea{width:100%;min-width:0}
+.aim-seg.unsure select{border-color:var(--warn);background:var(--warn-weak)}
+#aim-root .btn{white-space:normal;text-align:center} #aim-root .aim-person .btn{white-space:nowrap}
+@media (max-width:600px){.aim-seg{grid-template-columns:44px minmax(0,1fr) auto}.aim-seg .aim-q{display:none}.aim-seg textarea{grid-column:1 / -1;order:9}}
+/* Giấy A4 xem trước: luôn nền trắng chữ đen như bản in, kể cả chế độ tối */
+.nd30-paper{background:#fff;color:#000;border:1px solid var(--line-strong);border-radius:4px;padding:20px 18px 20px 26px;margin:8px 0;max-height:520px;overflow:auto;font-family:"Times New Roman",serif;font-size:15px;line-height:1.4}
+.nd30-paper p{margin:0 0 6px}

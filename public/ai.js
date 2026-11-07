@@ -321,6 +321,7 @@ async function mountAccount(el) {
   provChanged();
   el.insertAdjacentHTML('beforeend', '<section class="card" id="aime-use" style="margin-top:14px"><div class="card-h"><h2>Token AI tôi đã dùng</h2></div><div class="card-b"><p class="hint">Đang tải…</p></div></section>');
   mountUsage();
+  if (window.SO_AI_OFFICE && window.SO_AI_OFFICE.mountVoice) window.SO_AI_OFFICE.mountVoice(el); // Mẫu giọng nói của tôi (ADR-011)
 }
 async function mountUsage() {
   const box = document.querySelector('#aime-use .card-b'); if (!box) return;

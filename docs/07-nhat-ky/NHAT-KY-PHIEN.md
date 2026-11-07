@@ -481,6 +481,51 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
 - **Chưa kiểm chứng:** với mô hình thật (mô hình có ghi đúng cú pháp, đúng mã không); hiển thị trên trình duyệt thật.
 
+## 07/11/2026. Trợ lý cuộc họp: người phát biểu, mẫu giọng, biên bản theo NĐ 30/2020, tư vấn phân công (so-1.16.0, ADR-011)
+- **Yêu cầu của chủ sở hữu:**
+  - lưu thành viên nào phát biểu; lưu nhận dạng giọng theo thành viên;
+  - kết luận chưa theo thể thức Nghị định 30/2020;
+  - bóc tách đầu việc, tư vấn phân công cho đúng người.
+- **Tra cứu căn cứ:**
+  - đọc toàn văn phần điều khoản Nghị định 30/2020/NĐ-CP (Điều 7, 8, 9, 37) trên thuvienphapluat.vn bằng trình duyệt;
+  - Phụ lục I mục I–II.3 và Phụ lục III (bảng chữ viết tắt TB, BB; Mẫu 1.4, Mẫu 1.9) qua bài trích của cùng trang;
+  - chưa đọc được tệp Word mẫu gốc và mục "Liên quan hiệu lực" (yêu cầu tài khoản trả phí). Đã cập nhật dòng 6, dòng 10 danh mục căn cứ pháp lý.
+- **Việc đã làm:**
+  - `public/voice-id.js`: đặc trưng giọng MFCC (57 số) tính tại trình duyệt; mô hình người nói trong phiên (gợi ý, học thêm từ đoạn thư ký xác nhận, từ chối giọng lạ khi đủ dữ liệu); không thư viện ngoài.
+  - `meeting-ai.js` (mới):
+    - bảng `voice_profiles` (chỉ đặc trưng, có thời điểm đồng ý) và `meeting_transcripts`;
+    - API `/api/me/voice` (đăng ký có đồng ý, xóa), `/api/meetings/:id/voices` (chỉ thành phần cuộc họp), `/api/meetings/:id/transcript`, `/api/meetings/:id/assign-context` (ứng viên kèm tải công việc, chỉ người chủ trì thấy);
+    - nhật ký an ninh `voice_enroll`, `voice_read`, `voice_delete`.
+  - `ai.js`, `ai-compose.js`:
+    - chép lời có mốc thời gian từng đoạn: OpenAI `verbose_json`/`diarized_json`, Gemini JSON đoạn;
+    - lời nhắc biên bản mới (diễn biến theo người, kết luận, đầu việc có chủ trì, phối hợp, nguồn, lý do), kèm ứng viên phân công;
+    - máy chủ chỉ nhận mã người trong thành phần họp hoặc danh sách ứng viên.
+  - `public/nd30.js`: dựng Biên bản (Mẫu 1.9) và Thông báo kết luận (Mẫu 1.4) theo thể thức; tệp Word A4, lề 20/20/30/15 mm.
+  - `public/ai-office.js`:
+    - bộ ghi âm tách đoạn theo người nói;
+    - màn hình trợ lý cuộc họp mới: người phát biểu, lấy mẫu tại chỗ, sửa người nói, thống kê, lưu bản ghi; thể thức; xem trước hai văn bản; đầu việc chủ trì/phối hợp; giao việc kèm người phối hợp;
+    - thẻ Tài khoản › Mẫu giọng nói của tôi.
+  - Tài liệu: ADR-011 (Đề xuất), hướng dẫn sử dụng mục XII.7, danh mục căn cứ pháp lý, mục lục tài liệu.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 299 đạt, 0 không đạt (thêm 49 điều kiện):
+    - mẫu giọng: đồng ý, số chiều, phiên bản, không lưu âm thanh;
+    - quyền đọc dấu giọng, bản ghi phát biểu, tải công việc; nhật ký an ninh; trợ lý hội thoại không đọc được dấu giọng;
+    - chép lời theo đoạn: OpenAI whisper-1, diarize, Gemini;
+    - biên bản: chủ trì/phối hợp/lý do, bỏ mã người ngoài; tải công việc không gửi cho mô hình khi người gọi không phải chủ trì;
+    - nhận dạng giọng tổng hợp 12/12 đoạn đúng;
+    - thể thức: ngày tháng, ký hiệu BB/TB, chữ ký, lề trang.
+  - `worker-smoke` đạt (`backup-manifest 200 76 1`: thêm 2 bảng mới); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ; rà soát phạm vi biến giao diện không còn lỗi.
+  - **Trình duyệt (máy chủ thử 3100, phiên đăng nhập sẵn của chủ sở hữu):**
+    - mở trợ lý cuộc họp, thêm đoạn, chọn người nói, lưu bản ghi phát biểu (đã kiểm qua API);
+    - xem trước Biên bản và Thông báo kết luận; thẻ mẫu giọng chặn khi chưa tích đồng ý.
+    - Phát hiện và đã sửa 2 lỗi bố cục: ô lời phát biểu bị thu về 14 px; ở 360 px ô chọn người nói bị thu, nút tràn ngang.
+- **Chưa kiểm chứng:**
+  - ghi âm thật (micro bị chặn trong khung trình duyệt của công cụ);
+  - độ chính xác nhận dạng với giọng thật;
+  - mô hình thật (Anthropic/OpenAI/Gemini) với lời nhắc biên bản mới, `diarized_json`, JSON đoạn của Gemini;
+  - tệp Word mở bằng Microsoft Word;
+  - chạy trên Cloudflare.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
@@ -498,3 +543,4 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 4. **Tên miền** `smartoffice.vnptninhbinh.com.vn` chưa gắn; chờ chọn phương án DNS.
 5. **Phân hệ Công việc – Dự án v2** đã triển khai (06/11/2026). Đề xuất P1: service worker tự kích hoạt bản mới khi API thay đổi không tương thích, tránh giao diện cũ gọi API mới.
 6. **Trợ lý AI (Phiên 16, Đợt 2):** đã viết trên nhánh (so-1.11.0, ADR-010 ở trạng thái Đề xuất). Chờ: chủ sở hữu duyệt ADR-010; chủ sở hữu tự khai báo `AI_API_KEY` và thử với Anthropic thật; pháp chế xác nhận điều kiện gửi dữ liệu ra nhà cung cấp AI trước khi bật trên hệ thống thật.
+7. **Trợ lý cuộc họp (ADR-011, so-1.16.0):** chờ chủ sở hữu duyệt ADR-011. Chờ pháp chế xác nhận căn cứ xử lý đặc trưng giọng nói (dữ liệu sinh trắc học) và thời hạn lưu. Cần thử ghi âm thật trong một cuộc họp, đo độ chính xác gợi ý người nói, mở tệp Word bằng Microsoft Word, và đối chiếu với tệp Mẫu 1.4, 1.9 gốc.

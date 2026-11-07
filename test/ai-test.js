@@ -263,6 +263,9 @@ const toolResults = req => (req.body.messages || []).flatMap(m => Array.isArray(
   // Q. Tác vụ một lần gọi: soạn văn bản, biên bản và kết luận cuộc họp, chuyển giọng nói thành chữ
   await oneShot(U);
 
+  // V. Trợ lý cuộc họp: mẫu giọng, bản ghi phát biểu, tư vấn phân công, chép lời theo đoạn, nhận dạng người nói, thể thức NĐ 30/2020 (ADR-011)
+  await meetingVoice(U);
+
   // M. Bản Node thật: SSE qua /api/ai/chat, gọi nhà cung cấp bằng fetch tới máy chủ giả lập Anthropic (AI_BASE_URL)
   await nodeE2E();
 
@@ -718,17 +721,29 @@ async function oneShot(U) {
   ok(r.json.text === 'Bản mới' && r.calls[0].body.messages[0].content.includes('Thêm mục kinh phí') && r.calls[0].body.messages[0].content.includes('Bản cũ'), 'soạn lại theo yêu cầu chỉnh sửa');
   ok((await run('handleCompose', 'mai.bt', { doc_type: 'congvan', brief: '  ' }, [A.text('x')])).status === 400, 'thiếu ý chính: 400');
   ok((await run('handleCompose', 'khach', { brief: 'x' }, [A.text('x')])).status === 401, 'chưa đăng nhập: 401');
-  // Biên bản, kết luận cuộc họp
+  // Biên bản, kết luận cuộc họp (ADR-011): ý kiến theo người phát biểu, kết luận, đầu việc có chủ trì/phối hợp/lý do; mã người chỉ nhận trong thành phần họp hoặc ứng viên
   const mt = (await call('long.hd', 'POST', '/api/meetings', { title: 'Họp triển khai trợ lý AI', start_at: '2026-11-10 08:00', end_at: '2026-11-10 09:30', members: [U['mai.bt'].id, U['huy.dq'].id], agenda: 'Kế hoạch thử nghiệm' })).b;
   ok(mt && mt.id, 'tạo cuộc họp thử', mt);
-  const json = { tom_tat: 'Thống nhất thử nghiệm.', bien_ban: 'Thời gian: …', ket_luan: ['Thử nghiệm trong 2 tuần'], viec_can_lam: [{ noi_dung: 'Chuẩn bị tài khoản', nguoi_thuc_hien_id: U['mai.bt'].id, han: '2026-11-14' }, { noi_dung: 'Việc của người ngoài', nguoi_thuc_hien_id: 99999, han: 'thứ Sáu' }] };
-  r = await run('handleMinutes', 'long.hd', { meeting_id: mt.id, transcript: 'Anh Long: thống nhất thử nghiệm hai tuần. Chị Mai chuẩn bị tài khoản trước thứ Sáu.' }, [A.text('Đây là kết quả:\n```json\n' + JSON.stringify(json) + '\n```')]);
-  ok(r.status === 200 && r.json.ok === true && r.json.ket_luan[0] === 'Thử nghiệm trong 2 tuần' && r.json.viec_can_lam.length === 2, 'biên bản: đọc được JSON bọc trong ```json', r.json);
-  ok(r.json.viec_can_lam[0].nguoi_thuc_hien_id === U['mai.bt'].id && r.json.viec_can_lam[0].han === '2026-11-14' && r.json.viec_can_lam[1].nguoi_thuc_hien_id === null && r.json.viec_can_lam[1].han === null, 'người thực hiện ngoài thành phần họp, hạn sai định dạng: bỏ', r.json.viec_can_lam);
+  const json = { tom_tat: 'Thống nhất thử nghiệm.', dien_bien: [{ nguoi_id: U['long.hd'].id, ten: 'Long', y_kien: 'Đề nghị thử nghiệm hai tuần.' }, { nguoi_id: 4242, ten: 'Người lạ', y_kien: 'Ý kiến' }], ket_luan: ['Thử nghiệm trong 2 tuần'],
+    viec_can_lam: [{ noi_dung: 'Chuẩn bị tài khoản', chu_tri_id: U['mai.bt'].id, phoi_hop_ids: [U['huy.dq'].id, 99999, U['mai.bt'].id], han: '2026-11-14', nguon: 'giao_ro', ly_do: 'Được giao tại phút 01:10' },
+      { noi_dung: 'Việc của người ngoài', chu_tri_id: 99999, han: 'thứ Sáu', nguon: 'giao_ro' }, { noi_dung: 'Kiểu cũ', nguoi_thuc_hien_id: U['huy.dq'].id }] };
+  const tr = `[00:05] ${U['long.hd'].full_name} (mã ${U['long.hd'].id}): thống nhất thử nghiệm hai tuần.\n[01:10] Chưa rõ người nói: chị Mai chuẩn bị tài khoản trước thứ Sáu.`;
+  r = await run('handleMinutes', 'long.hd', { meeting_id: mt.id, transcript: tr }, [A.text('Đây là kết quả:\n```json\n' + JSON.stringify(json) + '\n```')]);
+  ok(r.status === 200 && r.json.ok === true && r.json.ket_luan[0] === 'Thử nghiệm trong 2 tuần' && r.json.viec_can_lam.length === 3, 'biên bản: đọc được JSON bọc trong ```json', r.json);
+  const v0 = r.json.viec_can_lam;
+  ok(v0[0].chu_tri_id === U['mai.bt'].id && JSON.stringify(v0[0].phoi_hop_ids) === JSON.stringify([U['huy.dq'].id]) && v0[0].nguon === 'giao_ro' && v0[0].ly_do === 'Được giao tại phút 01:10' && v0[0].han === '2026-11-14', 'đầu việc: chủ trì, phối hợp (bỏ người ngoài danh sách và trùng chủ trì), nguồn, lý do', v0[0]);
+  ok(v0[1].chu_tri_id === null && v0[1].han === null && v0[1].nguon === 'de_xuat' && v0[2].chu_tri_id === U['huy.dq'].id, 'người ngoài thành phần/ứng viên, hạn sai định dạng: bỏ; nhận khóa cũ nguoi_thuc_hien_id', v0.slice(1));
+  ok(r.json.dien_bien[0].nguoi_id === U['long.hd'].id && r.json.dien_bien[1].nguoi_id === null && r.json.dien_bien[1].y_kien === 'Ý kiến', 'diễn biến: mã người ngoài thành phần họp bị bỏ, giữ ý kiến', r.json.dien_bien);
+  ok(Array.isArray(r.json.candidates) && r.json.workload === true && r.json.candidates.some(c => c.id === U['mai.bt'].id && typeof c.open_tasks === 'number'), 'người chủ trì: kèm ứng viên và tải công việc', r.json.candidates && r.json.candidates.slice(0, 2));
   const mp = r.calls[0].body.messages[0].content;
   ok(mp.includes('Họp triển khai trợ lý AI') && mp.includes(U['mai.bt'].id + ': ' + U['mai.bt'].full_name) && mp.includes('Kế hoạch thử nghiệm') && !('tools' in r.calls[0].body) && /thư ký cuộc họp/.test(r.calls[0].body.system[0].text), 'biên bản: lời nhắc có thông tin, thành phần, chương trình họp; không gửi công cụ');
+  ok(mp.includes(`(mã ${U['long.hd'].id}): thống nhất`) && mp.includes('Chưa rõ người nói') && /Ứng viên phân công/.test(mp) && /việc chưa xong/.test(mp) && /Nghị định 30\/2020/.test(r.calls[0].body.system[0].text) && /chu_tri_id/.test(r.calls[0].body.system[0].text), 'lời nhắc: bản ghi theo người phát biểu, ứng viên kèm tải công việc, yêu cầu chủ trì/phối hợp');
+  r = await run('handleMinutes', 'huy.dq', { meeting_id: mt.id, transcript: tr }, [A.text(JSON.stringify(json))]);
+  ok(r.status === 200 && r.json.workload === false && r.json.candidates.every(c => c.open_tasks === undefined) && !/việc chưa xong/.test(r.calls[0].body.messages[0].content), 'thành viên không chủ trì: không thấy, không gửi tải công việc của người khác', r.json.candidates && r.json.candidates[0]);
+  r = await run('handleMinutes', 'quan.lm', { meeting_id: mt.id, transcript: tr }, [A.text(JSON.stringify(json))]);
+  ok(r.status === 200 && r.json.candidates.length === 0 && r.json.viec_can_lam[0].chu_tri_id === U['mai.bt'].id && !/Ứng viên phân công/.test(r.calls[0].body.messages[0].content), 'người ngoài cuộc họp: không có ứng viên, chỉ nhận người trong thành phần họp', r.json);
   r = await run('handleMinutes', 'long.hd', { meeting_id: mt.id, transcript: 'Nội dung đủ dài để lập biên bản cuộc họp.' }, [A.text('Biên bản dạng chữ, không phải JSON')]);
-  ok(r.status === 200 && r.json.ok === false && r.json.bien_ban === 'Biên bản dạng chữ, không phải JSON', 'mô hình không trả JSON: vẫn trả biên bản dạng chữ');
+  ok(r.status === 200 && r.json.ok === false && r.json.raw === 'Biên bản dạng chữ, không phải JSON' && r.json.viec_can_lam.length === 0, 'mô hình không trả JSON: trả nguyên văn để thư ký dùng', r.json);
   ok((await run('handleMinutes', 'long.hd', { meeting_id: 999999, transcript: 'Nội dung đủ dài để lập biên bản cuộc họp.' }, [A.text('x')])).status === 404, 'cuộc họp không tồn tại: 404');
   ok((await run('handleMinutes', 'long.hd', { meeting_id: mt.id, transcript: 'ngắn' }, [A.text('x')])).status === 400, 'ghi chép quá ngắn: 400');
   // Chuyển giọng nói
@@ -752,6 +767,118 @@ async function oneShot(U) {
   await call('mai.bt', 'PUT', '/api/ai/me', { provider: 'openai', model: 'm', clear_key: true });
   r = await call('long.hd', 'GET', '/api/ai/status');
   ok(r.b.audio_server === false, 'không có khóa OpenAI/Gemini: dùng nhận dạng của trình duyệt', r.b);
+}
+
+/* V. Trợ lý cuộc họp (ADR-011): mẫu giọng (đồng ý, chỉ đặc trưng, nhật ký an ninh), dấu giọng theo cuộc họp (đúng quyền), bản ghi phát biểu,
+ * dữ liệu tư vấn phân công; chép lời có mốc thời gian; nhận dạng người nói tại trình duyệt; thể thức Nghị định 30/2020. */
+async function meetingVoice(U) {
+  const VX = require(path.join(__dirname, '..', 'public', 'voice-id.js')), ND = require(path.join(__dirname, '..', 'public', 'nd30.js')), MA = require(path.join(__dirname, '..', 'meeting-ai.js'));
+  const quan = (await call('quan.lm', 'GET', '/api/bootstrap')).b.me;
+  const vec = Array.from({ length: VX.DIMS }, (_, i) => Math.round(Math.sin(i + 1) * 1000) / 100);
+  ok(VX.DIMS === MA.VOICE_DIMS && VX.VERSION === MA.VOICE_VERSION, 'phiên bản, số chiều dấu giọng thống nhất giữa trình duyệt và máy chủ');
+  // 1. Mẫu giọng của tôi
+  ok((await call('mai.bt', 'PUT', '/api/me/voice', { vec, version: VX.VERSION, seconds: 20 })).s === 400, 'mẫu giọng: chưa tích đồng ý → 400');
+  ok((await call('mai.bt', 'PUT', '/api/me/voice', { vec: vec.slice(1), version: VX.VERSION, seconds: 20, consent: true })).s === 400, 'mẫu giọng: sai số chiều → 400');
+  ok((await call('mai.bt', 'PUT', '/api/me/voice', { vec: vec.map((x, i) => i ? x : 'a'), version: VX.VERSION, seconds: 20, consent: true })).s === 400, 'mẫu giọng: phần tử không phải số → 400');
+  ok((await call('mai.bt', 'PUT', '/api/me/voice', { vec, version: 'cu', seconds: 20, consent: true })).s === 400, 'mẫu giọng: sai phiên bản → 400');
+  ok((await call('mai.bt', 'PUT', '/api/me/voice', { vec, version: VX.VERSION, seconds: 3, consent: true })).s === 400, 'mẫu giọng: quá ngắn → 400');
+  let r = await call('mai.bt', 'PUT', '/api/me/voice', { vec, version: VX.VERSION, seconds: 20, consent: true, audio: 'UklGRg==' });
+  ok(r.s === 200 && r.b.enabled !== false && r.b.enrolled === true && r.b.consent_at, 'mẫu giọng: lưu khi có đồng ý', r.b);
+  const row = D.get('SELECT * FROM voice_profiles WHERE user_id=?', U['mai.bt'].id);
+  ok(row && JSON.parse(row.vec).length === VX.DIMS && !/UklGRg/.test(JSON.stringify(row)) && Object.keys(row).every(k => ['user_id', 'vec', 'version', 'seconds', 'consent_at', 'updated_at'].includes(k)), 'mẫu giọng: chỉ lưu dãy đặc trưng, không lưu âm thanh', row && Object.keys(row));
+  ok((await call('mai.bt', 'GET', '/api/me/voice')).b.enrolled === true && (await call('huy.dq', 'GET', '/api/me/voice')).b.enrolled === false, 'mẫu giọng: mỗi người chỉ thấy trạng thái của mình');
+  await call('huy.dq', 'PUT', '/api/me/voice', { vec: vec.map(x => -x), version: VX.VERSION, seconds: 15, consent: true });
+  await call('quan.lm', 'PUT', '/api/me/voice', { vec: vec.map(x => x / 2), version: VX.VERSION, seconds: 15, consent: true });
+  // 2. Dấu giọng của thành phần cuộc họp: chỉ thành phần, chủ trì, người tạo; chỉ người trong thành phần
+  const mt = (await call('long.hd', 'POST', '/api/meetings', { title: 'Họp giao ban có ghi âm', start_at: '2026-11-12 08:00', end_at: '2026-11-12 09:00', members: [U['mai.bt'].id, U['huy.dq'].id] })).b;
+  r = await call('mai.bt', 'GET', `/api/meetings/${mt.id}/voices`);
+  ok(r.s === 200 && r.b.length === 2 && r.b.every(x => [U['mai.bt'].id, U['huy.dq'].id].includes(x.user_id) && x.vec.length === VX.DIMS) && !r.b.some(x => x.user_id === quan.id), 'dấu giọng: thành phần họp đọc được, không kèm người ngoài cuộc họp', r.b && r.b.map(x => x.user_id));
+  ok((await call('quan.lm', 'GET', `/api/meetings/${mt.id}/voices`)).s === 403, 'dấu giọng: người ngoài cuộc họp → 403');
+  ok((await call('admin', 'GET', '/api/admin/security-log?event=voice_read')).b.length >= 1 && (await call('admin', 'GET', '/api/admin/security-log?event=voice_enroll')).b.length === 3, 'mẫu giọng: đăng ký, đọc đều ghi nhật ký an ninh');
+  // Trợ lý hội thoại không đọc được dấu giọng, bản ghi phát biểu
+  const T = require(path.join(__dirname, '..', 'ai-tools.js'));
+  const dd = T.BY_NAME.doc_du_lieu;
+  for (const p of [`/api/meetings/${mt.id}/voices`, '/api/me/voice', `/api/meetings/${mt.id}/transcript`]) { let blocked = false; try { dd.req({ duong_dan: p }); } catch (e) { blocked = true; } ok(blocked, 'trợ lý hội thoại không đọc được ' + p.replace(/\d+/, ':id')); }
+  // 3. Bản ghi phát biểu: chủ trì lưu; mã người ngoài thành phần bị bỏ; thống kê phát biểu
+  const segs = [{ t: 5, uid: U['long.hd'].id, text: 'Khai mạc' }, { t: 30, uid: U['mai.bt'].id, text: 'Báo cáo tiến độ' }, { t: 90, uid: quan.id, text: 'Người ngoài' }, { t: 120, uid: U['mai.bt'].id, text: 'Bổ sung' }, { t: 150, uid: null, text: '   ' }];
+  ok((await call('mai.bt', 'PUT', `/api/meetings/${mt.id}/transcript`, { segments: segs })).s === 403, 'bản ghi phát biểu: thành viên không chủ trì không lưu được');
+  r = await call('long.hd', 'PUT', `/api/meetings/${mt.id}/transcript`, { segments: segs });
+  ok(r.s === 200 && r.b.segments === 4, 'bản ghi phát biểu: chủ trì lưu, bỏ đoạn trống', r.b);
+  r = await call('huy.dq', 'GET', `/api/meetings/${mt.id}/transcript`);
+  const sp = r.b && r.b.speakers;
+  ok(r.s === 200 && r.b.segments[2].uid === null && r.b.segments[1].name === U['mai.bt'].full_name && sp.find(x => x.uid === U['mai.bt'].id).turns === 2 && sp.find(x => x.uid === null).name === 'Chưa rõ người nói', 'bản ghi phát biểu: người ngoài thành phần → chưa rõ; thống kê số lượt theo người', r.b);
+  ok((await call('quan.lm', 'GET', `/api/meetings/${mt.id}/transcript`)).s === 403, 'bản ghi phát biểu: người ngoài cuộc họp → 403');
+  ok((await call('long.hd', 'PUT', `/api/meetings/${mt.id}/transcript`, { segments: Array(3001).fill({ t: 1, text: 'x' }) })).s === 400, 'bản ghi phát biểu: quá 3.000 đoạn → 400');
+  // 4. Tư vấn phân công: ứng viên gồm thành phần họp và trưởng các phòng; tải công việc chỉ cho người chủ trì
+  r = await call('long.hd', 'GET', `/api/meetings/${mt.id}/assign-context`);
+  const heads = D.all('SELECT head_id FROM departments WHERE head_id IS NOT NULL').map(x => x.head_id);
+  ok(r.s === 200 && r.b.workload === true && heads.every(h => r.b.candidates.some(c => c.id === h)) && r.b.candidates.some(c => c.id === U['mai.bt'].id && c.in_meeting && typeof c.open_tasks === 'number' && typeof c.late_tasks === 'number'), 'tư vấn phân công: ứng viên gồm thành phần họp, trưởng các phòng, kèm tải công việc', r.b);
+  const openMai = D.get("SELECT COUNT(*) n FROM tasks WHERE assignee_id=? AND status NOT IN ('done','failed')", U['mai.bt'].id).n;
+  ok(r.b.candidates.find(c => c.id === U['mai.bt'].id).open_tasks === openMai, 'tư vấn phân công: số việc đang làm khớp dữ liệu', openMai);
+  r = await call('mai.bt', 'GET', `/api/meetings/${mt.id}/assign-context`);
+  ok(r.s === 200 && r.b.workload === false && r.b.candidates.every(c => !('open_tasks' in c)), 'tư vấn phân công: thành viên thường không thấy tải công việc của người khác');
+  // 5. Xóa mẫu giọng
+  r = await call('mai.bt', 'DELETE', '/api/me/voice');
+  ok(r.s === 200 && r.b.deleted === true && !D.get('SELECT 1 FROM voice_profiles WHERE user_id=?', U['mai.bt'].id) && (await call('admin', 'GET', '/api/admin/security-log?event=voice_delete')).b.length === 1, 'mẫu giọng: xóa được, ghi nhật ký');
+  ok((await call('huy.dq', 'GET', `/api/meetings/${mt.id}/voices`)).b.every(x => x.user_id !== U['mai.bt'].id), 'mẫu giọng đã xóa không còn trong cuộc họp');
+
+  // 6. Chép lời có mốc thời gian (để so khớp giọng từng đoạn)
+  const ORG = { AI_API_KEY: 'sk-o', AI_PROVIDER: 'openai', AI_MODEL: 'm' }, wav = Buffer.concat([Buffer.from('RIFF'), Buffer.alloc(40)]).toString('base64');
+  const runT = async (body, script, env) => { const mf = mockFetch(script); const x = await AI.handleTranscribe({ body, env, fetchImpl: mf, callApi: (m, p, b) => call('long.hd', m, p, b) }); return { ...x, calls: mf.calls }; };
+  r = await runT({ audio: wav, mime: 'audio/wav', seconds: 60, segments: true }, [{ text: 'Chào. Báo cáo.', segments: [{ id: 0, start: 0.2, end: 2.5, text: ' Chào.' }, { id: 1, start: 2.5, end: 9, text: 'Báo cáo.' }] }], ORG);
+  let f = r.calls[0].form;
+  ok(r.status === 200 && r.json.segments.length === 2 && r.json.segments[1].start === 2.5 && r.json.segments[0].text === 'Chào.' && f.get('response_format') === 'verbose_json' && f.get('timestamp_granularities[]') === 'segment', 'OpenAI whisper-1: verbose_json, trả các đoạn có mốc thời gian', r.json);
+  r = await runT({ audio: wav, mime: 'audio/wav', seconds: 60 }, [{ text: 'Chào' }], ORG);
+  ok(r.calls[0].form.get('response_format') === 'json' && !('segments' in r.json), 'không yêu cầu đoạn: giữ json như cũ');
+  const DIAR = { ...ORG, AI_STT_MODEL: 'gpt-4o-transcribe-diarize' }, PLAIN = { ...ORG, AI_STT_MODEL: 'gpt-4o-transcribe' };
+  r = await runT({ audio: wav, mime: 'audio/wav', seconds: 60, segments: true }, [{ text: 'a b', segments: [{ type: 'transcript.text.segment', id: 's1', start: 0, end: 3, text: 'a', speaker: 'A' }, { type: 'transcript.text.segment', id: 's2', start: 3, end: 6, text: 'b', speaker: 'B' }] }], DIAR);
+  f = r.calls[0].form;
+  ok(r.status === 200 && f.get('model') === 'gpt-4o-transcribe-diarize' && f.get('response_format') === 'diarized_json' && f.get('chunking_strategy') === 'auto' && r.json.segments[1].speaker === 'B', 'OpenAI *-diarize: diarized_json, giữ nhãn người nói của nhà cung cấp', r.json);
+  r = await runT({ audio: wav, mime: 'audio/wav', seconds: 60, segments: true }, [{ text: 'Không có đoạn' }], PLAIN);
+  ok(r.calls[0].form.get('response_format') === 'json' && !('segments' in r.json) && r.json.text === 'Không có đoạn', 'gpt-4o-transcribe (không có verbose_json): trả chữ, không đoạn');
+  r = await runT({ audio: wav, mime: 'audio/wav', seconds: 30, segments: true }, [{ candidates: [{ content: { parts: [{ text: '{"doan":[{"bat_dau":0,"ket_thuc":4.5,"noi_dung":"Xin chào"},{"bat_dau":4.5,"ket_thuc":99999,"noi_dung":"Tôi đồng ý"},{"bat_dau":1,"noi_dung":""}]}' }] } }], usageMetadata: { promptTokenCount: 900, candidatesTokenCount: 20 } }], { AI_API_KEY: 'g', AI_PROVIDER: 'gemini', AI_MODEL: 'mo-hinh-g' });
+  const g = r.calls[0].body;
+  ok(r.json.segments.length === 2 && r.json.segments[1].end === 3600 && r.json.text === 'Xin chào Tôi đồng ý' && g.generationConfig.responseMimeType === 'application/json' && /"doan"/.test(g.contents[0].parts[1].text), 'Gemini: JSON các đoạn, chuẩn hóa mốc thời gian, bỏ đoạn rỗng', r.json);
+  r = await runT({ audio: wav, mime: 'audio/wav', seconds: 30, segments: true }, [{ candidates: [{ content: { parts: [{ text: 'chép lời thường' }] } }] }], { AI_API_KEY: 'g', AI_PROVIDER: 'gemini', AI_MODEL: 'mo-hinh-g' });
+  ok(r.json.text === 'chép lời thường' && !('segments' in r.json), 'Gemini không trả JSON: vẫn nhận chữ');
+
+  // 7. Nhận dạng người nói tại trình duyệt (giọng tổng hợp: kiểm tra cơ chế, KHÔNG phải độ chính xác với giọng thật)
+  let seed = 11; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const voice = (sp, secs, off) => {
+    const n = Math.floor(secs * 16000), out = new Float32Array(n); let ph = 0; const st = sp.v.map(() => [0, 0, 0, 0, 0, 0]);
+    for (let i = 0; i < n; i++) {
+      const seg = Math.floor(i / 3200), k = (seg * 7 + off) % sp.v.length, vw = sp.v[k], s = st[k];
+      ph += sp.f0 * (1 + 0.08 * Math.sin(i / 16000 * 4.4)) / 16000; let x = 0; if (ph >= 1) { ph -= 1; x = 1; }
+      let y = 0; vw.forEach((F, j) => { const r0 = Math.exp(-Math.PI * (80 + 40 * j) / 16000), th = 2 * Math.PI * F / 16000, yy = x + 2 * r0 * Math.cos(th) * s[2 * j] - r0 * r0 * s[2 * j + 1]; s[2 * j + 1] = s[2 * j]; s[2 * j] = yy; y += yy * sp.g[j]; });
+      out[i] = (seg % 5 === 4 ? 0 : y * 0.02) + (rnd() - 0.5) * 0.002;
+    }
+    return out;
+  };
+  const SP = { a: { f0: 110, g: [1, .6, .3], v: [[700, 1220, 2600], [300, 870, 2240], [530, 1840, 2480], [450, 1030, 2380]] }, b: { f0: 210, g: [1, .8, .5], v: [[850, 1350, 2900], [370, 950, 2700], [610, 2330, 2990], [500, 1150, 2800]] }, c: { f0: 150, g: [1, .4, .4], v: [[640, 1190, 2390], [340, 1000, 2200], [480, 1700, 2500], [420, 900, 2300]] } };
+  const model = VX.Model(Object.entries(SP).map(([k, sp]) => ({ key: k, vec: VX.embed(voice(sp, 8, 0)) })));
+  let hit = 0, tot = 0;
+  for (let rep = 1; rep <= 4; rep++) for (const [k, sp] of Object.entries(SP)) { tot++; if (model.classify(VX.embed(voice(sp, 2.5, rep * 3))).key === k) hit++; }
+  ok(hit === tot, `nhận dạng người nói (giọng tổng hợp): ${hit}/${tot} đoạn đúng`);
+  ok(VX.embed(new Float32Array(32000).map(() => (rnd() - 0.5) * 0.002)) === null && VX.embed(new Float32Array(100)) === null, 'không có tiếng nói / quá ngắn: không tạo dấu giọng');
+  const e1 = VX.embed(voice(SP.a, 3, 5));
+  ok(VX.valid(e1) && e1.length === VX.DIMS && VX.Model([]).classify(e1).key === null, 'chưa có mẫu giọng nào: không gợi ý người nói');
+  const m2 = VX.Model([{ key: 'a', vec: VX.embed(voice(SP.a, 8, 0)) }]);
+  ok(m2.classify(VX.embed(voice(SP.b, 3, 2))).key === 'a', 'chỉ có một mẫu: vẫn gợi ý (thư ký xác nhận), chưa đủ dữ liệu để từ chối');
+  for (let i = 0; i < 4; i++) m2.learn('a', VX.embed(voice(SP.a, 2.5, i + 7)));
+  ok(m2.classify(VX.embed(voice(SP.b, 3, 2))).key === null && m2.classify(VX.embed(voice(SP.a, 3, 13))).key === 'a', 'sau khi thư ký xác nhận vài đoạn: từ chối giọng lạ, vẫn nhận đúng người quen');
+  const up = VX.to16k([new Float32Array(48000).fill(0.5)], 48000);
+  ok(up.length === 16000 && Math.abs(up[100] - 0.5) < 1e-6, 'hạ tần số lấy mẫu 48 kHz → 16 kHz');
+
+  // 8. Thể thức Nghị định 30/2020/NĐ-CP (Phụ lục I, Phụ lục III)
+  ok(ND.dateLine('Hà Nội', '2026-03-05') === 'Hà Nội, ngày 05 tháng 3 năm 2026' && ND.dateLine('Huế', '2026-01-15') === 'Huế, ngày 15 tháng 01 năm 2026' && ND.dateLine('Huế', '2026-12-20') === 'Huế, ngày 20 tháng 12 năm 2026', 'địa danh, ngày tháng: ngày < 10 và tháng 1, 2 thêm số 0');
+  const bb = ND.bienBan({ org_parent: 'UBND tỉnh Ninh Bình', org_name: 'Sở Nội vụ', abbr: 'snv', trich_yeu: 'Họp giao ban', start_at: '2026-11-12 08:00', end_time: '09:15', place: 'Phòng họp 1', chu_tri: { name: 'Hoàng Đức Long', title: 'Giám đốc' }, thu_ky: { name: 'Bùi Thị Mai' }, present: [{ name: 'Đỗ Quang Huy', title: 'Trưởng phòng' }], absent: [{ name: 'X', reason: 'báo vắng' }], dien_bien: [{ ten: 'Đỗ Quang Huy', y_kien: 'Báo cáo <script>' }], ket_luan: ['Thống nhất'], nhiem_vu: ['Đồng chí Mai chủ trì'] });
+  ok(/CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM/.test(bb.text) && bb.text.includes('Độc lập - Tự do - Hạnh phúc') && bb.text.includes('UBND TỈNH NINH BÌNH') && bb.text.includes('SỞ NỘI VỤ') && bb.text.includes('Số: …/BB-SNV') && bb.text.includes('\nBIÊN BẢN\n'), 'biên bản: Quốc hiệu, Tiêu ngữ, tên cơ quan in hoa, ký hiệu BB', bb.text.slice(0, 200));
+  ok(bb.text.includes('Thời gian bắt đầu: 08 giờ 00, ngày 12/11/2026') && bb.text.includes('Chủ trì (chủ tọa): Giám đốc Hoàng Đức Long') && bb.text.includes('Thư ký (người ghi biên bản): Bùi Thị Mai') && bb.text.includes('Vắng mặt: X (báo vắng)') && bb.text.includes('Cuộc họp kết thúc vào 09 giờ 15, ngày 12 tháng 11 năm 2026./.') && /THƯ KÝ\s+CHỦ TỌA/.test(bb.text), 'biên bản: thời gian, thành phần, chủ trì, thư ký, kết thúc, chữ ký thư ký và chủ tọa', bb.text);
+  ok(!bb.html.includes('<script>') && bb.html.includes('Báo cáo &lt;script&gt;') && /font-weight:bold">CỘNG HÒA/.test(bb.html), 'biên bản HTML: thoát ký tự, Quốc hiệu in đậm');
+  const tb = ND.thongBao({ org_name: 'Sở Nội vụ', abbr: 'SNV', place: 'Ninh Bình', date: '2026-11-12', trich_yeu: 'Kết luận của Giám đốc Hoàng Đức Long tại cuộc họp giao ban', mo_dau: 'Ngày 12/11/2026, …', ket_luan: ['Thống nhất kế hoạch'], nhiem_vu: ['Đồng chí Mai chủ trì'], ky: { quyen: 'KT. Giám đốc', chuc_vu: 'Phó Giám đốc', name: 'Nguyễn Văn A' } });
+  ok(tb.text.includes('Số: …/TB-SNV') && tb.text.includes('Ninh Bình, ngày 12 tháng 11 năm 2026') && tb.text.includes('\nTHÔNG BÁO\n') && tb.text.includes('2. Tổ chức thực hiện:') && tb.text.includes('thông báo để các cơ quan, đơn vị, cá nhân liên quan biết, thực hiện./.') && tb.text.includes('Nơi nhận:\n- Thành phần dự họp;\n- Lưu: VT.') && tb.text.includes('KT. GIÁM ĐỐC\nPHÓ GIÁM ĐỐC'), 'thông báo kết luận: ký hiệu TB, địa danh ngày tháng, nơi nhận, quyền hạn và chức vụ người ký in hoa', tb.text);
+  const doc = ND.wordDoc(tb.html, 'Thông báo');
+  ok(/size:210mm 297mm/.test(doc) && /margin:20mm 15mm 20mm 30mm/.test(doc) && /Times New Roman/.test(doc), 'tệp Word: khổ A4, lề trên/dưới 20 mm, phải 15 mm, trái 30 mm, Times New Roman');
 }
 
 async function nodeE2E() {

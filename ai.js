@@ -185,13 +185,21 @@ function openai(cfg, fetchImpl) {
       return { native: [m], text: String(m.content || '').trim(), calls, stop: c.finish_reason === 'length' ? 'max_tokens' : c.finish_reason === 'content_filter' ? 'refusal' : 'ok', usage: { in: Math.max(0, (u.prompt_tokens || 0) - ((u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) || 0)), cached: (u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) || 0, out: u.completion_tokens || 0 } };
     },
     results: rs => rs.map(r => ({ role: 'tool', tool_call_id: r.id, content: r.content })),
-    async transcribe(b64, mime) {
+    /* opt.segments: trả thêm các đoạn có mốc thời gian để trình duyệt so khớp giọng từng đoạn.
+     * whisper-1: response_format=verbose_json + timestamp_granularities[]=segment; mô hình *-diarize: diarized_json (có nhãn người nói), chunking_strategy=auto;
+     * các mô hình khác (gpt-4o-transcribe…) chỉ có json → không có đoạn, cả đoạn ghi âm là một đoạn. */
+    async transcribe(b64, mime, opt = {}) {
+      const model = cfg.sttModel || 'whisper-1', diarize = /diarize/i.test(model), verbose = opt.segments && model === 'whisper-1';
       const fd = new FormData();
       fd.append('file', new Blob([Buffer.from(b64, 'base64')], { type: mime }), 'ghi-am.' + (/wav/.test(mime) ? 'wav' : /ogg/.test(mime) ? 'ogg' : 'webm'));
-      fd.append('model', cfg.sttModel || 'whisper-1'); fd.append('language', 'vi'); fd.append('response_format', 'json');
+      fd.append('model', model); fd.append('language', 'vi');
+      if (diarize) { fd.append('response_format', 'diarized_json'); fd.append('chunking_strategy', 'auto'); }
+      else if (verbose) { fd.append('response_format', 'verbose_json'); fd.append('timestamp_granularities[]', 'segment'); }
+      else fd.append('response_format', 'json');
       const j = await postRaw(fetchImpl, (cfg.baseUrl || 'https://api.openai.com/v1') + '/audio/transcriptions', { authorization: 'Bearer ' + cfg.key }, fd);
-      const u = j.usage || {};
-      return { text: String(j.text || '').trim(), usage: { in: u.input_tokens || 0, out: u.output_tokens || 0 }, model: cfg.sttModel || 'whisper-1' };
+      const u = j.usage || {}, segments = diarize || verbose ? CMP.normSegments(j.segments) : null;
+      const text = String(j.text || (segments || []).map(x => x.text).join(' ')).trim();
+      return { text, segments, usage: { in: u.input_tokens || 0, out: u.output_tokens || 0 }, model };
     }
   };
 }
@@ -221,10 +229,18 @@ function gemini(cfg, fetchImpl) {
       };
     },
     results: rs => [{ role: 'user', parts: rs.map(r => ({ functionResponse: { name: r.name, ...(r.callId ? { id: r.callId } : {}), response: { result: r.content } } })) }],
-    async transcribe(b64, mime) {
-      const j = await postJson(fetchImpl, url, { 'x-goog-api-key': cfg.key }, { contents: [{ role: 'user', parts: [{ inlineData: { mimeType: mime, data: b64 } }, { text: CMP.TRANSCRIBE_PROMPT }] }] });
+    async transcribe(b64, mime, opt = {}) {
+      const req = { contents: [{ role: 'user', parts: [{ inlineData: { mimeType: mime, data: b64 } }, { text: opt.segments ? CMP.TRANSCRIBE_SEG_PROMPT : CMP.TRANSCRIBE_PROMPT }] }] };
+      if (opt.segments) req.generationConfig = { responseMimeType: 'application/json' };
+      const j = await postJson(fetchImpl, url, { 'x-goog-api-key': cfg.key }, req);
       const parts = (((j.candidates || [])[0] || {}).content || {}).parts || [], u = j.usageMetadata || {};
-      return { text: parts.filter(p => typeof p.text === 'string' && !p.thought).map(p => p.text).join('').trim(), usage: { in: u.promptTokenCount || 0, out: u.candidatesTokenCount || 0 }, model: cfg.model };
+      const raw = parts.filter(p => typeof p.text === 'string' && !p.thought).map(p => p.text).join('').trim();
+      const usage = { in: u.promptTokenCount || 0, out: u.candidatesTokenCount || 0 };
+      if (opt.segments) {
+        let o = null; try { o = JSON.parse(raw); } catch (e) { const m = raw.match(/\{[\s\S]*\}/); try { o = m ? JSON.parse(m[0]) : null; } catch (e2) {} }
+        if (o && Array.isArray(o.doan)) { const segments = CMP.normSegments(o.doan); return { text: segments.map(x => x.text).join(' '), segments, usage, model: cfg.model }; }
+      }
+      return { text: raw, segments: null, usage, model: cfg.model };
     }
   };
 }
@@ -472,10 +488,11 @@ async function handleMinutes({ body = {}, env, callApi, fetchImpl }) {
     const { turn, prov } = await openTurn(callApi, env, fetchImpl);
     const mt = await callApi('GET', '/api/meetings/' + id);
     if (mt.status !== 200) throw new AiError(mt.status, (mt.json && mt.json.error) || 'Không xem được cuộc họp.');
-    const r = await prov.step([prov.user(CMP.minutesPrompt(mt.json, transcript, ctxOf(turn)))], { system: CMP.MINUTES_SYSTEM, noTools: true, maxTokens: 16000 });
+    const ac = await callApi('GET', '/api/meetings/' + id + '/assign-context'), cand = ac.status === 200 ? ac.json : null; // ứng viên phân công, theo quyền của người dùng
+    const r = await prov.step([prov.user(CMP.minutesPrompt(mt.json, transcript, ctxOf(turn), cand))], { system: CMP.MINUTES_SYSTEM, noTools: true, maxTokens: 16000 });
     await logUse(callApi, prov, prov.model, r.usage, 'bien_ban_hop', r.stop);
     if (r.stop === 'refusal') throw new AiError(422, 'Nhà cung cấp AI từ chối xử lý nội dung này.');
-    return { status: 200, json: { ...CMP.parseMinutes(r.text, mt.json), truncated: r.stop === 'max_tokens', provider: prov.name, model: prov.model } };
+    return { status: 200, json: { ...CMP.parseMinutes(r.text, mt.json, cand), candidates: cand ? cand.candidates : [], workload: !!(cand && cand.workload), truncated: r.stop === 'max_tokens', provider: prov.name, model: prov.model } };
   } catch (e) { return fail(e); }
 }
 
@@ -489,11 +506,11 @@ async function handleTranscribe({ body = {}, env, callApi, fetchImpl }) {
     if (b64.length > MAX_AUDIO_B64) throw new AiError(413, 'Đoạn ghi âm quá lớn. Vui lòng ghi theo đoạn ngắn hơn.');
     if (!AUDIO_MIME.test(mime) || !/^[A-Za-z0-9+/=]+$/.test(b64.slice(0, 2000))) throw new AiError(415, 'Định dạng ghi âm không được hỗ trợ.');
     const { prov } = await openTurn(callApi, env, fetchImpl);
-    const r = await prov.transcribe(b64, mime.split(';')[0]);
+    const r = await prov.transcribe(b64, mime.split(';')[0], { segments: body.segments === true });
     const secs = Math.max(0, Math.min(3600, Number(body.seconds) || 0));
     const usage = r.usage.in || r.usage.out ? r.usage : { in: Math.round(secs * 32), out: Math.round(r.text.length / 3) }; // ước tính khi nhà cung cấp không trả số token
     await logUse(callApi, prov, r.model, usage, 'chuyen_giong_noi', 'ok');
-    return { status: 200, json: { text: r.text, provider: prov.name, model: r.model } };
+    return { status: 200, json: { text: r.text, ...(r.segments ? { segments: r.segments } : {}), provider: prov.name, model: r.model } };
   } catch (e) { return fail(e); }
 }
 

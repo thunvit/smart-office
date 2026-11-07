@@ -699,6 +699,7 @@ async function internalCall(orig, method, path, body) {
   return { status: res.statusCode, json };
 }
 require('./ai-core').register({ route, bad, forbid, notFound, str, int, secLog, clientIp, HttpError, internalCall });
+require('./meeting-ai').register({ route, bad, forbid, notFound, str, int, secLog, clientIp }); // trợ lý cuộc họp: mẫu giọng, bản ghi phát biểu, tư vấn phân công (ADR-011)
 const AI = require('./ai');
 
 /* ================= Máy chủ HTTP ================= */
