@@ -115,6 +115,14 @@ Yêu cầu: trợ lý được tra cứu hết các API nghiệp vụ (cấm ngh
 2. **Kiểm tra toàn diện** (`POST /api/ai/test` với `full: true`; nút ở Tài khoản › Trợ lý AI của tôi) chạy với khóa của người dùng qua đúng mã xử lý thật. Nên chạy sau mỗi lần cập nhật trợ lý hoặc đổi mô hình.
 3. Tham số tùy chọn (`fallbacks`, `output_config.effort`) tự bỏ khi nhà cung cấp trả 400 nêu đúng tham số đó. Câu trả lời bị cắt do giới hạn độ dài khi đang gọi công cụ thì không chạy công cụ. Lịch sử được chuẩn hóa xen kẽ vai.
 
+## 2H. Sửa đổi 07/11/2026: người dùng khóa API riêng được miễn hạn mức (theo yêu cầu của chủ sở hữu)
+
+1. **Quyết định:** hạn mức token/người/ngày (mục 2, điểm 7) chỉ áp dụng cho người dùng dùng khóa chung của đơn vị. Người đã nhập khóa API riêng tự trả phí cho nhà cung cấp theo hợp đồng của họ nên không bị giới hạn.
+2. **Cách thực hiện** (`ai-core.js`, `POST /api/ai/turn`): miễn hạn mức khi và chỉ khi cổng AI thực sự nhận được khóa riêng đã giải mã (mã nội bộ đúng, giải mã được). Khi đó `quota_left` trả `null` (cổng AI hiểu là không giới hạn, kể cả điều kiện hạn mức còn lại cho công cụ tìm Internet) và `quota_exempt` là `true`.
+3. **Trường hợp vẫn tính hạn mức** (tránh dùng khóa chung của đơn vị không giới hạn): khóa riêng không giải mã được hoặc mã nội bộ sai, vì cổng AI rơi về khóa chung. Người xóa khóa riêng lại bị tính hạn mức.
+4. `GET /api/ai/status` và `GET /api/ai/me/usage` trả `quota_exempt` (theo việc đã lưu khóa riêng) và `quota_left: null`; giao diện hiện "Không giới hạn". Token vẫn ghi vào `ai_log` để quản trị viên xem thống kê.
+5. Quản trị viên vẫn đặt hạn mức cho người dùng khóa chung; ghi chú dưới ô hạn mức nêu rõ phạm vi áp dụng. Quản trị viên **không** kiểm soát được chi phí và khối lượng dữ liệu của người dùng khóa riêng, ngoài các điều khiển bật/tắt, che dữ liệu cá nhân, tên miền, lưu lịch sử.
+
 ## 3. Hệ quả
 
 - Có thể đổi nhà cung cấp bằng cấu hình, không sửa mã.

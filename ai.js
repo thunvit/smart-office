@@ -303,7 +303,7 @@ async function handleChat({ body, env, callApi, emit: emitOut, fetchImpl }) {
     const t = await callApi('POST', '/api/ai/turn', {});
     if (t.status !== 200) throw new AiError(t.status, (t.json && t.json.error) || 'Không mở được phiên trợ lý.');
     turn = t.json;
-    st.quotaLeft = Number.isFinite(Number(turn.quota_left)) ? Number(turn.quota_left) : null;
+    st.quotaLeft = turn.quota_left != null && Number.isFinite(Number(turn.quota_left)) ? Number(turn.quota_left) : null; // null = không giới hạn (khóa riêng); Number(null) là 0 nên phải loại trước
     prov = makeProvider(configFor(turn, env), fetchImpl || fetch);
     /* Lưu câu hỏi vào cuộc trò chuyện (tạo mới nếu chưa có hoặc không phải của người dùng). Lỗi lưu không làm hỏng câu trả lời. */
     if (!(body && body.no_save)) {
