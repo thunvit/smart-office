@@ -565,6 +565,14 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Kiểm thử (cục bộ/mô phỏng):** `ai-test` 335 đạt, 0 không đạt (thêm các điều kiện Q: miễn khi vượt hạn mức, gọi bằng khóa riêng, mã nội bộ sai vẫn 429, xóa khóa lại bị tính); `worker-smoke` đạt (`ai 403 200 200`).
 - **Chưa kiểm chứng:** trên Cloudflare thật; hiển thị giao diện trên trình duyệt (chưa chạy `work-ui`); các bộ `auth-test`, `backup-test`, `work-*` chưa chạy lại vì thay đổi không chạm.
 
+## 07/11/2026 (tối). Trợ lý AI báo 403 "Request not allowed" trên Cloudflare (so-1.16.4)
+- **Diễn biến:**
+  - Bí mật `AI_KEY_SECRET` khai báo lần đầu là loại Variable nên bị lần triển khai sau xóa (Variable bị đặt lại theo `vars` trong `wrangler.jsonc`). Chủ sở hữu đã khai báo lại đúng loại Secret và lưu được khóa riêng.
+  - Kiểm tra toàn diện báo `HTTP 403: Request not allowed`. `/cdn-cgi/trace` cho `loc=VN`, `colo=HKG`: Worker chạy tại Hồng Kông, nơi Anthropic không phục vụ.
+- **Đã làm:** `wrangler.jsonc` thêm `"placement": { "region": "azure:southeastasia" }` (Worker chạy gần Singapore); ADR-010 mục 2I; hướng dẫn triển khai A.4 điểm 6; `public/sw.js` so-1.16.4. Theo yêu cầu của chủ sở hữu, không đổi nội dung thông báo lỗi.
+- **Kiểm thử:** xem mô tả PR. Không có kiểm thử tái hiện tự động: lỗi chỉ xuất hiện khi Worker chạy tại Hồng Kông trên Cloudflare thật, bản mô phỏng không tái hiện được.
+- **Chưa kiểm chứng:** Cloudflare thật. Sau triển khai cần: tiêu đề `cf-placement` trên phản hồi `/healthz`; Kiểm tra toàn diện với khóa thật không còn 403; thời gian phản hồi các màn hình nghiệp vụ.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

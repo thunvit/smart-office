@@ -123,6 +123,18 @@ Yêu cầu: trợ lý được tra cứu hết các API nghiệp vụ (cấm ngh
 4. `GET /api/ai/status` và `GET /api/ai/me/usage` trả `quota_exempt` (theo việc đã lưu khóa riêng) và `quota_left: null`; giao diện hiện "Không giới hạn". Token vẫn ghi vào `ai_log` để quản trị viên xem thống kê.
 5. Quản trị viên vẫn đặt hạn mức cho người dùng khóa chung; ghi chú dưới ô hạn mức nêu rõ phạm vi áp dụng. Quản trị viên **không** kiểm soát được chi phí và khối lượng dữ liệu của người dùng khóa riêng, ngoài các điều khiển bật/tắt, che dữ liệu cá nhân, tên miền, lưu lịch sử.
 
+## 2I. Bổ sung 07/11/2026: cho Worker chạy gần Singapore (lỗi 403 "Request not allowed")
+
+1. **Hiện tượng:** trên https://smart-office.thunv-it.workers.dev, nút Kiểm tra kết nối báo `HTTP 403: Request not allowed` với khóa Anthropic; mã của ứng dụng gộp 401 và 403 nên hiện "Khóa API … không hợp lệ hoặc không đủ quyền".
+2. **Nguyên nhân (suy luận, chưa tái hiện trực tiếp):** trang `/cdn-cgi/trace` của chủ sở hữu và của máy phát triển đều cho `loc=VN`, `colo=HKG`: người dùng Việt Nam vào Cloudflare tại Hồng Kông. Cổng AI chạy tại Worker (mục 2), nên lệnh gọi nhà cung cấp đi ra từ Hồng Kông. Anthropic, OpenAI và Gemini không phục vụ Hồng Kông; khi bị chặn theo khu vực Anthropic trả 403 "Request not allowed", còn khóa sai trả 401.
+3. **Quyết định:** đặt `"placement": { "region": "azure:southeastasia" }` trong `wrangler.jsonc` (Placement của Cloudflare Workers; giá trị lấy đúng ví dụ trong tài liệu https://developers.cloudflare.com/workers/configuration/placement/, đọc ngày 07/11/2026). Cloudflare chạy hàm `fetch` của Worker tại trung tâm dữ liệu gần vùng Azure Southeast Asia (Singapore).
+4. **Phạm vi ảnh hưởng:**
+   - Chỉ yêu cầu đi vào Worker (`/api/*`, `/healthz`) chạy ở Singapore. Giao diện tĩnh vẫn phục vụ tại điểm gần người dùng (theo tài liệu Placement).
+   - Mọi yêu cầu nghiệp vụ thêm một chặng Hồng Kông → Singapore (ước tính vài chục ms, chưa đo). Durable Object không bị di chuyển.
+   - Không đổi mã, không đổi lớp Durable Object, không sửa `migrations`.
+5. **Điều chưa kiểm chứng (tài liệu không nêu):** địa chỉ IP đi ra khi Worker gọi nhà cung cấp có đúng ở Singapore hay không; phiên bản Wrangler của Workers Builds có hỗ trợ khóa `placement.region` hay không. Kiểm tra sau triển khai: phản hồi `/healthz` có tiêu đề `cf-placement`, và Kiểm tra toàn diện với khóa thật không còn 403.
+6. **Quay lui:** xóa khối `placement` trong `wrangler.jsonc` rồi triển khai lại.
+
 ## 3. Hệ quả
 
 - Có thể đổi nhà cung cấp bằng cấu hình, không sửa mã.
