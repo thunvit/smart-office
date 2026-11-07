@@ -669,6 +669,23 @@ WORKAPI = WORK.register({ route, bad, forbid, notFound, isAdmin, isDirector, log
 BIZAPI = BIZ.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate, HttpError });
 require('./backup').register({ route, bad, str, int, secLog, clientIp, cookieAttrs });
 
+/* ================= Trợ lý AI (ADR-010) ================= */
+/* Gọi một API của chính hệ thống dưới danh nghĩa người dùng của yêu cầu gốc (cùng cookie, Origin, IP),
+ * đi qua toàn bộ handle(): đăng nhập, Origin, ép đổi mật khẩu, phân quyền. Dùng cho xác nhận thao tác ghi của trợ lý
+ * và cho cổng AI khi chạy bản Node. */
+async function internalCall(orig, method, path, body) {
+  const { ResShim } = require('./worker/do-core.js');
+  const h = {}; for (const k of ['cookie', 'origin', 'host', 'x-forwarded-proto', 'x-forwarded-host', 'x-forwarded-for', 'cf-connecting-ip', 'user-agent']) if (orig.headers[k]) h[k] = orig.headers[k];
+  if (body !== undefined) h['content-type'] = 'application/json';
+  const req = { method, url: path, headers: h, socket: orig.socket, rawBody: body !== undefined ? Buffer.from(JSON.stringify(body)) : null, on() {}, destroy() {} };
+  const res = new ResShim();
+  await handle(req, res);
+  let json = null; try { json = JSON.parse(Buffer.concat(res.chunks).toString('utf8')); } catch (e) {}
+  return { status: res.statusCode, json };
+}
+require('./ai-core').register({ route, bad, forbid, notFound, str, int, secLog, clientIp, HttpError, internalCall });
+const AI = require('./ai');
+
 /* ================= Máy chủ HTTP ================= */
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 function securityHeaders(req, res) {
@@ -723,6 +740,13 @@ async function handle(req, res) {
   if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); return res.end('ok'); }
   if (!url.pathname.startsWith('/api/')) { if (IS_WORKER) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Không tìm thấy.'); } return sendStatic(req, res, url.pathname); }
   const json = (status, obj) => { if (res.headersSent) return; res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  /* Cổng trợ lý AI bản Node (trên Cloudflare, worker/index.js xử lý trước khi vào Durable Object). Trả SSE theo từng bước. */
+  if (url.pathname === '/api/ai/chat' && req.method === 'POST' && !IS_WORKER) {
+    let body; try { body = await readBody(req, 1e6); } catch (e) { return json(e.status || 400, { error: e.message }); }
+    res.writeHead(200, AI.SSE_HEADERS);
+    await AI.handleChat({ body, env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b), emit: ev => res.write('data: ' + JSON.stringify(ev) + '\n\n') });
+    return res.end();
+  }
   try {
     let m = null, rt = null;
     for (const r of routes) { if (r.method !== req.method) continue; m = url.pathname.match(r.re); if (m) { rt = r; break; } }

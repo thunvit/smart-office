@@ -64,6 +64,26 @@ Nếu muốn triển khai bằng GitHub Actions thay cho Workers Builds, khai b�
 4. **Sao lưu:** chức năng "Sao lưu" trong phần Quản trị không áp dụng trên Cloudflare; thay vào đó là cơ chế khôi phục theo thời điểm của Durable Objects.
 5. **Giờ hệ thống:** ứng dụng luôn tính theo giờ Việt Nam (UTC+7) cho chấm công, hạn công việc và nhật ký, dù máy chủ Cloudflare chạy theo giờ UTC.
 
+## A.4. Trợ lý AI (tùy chọn; ADR-010)
+
+Trợ lý mặc định **tắt**. Chỉ cấu hình sau khi pháp chế xác nhận điều kiện gửi dữ liệu tới nhà cung cấp AI (Luật Bảo vệ dữ liệu cá nhân 2025).
+
+1. Trên trang Cloudflare: *Workers & Pages › smart-office › Settings › Variables and Secrets*, thêm:
+
+   | Tên | Loại | Giá trị |
+   |---|---|---|
+   | `AI_API_KEY` | **Secret** | Khóa API của nhà cung cấp. Không ghi vào kho mã, không gửi qua chat |
+   | `AI_PROVIDER` | Text | `anthropic` (mặc định), `openai` hoặc `gemini` |
+   | `AI_MODEL` | Text | Bắt buộc với `openai`, `gemini` (tên mô hình theo tài liệu nhà cung cấp). Anthropic để trống thì dùng `claude-opus-5-5` |
+   | `AI_EFFORT` | Text (tùy chọn) | Anthropic: `low`, `medium` (mặc định), `high` |
+   | `AI_FALLBACK` | Text (tùy chọn) | Anthropic: đặt `0` để tắt cơ chế tự chuyển mô hình dự phòng khi mô hình chính từ chối |
+   | `AI_BASE_URL` | Text (tùy chọn) | Địa chỉ API tương thích (ví dụ cổng AI Gateway của đơn vị) |
+
+   Bản Node: đặt các biến môi trường cùng tên trước khi chạy `node server.js`.
+2. Đăng nhập quản trị › **Quản trị › Trợ lý AI**: bật trợ lý, đặt hạn mức token mỗi người mỗi ngày (mặc định 200.000). Chỉ đánh dấu "Cho phép gửi thông tin cá nhân" khi có văn bản đồng ý của đơn vị.
+3. Kiểm tra: nút **Trợ lý** hiện ở góc phải dưới; hỏi "Hôm nay tôi cần làm gì?". Nếu báo "chưa cấu hình khóa API" thì kiểm tra lại bước 1 (cần triển khai lại hoặc chờ biến có hiệu lực).
+4. Chi phí: theo token của nhà cung cấp. Xem thống kê sử dụng 30 ngày tại màn hình Quản trị › Trợ lý AI.
+
 # PHẦN B. CLOUDFLARE TUNNEL (MÁY CHỦ CỦA ĐƠN VỊ)
 
 ## I. MỤC ĐÍCH, PHẠM VI

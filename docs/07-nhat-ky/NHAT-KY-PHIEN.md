@@ -245,6 +245,24 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - **Chưa chạy** `work-ui.js`, `work-ui-full.js`: máy chưa cài Playwright.
 - **Chưa kiểm chứng trên Cloudflare thật**; chưa hợp nhất vào `main`.
 
+## 07/11/2026. Trợ lý AI hội thoại đa nhiệm, nhiều nhà cung cấp (so-1.11.0; ADR-010), theo yêu cầu của chủ sở hữu
+- **Yêu cầu:** làm Đợt 2 "Trợ lý hội thoại đa nhiệm"; dùng được Gemini, Anthropic hoặc OpenAI, trước mắt Anthropic (chủ sở hữu có khóa).
+- **Việc đã làm:**
+  - `ai.js`: cổng AI, ba bộ chuyển đổi gọi bằng `fetch` (Anthropic `anthropic-version: 2026-10-21`, mặc định `claude-opus-5-5`, bộ đệm lời nhắc, `fallbacks: "default"`; OpenAI Chat Completions; Gemini generateContent), vòng lặp công cụ tối đa 8 bước, gọi song song công cụ chỉ đọc, SSE theo bước.
+  - `ai-tools.js`: 17 công cụ (11 chỉ đọc, 6 ghi) ánh xạ sang API sẵn có; che dữ liệu cá nhân; rút gọn kết quả.
+  - `ai-core.js`: bảng `ai_pending`, `ai_log`; mở lượt, hạn mức, đề nghị chờ xác nhận (10 phút, một lần, chỉ chủ đề nghị), xác nhận thực hiện qua API thường của người dùng; cấu hình quản trị; nhật ký an ninh `ai_action`, `ai_settings`.
+  - `worker/index.js`: `POST /api/ai/chat` xử lý tại Worker không trạng thái (khóa chỉ ở Worker). `worker/do-core.js`: bổ sung `Host` cho yêu cầu nội bộ. `server.js`: `internalCall`, nhánh SSE bản Node.
+  - Giao diện `public/ai.js` (nút Trợ lý, `Ctrl + /`, thẻ xác nhận), Quản trị › Trợ lý AI; CSS dùng biến màu chung; `sw.js` lên `so-1.11.0`.
+  - Tài liệu: ADR-010, `TRIEN-KHAI-CLOUDFLARE.md` mục A.4, `HUONG-DAN-SU-DUNG.md` mục XII, CLAUDE.md mục 3g; CI chạy `ai-test`.
+- **Kiểm thử (cục bộ/mô phỏng, nhà cung cấp giả lập, không gọi mô hình thật):**
+  - `ai-test` 56 đạt, 0 không đạt: mặc định tắt; chỉ quản trị bật; chưa đăng nhập 401; Origin lạ 403; thiếu khóa 503; định dạng yêu cầu Anthropic/OpenAI/Gemini; kết quả công cụ bọc `<du_lieu>`; gửi lại nguyên khối thinking/chữ ký suy luận; người ngoài dự án nhận 403 qua công cụ; che email, số điện thoại, số giấy tờ; thao tác ghi chỉ thành đề nghị, người khác không xác nhận được, không xác nhận lần hai, hủy, hết hạn 410; xác nhận thao tác vượt quyền vẫn bị API từ chối; dữ liệu chứa mệnh lệnh không tự thực hiện; tối đa 8 bước; khóa sai không lộ khóa; hạn mức 429; `ai_log` không có cột nội dung; bản Node thật qua SSE với máy chủ Anthropic giả lập.
+  - `worker-smoke`: `KẾT QUẢ: đạt`, có thêm `ai 403 200 200`, `backup-manifest 200 71 1` (thêm 2 bảng).
+  - `work-test` 125/0, `work-plan-test` 21/0, `work-ext-test` 98/0, `auth-test` 78/0, `backup-test` 48/0; `node --check` toàn bộ.
+  - Giao diện (trình duyệt tích hợp, bản Node cổng 3999, máy chủ Anthropic giả lập): mặc định không có nút Trợ lý; quản trị bật thì nút hiện ngay, nhật ký an ninh ghi "bật: false→true"; hỏi chỉ đọc hiện câu trả lời, `#12` thành liên kết; đề nghị tạo công việc hiện thẻ do máy chủ lập, bấm Xác nhận thì tạo công việc #15 đúng tên, hạn, ưu tiên, Tổng quan cập nhật; 360 px chế độ tối: khung toàn màn hình, không cuộn ngang.
+  - **Chưa chạy** `work-ui.js`, `work-ui-full.js` (chưa cài Playwright).
+- **Chưa kiểm chứng:** gọi Anthropic thật bằng khóa của chủ sở hữu (trợ lý AI không tự nhập khóa, CLAUDE.md 4.3); OpenAI, Gemini với khóa thật; chạy trên Cloudflare thật (Worker → Durable Object qua stub, SSE qua TransformStream); chất lượng trả lời tiếng Việt; chi phí thực tế.
+- **Còn dở:** truyền từng chữ (token streaming); pháp chế xác nhận điều kiện gửi dữ liệu ra nước ngoài trước khi bật trên hệ thống thật.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
@@ -261,4 +279,4 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 3. **Pháp chế** xác định nơi lưu dữ liệu và hồ sơ pháp lý khi kinh doanh dịch vụ.
 4. **Tên miền** `smartoffice.vnptninhbinh.com.vn` chưa gắn; chờ chọn phương án DNS.
 5. **Phân hệ Công việc – Dự án v2** đã triển khai (06/11/2026). Đề xuất P1: service worker tự kích hoạt bản mới khi API thay đổi không tương thích, tránh giao diện cũ gọi API mới.
-6. **Trợ lý AI (Phiên 16):** chờ chủ sở hữu chọn phương án phụ thuộc SDK (ADR-001), mô hình mặc định, và pháp chế xác nhận điều kiện gửi dữ liệu ra nhà cung cấp AI; sau đó lập ADR-010.
+6. **Trợ lý AI (Phiên 16, Đợt 2):** đã viết trên nhánh (so-1.11.0, ADR-010 ở trạng thái Đề xuất). Chờ: chủ sở hữu duyệt ADR-010; chủ sở hữu tự khai báo `AI_API_KEY` và thử với Anthropic thật; pháp chế xác nhận điều kiện gửi dữ liệu ra nhà cung cấp AI trước khi bật trên hệ thống thật.

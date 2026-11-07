@@ -52,6 +52,7 @@ async function handleRequest(app, request) {
   const headers = {};
   request.headers.forEach((v, k) => { headers[k] = v; });
   headers['x-forwarded-proto'] = url.protocol.replace(':', '');
+  if (!headers.host) headers.host = url.host; // yêu cầu nội bộ từ cổng AI (worker/index.js) có thể không mang Host
   const hasBody = !['GET', 'HEAD'].includes(request.method);
   const req = {
     method: request.method,

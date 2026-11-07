@@ -285,3 +285,15 @@ Cần làm → Đang làm → (Chờ đánh giá, nếu dự án bật "Yêu c�
 
 Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hình nền dự án.
 
+## XII. TRỢ LÝ AI (PHIÊN BẢN 1.11, KHI QUẢN TRỊ VIÊN ĐÃ BẬT)
+
+1. **Mở trợ lý:** bấm nút **Trợ lý** ở góc phải dưới màn hình, hoặc nhấn `Ctrl + /`. Nhấn `Esc` để đóng.
+2. **Hỏi bằng tiếng Việt thông thường**, một câu có thể gồm nhiều việc. Ví dụ:
+   - "Hôm nay tôi cần làm gì?"; "Việc nào của tôi đang quá hạn?";
+   - "Đề xuất nào đang chờ tôi duyệt? Tóm tắt từng cái";
+   - "Lịch họp tuần này của tôi"; "Quy chế chi tiêu nội bộ quy định công tác phí thế nào?";
+   - "Giao Lan làm báo cáo tuần, hạn thứ Sáu, ưu tiên cao, trong dự án Triển khai văn phòng số".
+3. **Thao tác ghi luôn cần bạn xác nhận.** Khi trợ lý đề nghị tạo công việc, đổi trạng thái, gửi trao đổi, gửi đề xuất, duyệt/từ chối hoặc đặt lịch họp, một thẻ "Đề nghị" hiện ra với nội dung do hệ thống lập. Đọc kỹ rồi bấm **Xác nhận** (thực hiện) hoặc **Bỏ qua**. Đề nghị hết hạn sau 10 phút.
+4. **Trợ lý chỉ làm được những gì bạn có quyền làm.** Trợ lý không xóa dữ liệu, không tính lương, không thao tác quản trị.
+5. **Lưu ý:** trợ lý có thể sai, hãy kiểm tra trước khi xác nhận. Câu hỏi của bạn và dữ liệu tra cứu được gửi tới nhà cung cấp AI; thông tin cá nhân (thư điện tử, số điện thoại, số giấy tờ…) được ẩn theo cấu hình của đơn vị. Cuộc trò chuyện không được lưu; tải lại trang là bắt đầu cuộc trò chuyện mới.
+

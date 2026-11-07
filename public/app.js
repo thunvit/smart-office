@@ -559,7 +559,7 @@ function cycleForm() {
 /* ================= QUẢN TRỊ ================= */
 let adminTab = 'users';
 VIEWS['quan-tri'] = async main => {
-  const tabs = `<div class="toolbar"><div class="seg">${[['users', 'Người dùng'], ['depts', 'Phòng ban'], ['settings', 'Cấu hình duyệt'], ['hrset', 'Chấm công & tiền lương'], ['backup', 'Sao lưu dữ liệu']].map(([k, l]) => `<button data-atab="${k}" aria-pressed="${adminTab === k}">${l}</button>`).join('')}</div></div>`;
+  const tabs = `<div class="toolbar"><div class="seg">${[['users', 'Người dùng'], ['depts', 'Phòng ban'], ['settings', 'Cấu hình duyệt'], ['hrset', 'Chấm công & tiền lương'], ['ai', 'Trợ lý AI'], ['backup', 'Sao lưu dữ liệu']].map(([k, l]) => `<button data-atab="${k}" aria-pressed="${adminTab === k}">${l}</button>`).join('')}</div></div>`;
   const head = `<div class="page-head"><div><h1>Quản trị hệ thống</h1><p>${esc(B.settings.org_name)}</p></div></div>` + tabs;
   if (adminTab === 'users') {
     const users = await GET('/api/admin/users');
@@ -587,6 +587,8 @@ VIEWS['quan-tri'] = async main => {
     $$('#st-t1,#st-t2').forEach(i => i.addEventListener('input', e => { const n = e.target.value.replace(/\D/g, ''); e.target.value = n ? Number(n).toLocaleString('vi-VN') : ''; }));
   } else if (adminTab === 'hrset') {
     main.innerHTML = head + window.SO_HR.hrSettingsHtml(B.settings);
+  } else if (adminTab === 'ai') {
+    main.innerHTML = head + (window.SO_AI ? await window.SO_AI.adminHtml() : '');
   } else {
     const cf = B.runtime === 'cloudflare';
     main.innerHTML = head + `<div class="stack" style="gap:14px"><p class="notice warn" role="note"><b>Lưu ý:</b> ${cf ? 'xóa Worker <span class="mono">smart-office</span> trên Cloudflare là <b>mất toàn bộ dữ liệu</b>; khôi phục theo thời điểm không cứu được trường hợp này.' : 'mất thư mục dữ liệu là mất toàn bộ dữ liệu.'} Đề nghị tải bản sao lưu đầy đủ tối thiểu hằng tuần và lưu ở nơi khác (ổ mạng, ổ cứng ngoài).</p>
