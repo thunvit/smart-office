@@ -454,6 +454,23 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Chưa kiểm chứng:** đơn giá lấy theo tài liệu Anthropic, chưa đối chiếu hóa đơn thật; dữ liệu `ai_log` ghi trước so-1.15.1 có `web_requests` gộp lượt đọc trang nên có thể tính hạn mức cao hơn thực tế trong ngày nâng cấp (chỉ có trên máy thử, nhánh chưa triển khai).
 - **Tài liệu:** ADR-010 2C.7, 2E.7; hướng dẫn XII; `public/sw.js` so-1.15.1.
 
+## 07/11/2026. Sửa lỗi trợ lý không mở được màn hình (so-1.15.2)
+- **Sự cố (chủ sở hữu báo, kèm ảnh):** trợ lý trả lời "Đã mở Lịch họp" nhưng trang vẫn ở Thu chi.
+- **Nguyên nhân (lỗi do phiên này, từ so-1.14.0):** `public/app.js` và `public/ai.js` là hai IIFE riêng. `public/ai.js` gọi trần `routeOk`, `current`, `closeModal`, `TODAY`, `DEL`, `B` của `app.js` mà không lấy qua `window.SO` nên phát sinh ReferenceError. Hậu quả:
+  - không chuyển màn hình, không mở chi tiết;
+  - không tự báo cáo đầu ngày (`TODAY`);
+  - không xóa được cuộc trò chuyện (`DEL`);
+  - khóa ghi nhớ cuộc trò chuyện đang mở không gắn người dùng (`B`), nên tải lại trang không mở lại được.
+- **Khắc phục:** `window.SO` xuất thêm `routeOk`, `current`; `public/ai.js` lấy đủ các hàm qua `window.SO`, đọc `B` qua `S.B`.
+- **Rà soát tổng thể:** quét toàn bộ `public/*.js` bằng bộ phân tích cú pháp acorn (công cụ tạm ngoài kho, không thêm phụ thuộc). Không còn tên chưa khai báo nào khác; hai kết quả còn lại là `module` có kiểm tra `typeof` và `Uint32Array` có sẵn trong trình duyệt.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 240 đạt, 0 không đạt. Phần G mới kiểm tra tĩnh, không cần thư viện: tệp giao diện không gọi tên của app.js ngoài `window.SO`;
+  - đối chứng: trên mã cũ báo 2 không đạt, nêu đủ 6 tên;
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Chưa kiểm chứng:** thao tác thật trên trình duyệt (chủ sở hữu thử lại "mở màn hình lịch họp", mở chi tiết, xóa cuộc trò chuyện).
+- **Ghi nhận thêm từ ảnh:** thanh menu ở 1006 px bị chồng chữ "Kinh doanh" và "Quản trị"; chưa xử lý.
+- **Định hướng của chủ sở hữu:** tìm Internet không phải điểm bán hàng chính; trợ lý định vị là trợ lý ảo hỗ trợ cá nhân.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

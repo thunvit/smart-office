@@ -815,7 +815,7 @@ document.addEventListener('keydown', e => {
 });
 window.addEventListener('hashchange', () => { if (B) render(); });
 
-window.SO = { $, $$, esc, pad, iso, TODAY, addDays, dayNum, fmtD, fmtDT, vnd, numFmt, WD, debounce, GET, POST, PUT, DEL, U, Dp, av, who, userOpts, deptOpts, TSTATUS, PRIO, isLate, initials, openModal, closeModal, toast, showErr, mh, busy, armed, VIEWS, ACTIONS, render, refreshBoot, reqForm, boot, get B() { return B; } };
+window.SO = { $, $$, esc, pad, iso, TODAY, addDays, dayNum, fmtD, fmtDT, vnd, numFmt, WD, debounce, GET, POST, PUT, DEL, U, Dp, av, who, userOpts, deptOpts, TSTATUS, PRIO, isLate, initials, openModal, closeModal, toast, showErr, mh, busy, armed, VIEWS, ACTIONS, render, refreshBoot, routeOk, current, reqForm, boot, get B() { return B; } };
 window.addEventListener('DOMContentLoaded', boot);
 setInterval(() => { if (B && document.visibilityState === 'visible') refreshBoot(); }, 30000);
 })();

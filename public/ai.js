@@ -7,12 +7,12 @@
 (function () {
 'use strict';
 const S = window.SO;
-const { $, esc, GET, POST, PUT, toast, showErr, render, ACTIONS } = S;
+const { $, esc, GET, POST, PUT, DEL, TODAY, toast, showErr, render, ACTIONS, closeModal, routeOk, current } = S; // app.js chạy trong IIFE riêng: mọi hàm dùng chung phải lấy qua window.SO
 const SUGGEST = ['Hôm nay tôi cần làm gì?', 'Đề xuất nào đang chờ tôi duyệt?', 'Lịch họp tuần này của tôi', 'Tìm quy chế chi tiêu nội bộ'];
 let enabled = false, open = false, busy = false, hist = [], items = [], status = {};
 /* Lịch sử trò chuyện lưu trên máy chủ (chỉ chủ sở hữu xem được); trình duyệt chỉ nhớ mã cuộc trò chuyện đang mở để mở lại khi tải trang */
 let curThread = null, histMode = false, threads = null, resumeTried = false;
-const TKEY = () => 'so-ai-thread-' + ((typeof B !== 'undefined' && B && B.me && B.me.id) || '');
+const TKEY = () => 'so-ai-thread-' + ((S.B && S.B.me && S.B.me.id) || ''); // B nằm trong phạm vi app.js, chỉ đọc qua window.SO.B
 const setThread = id => { curThread = id || null; try { if (curThread) localStorage.setItem(TKEY(), String(curThread)); else localStorage.removeItem(TKEY()); } catch (e) {} };
 const fmtAt = v => { const x = String(v || ''); return x.length >= 16 ? x.slice(8, 10) + '/' + x.slice(5, 7) + '/' + x.slice(0, 4) + ' ' + x.slice(11, 16) : x; };
 const MODELS = { anthropic: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'], openai: [], gemini: [] };

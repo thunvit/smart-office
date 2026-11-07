@@ -266,6 +266,11 @@ const toolResults = req => (req.body.messages || []).flatMap(m => Array.isArray(
   // M. Bản Node thật: SSE qua /api/ai/chat, gọi nhà cung cấp bằng fetch tới máy chủ giả lập Anthropic (AI_BASE_URL)
   await nodeE2E();
 
+  // G. Giao diện: mỗi tệp public/*.js là một IIFE riêng; tên khai báo trong app.js chỉ dùng được qua window.SO.
+  // Lỗi thật 07/11/2026 (chủ sở hữu báo "chưa mở được màn hình theo điều khiển"): public/ai.js gọi routeOk, current, closeModal,
+  // TODAY, DEL, B của app.js mà không lấy qua window.SO → ReferenceError: không chuyển màn hình, không tự báo cáo đầu ngày, không xóa được cuộc trò chuyện.
+  uiScope();
+
   ok(contractViolations.length === 0, 'HỢP ĐỒNG API: không yêu cầu nào gửi nhà cung cấp vi phạm quy tắc đã biết (' + contractViolations.length + ')', contractViolations.slice(0, 5));
   console.log(`ai-test: ${pass} đạt, ${fail} không đạt`);
   process.exit(fail ? 1 : 0);
@@ -645,6 +650,34 @@ async function personal(U) {
   ok(r.s === 200 && r.b.has_key === false && D.get('SELECT key_enc FROM ai_user_config WHERE user_id=?', U['mai.bt'].id).key_enc === null && (await call('admin', 'GET', '/api/admin/security-log?event=ai_key_clear')).b.length === 1, 'xóa khóa cá nhân, ghi nhật ký');
   r = await call('mai.bt', 'GET', '/api/ai/status');
   ok(r.s === 200 && r.b.personal === false && r.b.configured === false, 'trạng thái: chưa cấu hình sau khi xóa khóa', r.b);
+}
+
+/** Kiểm tra tĩnh (không cần thư viện): tệp giao diện không dùng trần tên khai báo ở cấp ngoài cùng của app.js mà tự nó không khai báo.
+ *  Cách làm: lấy tên cấp ngoài cùng của app.js và danh sách xuất qua window.SO; với từng tệp, bỏ chú thích, gom tên tự khai báo
+ *  (const/let/var/function, phân rã { … } = S, tham số hàm), rồi tìm tên của app.js được gọi trần dạng `ten(`, `ten.`, `ten[`. */
+function uiScope() {
+  const PUB = path.join(__dirname, '..', 'public');
+  const app = fs.readFileSync(path.join(PUB, 'app.js'), 'utf8');
+  const noCmt = s => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:'"`\\])\/\/[^\n]*/g, '$1');
+  const exp = app.match(/window\.SO\s*=\s*\{([^\n]*)\};/);
+  ok(!!exp, 'G: app.js xuất hàm dùng chung qua window.SO');
+  if (!exp) return;
+  const exported = exp[1].split(',').map(x => x.trim().replace(/^get\s+(\w+)\(\).*$/, '$1').split(':')[0].trim()).filter(Boolean);
+  const names = new Set([...[...app.matchAll(/^(?:const|let|var|(?:async\s+)?function\*?)\s+([A-Za-z_$][\w$]*)/gm)].map(m => m[1]), ...exported]);
+  ok(['routeOk', 'current', 'closeModal', 'TODAY', 'DEL'].every(n => exported.includes(n)), 'G: window.SO có routeOk, current, closeModal, TODAY, DEL cho trợ lý AI', exported);
+  const files = fs.readdirSync(PUB).filter(f => /\.js$/.test(f) && !['app.js', 'sw.js', 'xlsx-lite.js', 'work-formula.js'].includes(f));
+  const bad = [];
+  for (const f of files) {
+    const src = noCmt(fs.readFileSync(path.join(PUB, f), 'utf8'));
+    const own = new Set([...src.matchAll(/\b(?:const|let|var|function)\s+([A-Za-z_$][\w$]*)/g)].map(m => m[1]));
+    for (const m of src.matchAll(/\b(?:const|let|var)\s*\{([^}]*)\}\s*=/g)) m[1].split(',').forEach(x => { const k = x.split(':').pop().split('=')[0].trim(); if (k) own.add(k); });
+    for (const m of src.matchAll(/\(([^()]*)\)\s*=>/g)) m[1].split(',').forEach(x => { const k = x.split('=')[0].trim().replace(/^\.\.\./, ''); if (/^[\w$]+$/.test(k)) own.add(k); });
+    for (const m of src.matchAll(/\b([A-Za-z_$][\w$]*)\s*=>/g)) own.add(m[1]);
+    for (const m of src.matchAll(/function\s*[\w$]*\s*\(([^)]*)\)/g)) m[1].split(',').forEach(x => { const k = x.split('=')[0].trim(); if (/^[\w$]+$/.test(k)) own.add(k); });
+    for (const m of src.matchAll(/catch\s*\(\s*([\w$]+)/g)) own.add(m[1]);
+    for (const n of names) if (!own.has(n) && new RegExp('(^|[^.\\w$\'"-])' + n.replace(/\$/g, '\\$') + '\\s*[(.\\[]').test(src)) bad.push(f + ': ' + n);
+  }
+  ok(files.includes('ai.js') && bad.length === 0, 'G: tệp giao diện không gọi hàm, biến của app.js ngoài window.SO (' + files.length + ' tệp)', bad);
 }
 
 async function oneShot(U) {
