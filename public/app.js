@@ -559,7 +559,7 @@ function cycleForm() {
 /* ================= QUẢN TRỊ ================= */
 let adminTab = 'users';
 VIEWS['quan-tri'] = async main => {
-  const tabs = `<div class="toolbar"><div class="seg">${[['users', 'Người dùng'], ['depts', 'Phòng ban'], ['settings', 'Cấu hình duyệt'], ['hrset', 'Chấm công & tiền lương'], ['backup', 'Sao lưu dữ liệu']].map(([k, l]) => `<button data-atab="${k}" aria-pressed="${adminTab === k}">${l}</button>`).join('')}</div></div>`;
+  const tabs = `<div class="toolbar"><div class="seg">${[['users', 'Người dùng'], ['depts', 'Phòng ban'], ['settings', 'Cấu hình duyệt'], ['hrset', 'Chấm công & tiền lương'], ['ai', 'Trợ lý AI'], ['backup', 'Sao lưu dữ liệu']].map(([k, l]) => `<button data-atab="${k}" aria-pressed="${adminTab === k}">${l}</button>`).join('')}</div></div>`;
   const head = `<div class="page-head"><div><h1>Quản trị hệ thống</h1><p>${esc(B.settings.org_name)}</p></div></div>` + tabs;
   if (adminTab === 'users') {
     const users = await GET('/api/admin/users');
@@ -587,6 +587,8 @@ VIEWS['quan-tri'] = async main => {
     $$('#st-t1,#st-t2').forEach(i => i.addEventListener('input', e => { const n = e.target.value.replace(/\D/g, ''); e.target.value = n ? Number(n).toLocaleString('vi-VN') : ''; }));
   } else if (adminTab === 'hrset') {
     main.innerHTML = head + window.SO_HR.hrSettingsHtml(B.settings);
+  } else if (adminTab === 'ai') {
+    main.innerHTML = head + (window.SO_AI ? await window.SO_AI.adminHtml() : '');
   } else {
     const cf = B.runtime === 'cloudflare';
     main.innerHTML = head + `<div class="stack" style="gap:14px"><p class="notice warn" role="note"><b>Lưu ý:</b> ${cf ? 'xóa Worker <span class="mono">smart-office</span> trên Cloudflare là <b>mất toàn bộ dữ liệu</b>; khôi phục theo thời điểm không cứu được trường hợp này.' : 'mất thư mục dữ liệu là mất toàn bộ dữ liệu.'} Đề nghị tải bản sao lưu đầy đủ tối thiểu hằng tuần và lưu ở nơi khác (ổ mạng, ổ cứng ngoài).</p>
@@ -692,7 +694,8 @@ VIEWS['tai-khoan'] = async main => {
   main.innerHTML = `<div class="page-head"><div><h1>Tài khoản của tôi</h1><p>${esc(B.me.username)}</p></div></div>
   <div class="grid2"><section class="card"><div class="card-b"><div class="profile-head">${av(B.me.id, 'lg')}<div><h2 style="font-size:18px">${esc(B.me.full_name)}</h2><div class="muted">${esc(B.me.title)} · ${esc(Dp(B.me.dept_id).name)}</div></div></div>
   <dl class="kv" style="margin-top:14px"><dt>Email</dt><dd>${esc(B.me.email) || '—'}</dd><dt>Điện thoại</dt><dd>${esc(B.me.phone) || '—'}</dd><dt>Quyền</dt><dd>${B.me.role === 'admin' ? 'Quản trị viên' : 'Người dùng'}${B.me.is_hr ? ' · Quản lý nhân sự' : ''}</dd></dl>
-  <div class="actions" style="margin-top:14px"><button class="btn" data-emp="${B.me.id}">Xem hồ sơ & ngày phép</button><button class="btn primary" data-act="change-pw">Đổi mật khẩu</button></div></div></section></div>`;
+  <div class="actions" style="margin-top:14px"><button class="btn" data-emp="${B.me.id}">Xem hồ sơ & ngày phép</button><button class="btn primary" data-act="change-pw">Đổi mật khẩu</button></div></div></section><div id="ai-me"></div></div>`;
+  if (window.SO_AI) window.SO_AI.mountAccount(document.getElementById('ai-me'));
 };
 function passwordModal(force) {
   openModal(`${force ? '<div class="modal-h"><div><h2>Đổi mật khẩu lần đầu</h2></div></div>' : mh('Đổi mật khẩu')}<div class="modal-b">
@@ -812,7 +815,7 @@ document.addEventListener('keydown', e => {
 });
 window.addEventListener('hashchange', () => { if (B) render(); });
 
-window.SO = { $, $$, esc, pad, iso, TODAY, addDays, dayNum, fmtD, fmtDT, vnd, numFmt, WD, debounce, GET, POST, PUT, DEL, U, Dp, av, who, userOpts, deptOpts, TSTATUS, PRIO, isLate, initials, openModal, closeModal, toast, showErr, mh, busy, armed, VIEWS, ACTIONS, render, refreshBoot, reqForm, boot, get B() { return B; } };
+window.SO = { $, $$, esc, pad, iso, TODAY, addDays, dayNum, fmtD, fmtDT, vnd, numFmt, WD, debounce, GET, POST, PUT, DEL, U, Dp, av, who, userOpts, deptOpts, TSTATUS, PRIO, isLate, initials, openModal, closeModal, toast, showErr, mh, busy, armed, VIEWS, ACTIONS, render, refreshBoot, routeOk, current, reqForm, boot, get B() { return B; } };
 window.addEventListener('DOMContentLoaded', boot);
 setInterval(() => { if (B && document.visibilityState === 'visible') refreshBoot(); }, 30000);
 })();

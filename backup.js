@@ -16,7 +16,9 @@ const { FILES, CHUNK } = require('./files');
 
 const FORMAT = 'smartoffice-backup', VERSION = 1;
 /* Không sao lưu: phiên đăng nhập, bộ đếm đăng nhập sai (dữ liệu tạm); file_chunks xuất qua lớp FILES (dùng chung cho Node và Workers) */
-const SKIP = new Set(['sessions', 'login_attempts', 'file_chunks']);
+/* Bản ghi âm cuộc họp chỉ lưu 24 giờ (ADR-011): đưa vào bản sao lưu là giữ quá thời hạn */
+const TRANSIENT = ['meeting_audio_parts', 'meeting_audio'];
+const SKIP = new Set(['sessions', 'login_attempts', 'file_chunks', ...TRANSIENT]);
 const CONFIRM = 'KHÔI PHỤC';
 const PAGE_ROWS = 500, PAGE_BYTES = 1.5 * 1024 * 1024;
 
@@ -96,6 +98,7 @@ function register({ route: route0, bad, str, int, secLog, clientIp, cookieAttrs 
         run('PRAGMA defer_foreign_keys = ON');
         for (const t of cur) run(`DELETE FROM ${qi(t)}`);
         run('DELETE FROM sessions'); run('DELETE FROM login_attempts');
+        for (const t of TRANSIENT) if (get("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", t)) run(`DELETE FROM ${qi(t)}`); // bản ghi âm gắn với mã cuộc họp trước khi khôi phục
         for (const [t, d] of Object.entries(data)) {
           if (!curSet.has(t)) { skipped.push(t); continue; }
           const have = new Set(colsOf(t)), idx = d.columns.map((c2, i) => have.has(c2) ? i : -1).filter(i => i >= 0);

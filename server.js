@@ -196,6 +196,21 @@ route('GET', '/api/dashboard', ({ user }) => {
   return { loads, totals: tot, mine, inbox, wf, activity, contracts, scope: scopeAll ? 'all' : 'dept', counts: counts(user) };
 });
 
+/* ================= Lịch sử hoạt động (07/11/2026, cho trợ lý AI và lãnh đạo) =================
+ * Quản trị, giám đốc: toàn đơn vị. Người khác: hoạt động của người cùng phòng và của chính mình. Phân trang tối đa 200. */
+D.db.exec('CREATE INDEX IF NOT EXISTS idx_activity_user ON activity(user_id, id)');
+route('GET', '/api/activity', ({ user, query }) => {
+  const w = [], p = [], scopeAll = isAdmin(user) || isDirector(user);
+  if (!scopeAll) { w.push('(a.user_id=? OR a.user_id IN (SELECT id FROM users WHERE dept_id=?))'); p.push(user.id, int(user.dept_id)); }
+  if (query.user) { w.push('a.user_id=?'); p.push(int(query.user)); }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(query.from || '')) { w.push('a.created_at>=?'); p.push(query.from); }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(query.to || '')) { w.push('a.created_at<?'); p.push(addDays(query.to, 1)); }
+  if (query.q) { w.push('a.text LIKE ?'); p.push('%' + str(query.q, 100) + '%'); }
+  const limit = Math.min(200, Math.max(1, int(query.limit) || 50)), offset = Math.max(0, int(query.offset) || 0);
+  const rows = all(`SELECT a.id, a.user_id, u.full_name, a.text, a.created_at FROM activity a LEFT JOIN users u ON u.id=a.user_id ${w.length ? 'WHERE ' + w.join(' AND ') : ''} ORDER BY a.id DESC LIMIT ? OFFSET ?`, ...p, limit + 1, offset);
+  return { scope: scopeAll ? 'all' : 'dept', rows: rows.slice(0, limit).map(r => ({ ...r, text: String(r.text || '').replace(/<[^>]*>/g, '') })), has_more: rows.length > limit };
+});
+
 /* ================= Dự án, công việc: xem work.js (phân hệ Công việc – Dự án v2) ================= */
 
 /* ================= Phê duyệt đề xuất ================= */
@@ -600,7 +615,11 @@ route('PUT', '/api/admin/users/:id', ({ user, params, body, req }) => {
   run('UPDATE users SET full_name=?, title=?, dept_id=?, role=?, email=?, phone=?, active=? WHERE id=?',
     str(body.full_name ?? u.full_name, 120) || u.full_name, str(body.title ?? u.title, 120), int(body.dept_id ?? u.dept_id),
     (body.role ?? u.role) === 'admin' ? 'admin' : 'user', str(body.email ?? u.email, 120), str(body.phone ?? u.phone, 30), (body.active ?? !!u.active) ? 1 : 0, u.id);
-  if (body.active === false) { run('DELETE FROM sessions WHERE user_id=?', u.id); secLog('account_disabled', { user_id: u.id, username: u.username, ip: clientIp(req), detail: 'bởi ' + user.username }); }
+  if (body.active === false) {
+    run('DELETE FROM sessions WHERE user_id=?', u.id); secLog('account_disabled', { user_id: u.id, username: u.username, ip: clientIp(req), detail: 'bởi ' + user.username });
+    /* ADR-011: mẫu giọng tự xóa khi tài khoản ngừng hoạt động */
+    if (require('./meeting-ai').onUserDisabled(u.id)) secLog('voice_delete', { user_id: u.id, username: u.username, ip: clientIp(req), detail: 'tự xóa mẫu giọng do tài khoản ngừng hoạt động, bởi ' + user.username });
+  }
   if (body.password) {
     if (String(body.password).length < 8) bad('Mật khẩu tối thiểu 8 ký tự.');
     run('UPDATE users SET pass_hash=?, must_change_pw=1 WHERE id=?', D.hashPw(body.password), u.id);
@@ -669,13 +688,32 @@ WORKAPI = WORK.register({ route, bad, forbid, notFound, isAdmin, isDirector, log
 BIZAPI = BIZ.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate, HttpError });
 require('./backup').register({ route, bad, str, int, secLog, clientIp, cookieAttrs });
 
+/* ================= Trợ lý AI (ADR-010) ================= */
+/* Gọi một API của chính hệ thống dưới danh nghĩa người dùng của yêu cầu gốc (cùng cookie, Origin, IP),
+ * đi qua toàn bộ handle(): đăng nhập, Origin, ép đổi mật khẩu, phân quyền. Dùng cho xác nhận thao tác ghi của trợ lý
+ * và cho cổng AI khi chạy bản Node. */
+async function internalCall(orig, method, path, body) {
+  const { ResShim } = require('./worker/do-core.js');
+  const h = {}; for (const k of ['cookie', 'origin', 'host', 'x-forwarded-proto', 'x-forwarded-host', 'x-forwarded-for', 'cf-connecting-ip', 'user-agent']) if (orig.headers[k]) h[k] = orig.headers[k];
+  if (body !== undefined) h['content-type'] = 'application/json';
+  const req = { method, url: path, headers: h, socket: orig.socket, rawBody: body !== undefined ? Buffer.from(JSON.stringify(body)) : null, soInternal: true, on() {}, destroy() {} };
+  const res = new ResShim();
+  await handle(req, res);
+  let json = null; try { json = JSON.parse(Buffer.concat(res.chunks).toString('utf8')); } catch (e) {}
+  return { status: res.statusCode, json };
+}
+require('./ai-core').register({ route, bad, forbid, notFound, str, int, secLog, clientIp, HttpError, internalCall });
+const MEETING_AI = require('./meeting-ai');
+MEETING_AI.register({ route, bad, forbid, notFound, str, int, secLog, clientIp }); // trợ lý cuộc họp: mẫu giọng, bản ghi phát biểu, tư vấn phân công (ADR-011)
+const AI = require('./ai');
+
 /* ================= Máy chủ HTTP ================= */
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.webmanifest': 'application/manifest+json; charset=utf-8', '.txt': 'text/plain; charset=utf-8' };
 function securityHeaders(req, res) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(self), payment=()');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(self), geolocation=(self), payment=()');
   if (isHttps(req)) res.setHeader('Strict-Transport-Security', 'max-age=31536000');
 }
 function originAllowed(req) {
@@ -723,12 +761,31 @@ async function handle(req, res) {
   if (url.pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' }); return res.end('ok'); }
   if (!url.pathname.startsWith('/api/')) { if (IS_WORKER) { res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }); return res.end('Không tìm thấy.'); } return sendStatic(req, res, url.pathname); }
   const json = (status, obj) => { if (res.headersSent) return; res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); };
+  /* Cổng trợ lý AI bản Node (trên Cloudflare, worker/index.js xử lý trước khi vào Durable Object). Trả SSE theo từng bước. */
+  if (url.pathname === '/api/ai/chat' && req.method === 'POST' && !IS_WORKER) {
+    let body; try { body = await readBody(req, 1e6); } catch (e) { return json(e.status || 400, { error: e.message }); }
+    res.writeHead(200, AI.SSE_HEADERS);
+    await AI.handleChat({ body, env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b), emit: ev => res.write('data: ' + JSON.stringify(ev) + '\n\n') });
+    return res.end();
+  }
+  if (AI.ONE_SHOT[url.pathname] && req.method === 'POST' && !IS_WORKER) {
+    let body; try { body = await readBody(req, url.pathname === '/api/ai/transcribe' ? 16e6 : 1e6); } catch (e) { return json(e.status || 400, { error: e.message }); }
+    const r = await AI.ONE_SHOT[url.pathname]({ body, env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b) });
+    return json(r.status, r.json);
+  }
+  if (url.pathname === '/api/ai/test' && req.method === 'POST' && !IS_WORKER) {
+    let body = {}; try { body = await readBody(req, 1e4) || {}; } catch (e) {}
+    const r = await AI.handleTest({ body, env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b) });
+    return json(r.status, r.json);
+  }
   try {
     let m = null, rt = null;
     for (const r of routes) { if (r.method !== req.method) continue; m = url.pathname.match(r.re); if (m) { rt = r; break; } }
     if (!rt) throw new HttpError(404, 'Không tìm thấy chức năng.');
     if (req.method !== 'GET' && !originAllowed(req)) throw new HttpError(403, 'Yêu cầu không hợp lệ.');
     const user = userFromReq(req);
+    /* Dọn dữ liệu hết hạn (bản ghi âm cuộc họp quá 24 giờ, mẫu giọng của tài khoản ngừng hoạt động; ADR-011), tối đa 10 phút một lần */
+    if (user) { try { MEETING_AI.maintain(); } catch (e) { console.error('maintain', e && e.message); } }
     if (!rt.public && !user) throw new HttpError(401, 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
     /* P0-6: tài khoản phải đổi mật khẩu lần đầu chỉ được gọi các API tối thiểu để đổi mật khẩu */
     if (user && user.must_change_pw && !rt.public && !MUST_CHANGE_OK.has(url.pathname)) forbid('Vui lòng đổi mật khẩu lần đầu trước khi sử dụng hệ thống.');
