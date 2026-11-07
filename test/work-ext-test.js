@@ -135,10 +135,32 @@ const login = async u => { sessions[u] = ''; const r = await call(u, 'POST', '/a
   // C. Thảo luận, tài liệu, hoạt động, thanh thông tin
   r = await call('mai.bt', 'POST', '/api/projects/1/posts', { title: 'Lịch họp tuần', body: 'Thứ Hai 8:00' });
   const post = r.b; ok(r.s === 200 && post.id, 'thành viên thêm thảo luận', r.b);
-  r = await call('long.hd', 'POST', `/api/posts/${post.id}/comments`, { body: 'Đồng ý' });
+  r = await call('long.hd', 'POST', `/api/project-posts/${post.id}/comments`, { body: 'Đồng ý' });
   ok(r.s === 200 && r.b.comments.length === 1, 'bình luận thảo luận', r.b);
   ok((await call('huy.dq', 'GET', '/api/projects/1/posts')).s === 403, 'người ngoài dự án không xem được thảo luận');
-  ok((await call('quan.lm', 'DELETE', '/api/posts/' + post.id)).s === 403, 'không phải người viết/quản lý thì không xóa được thảo luận');
+  ok((await call('quan.lm', 'DELETE', '/api/project-posts/' + post.id)).s === 403, 'không phải người viết/quản lý thì không xóa được thảo luận');
+
+  // C1. Lỗi 07/11/2026: Bảng tin và Thảo luận dự án từng dùng chung /api/posts/:id; route của Thảo luận đăng ký trước nên
+  // mở, sửa, xóa bản tin lại thao tác trên thảo luận dự án trùng số hiệu. Tạo bản tin và thảo luận có CÙNG số hiệu rồi kiểm tra tách biệt.
+  const btTitle = 'Bản tin kiểm thử trùng số hiệu';
+  r = await call('thanh.nv', 'POST', '/api/posts', { title: btTitle, body: 'Nội dung bản tin', category: 'thongbao' });
+  const btId = r.b.id; ok(r.s === 200 && btId, 'giám đốc đăng bản tin', r.b);
+  let same = null;
+  for (let i = 0; i < 20 && !same; i++) { const x = (await call('mai.bt', 'POST', '/api/projects/1/posts', { title: 'Thảo luận trùng số ' + i, body: 'x' })).b; if (x.id === btId) same = x; else if (x.id > btId) break; }
+  ok(!!same, 'có thảo luận dự án trùng số hiệu với bản tin', { btId });
+  if (same) {
+    r = await call('thanh.nv', 'GET', '/api/posts/' + btId);
+    ok(r.s === 200 && r.b.title === btTitle, 'mở bản tin trả đúng bản tin, không phải thảo luận dự án', r.b);
+    r = await call('mai.bt', 'GET', '/api/project-posts/' + btId);
+    ok(r.s === 200 && r.b.title === same.title && r.b.project_id === 1, 'mở thảo luận dự án theo đường dẫn riêng', r.b);
+    r = await call('thanh.nv', 'POST', `/api/posts/${btId}/comments?kind=bulletin`, { body: 'Bình luận bản tin' });
+    const nC = async (who, p) => ((await call(who, 'GET', p)).b.comments || { length: -1 }).length;
+    ok(r.s === 200 && await nC('thanh.nv', '/api/posts/' + btId) === 1 && await nC('mai.bt', '/api/project-posts/' + btId) === 0, 'bình luận bản tin không ghi vào thảo luận dự án', r.b);
+    ok((await call('thanh.nv', 'DELETE', '/api/posts/' + btId)).s === 409, 'giao diện cũ (thiếu kind=bulletin) không xóa được bản tin: tránh xóa nhầm khi trình duyệt còn bản cũ');
+    r = await call('thanh.nv', 'DELETE', `/api/posts/${btId}?kind=bulletin`);
+    const btLeft = (await call('thanh.nv', 'GET', '/api/posts')).b.posts.some(p => p.id === btId);
+    ok(r.s === 200 && !btLeft && (await call('mai.bt', 'GET', '/api/project-posts/' + btId)).s === 200, 'xóa bản tin chỉ xóa bản tin, thảo luận dự án trùng số hiệu còn nguyên', { s: r.s, btLeft });
+  }
   r = await call('mai.bt', 'POST', '/api/projects/1/files', { file_name: 'quy-trinh.pdf', file_data: b64('QUY TRINH') });
   ok(r.s === 200, 'tải lên tài liệu dự án');
   r = await call('mai.bt', 'GET', '/api/projects/1/files');

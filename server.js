@@ -56,7 +56,13 @@ const headOf = uid => { const r = get('SELECT d.head_id h FROM users u JOIN depa
 
 /* ================= Định tuyến ================= */
 const routes = [];
+const ROUTE_KEYS = new Set();
 function route(method, pattern, handler, opts = {}) {
+  /* Hai phân hệ đăng ký trùng phương thức và mẫu đường dẫn thì route sau không bao giờ được gọi (bộ định tuyến lấy route khớp đầu tiên).
+   * Lỗi 07/11/2026: Bảng tin và Thảo luận dự án cùng dùng /api/posts/:id, xóa bản tin lại xóa nhầm thảo luận. Dừng ngay khi khởi động. */
+  const key = method + ' ' + pattern.replace(/:\w+/g, ':');
+  if (ROUTE_KEYS.has(key)) throw new Error('Trùng định tuyến: ' + method + ' ' + pattern);
+  ROUTE_KEYS.add(key);
   const keys = [];
   const re = new RegExp('^' + pattern.replace(/:(\w+)/g, (_, k) => { keys.push(k); return '([^/]+)'; }) + '$');
   routes.push({ method, re, keys, handler, public: !!opts.public, admin: !!opts.admin, raw: !!opts.raw });
@@ -660,7 +666,7 @@ HR2API = HR2.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector,
 
 EXTAPI = EXT.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate });
 WORKAPI = WORK.register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc, str, int, isDate });
-BIZAPI = BIZ.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate });
+BIZAPI = BIZ.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate, HttpError });
 require('./backup').register({ route, bad, str, int, secLog, clientIp, cookieAttrs });
 
 /* ================= Máy chủ HTTP ================= */

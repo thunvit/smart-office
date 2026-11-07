@@ -220,7 +220,33 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Chưa kiểm chứng trên Cloudflare thật:** thực hiện khôi phục từ tệp và khôi phục theo thời điểm (đều thay toàn bộ dữ liệu, không làm trên hệ thống đang dùng).
 - **Chưa làm:** xuất định kỳ ra R2 (cần chủ sở hữu tạo bucket); diễn tập PITR và khôi phục từ tệp trên Cloudflare thật.
 
-## Việc còn dở và sự cố đang mở (cập nhật 06/11/2026)
+## 07/11/2026. Rà soát kiến trúc và tư vấn trợ lý AI đa nhiệm (nhánh `claude/code-architecture-ai-optimization-11be7f`)
+- **Yêu cầu của chủ sở hữu:** "rà soát kiến trúc code, từ đó đưa ra tư vấn tối ưu trải nghiệm bằng cách thêm các tính năng AI, trợ lý AI đa nhiệm".
+- **Việc đã làm:** báo cáo `docs/05-ra-soat/2026-11-07-RA-SOAT-KIEN-TRUC-TU-VAN-AI.md` (kết quả rà soát, kiến trúc cổng AI tại Worker không trạng thái, danh mục công cụ, 15 tính năng chia 3 đợt, ATTT và pháp lý, kiểm thử). Chưa sửa mã, chưa lập ADR.
+- **Lỗi phát hiện (nghiêm trọng, có trên bản chạy thật từ `so-1.8.0`):** Bảng tin (`biz.js`) và Thảo luận dự án (`work-ext.js:322-337`) cùng đường dẫn `/api/posts/:id`; route của `work-ext.js` đăng ký trước nên thắng. Hệ quả: không mở được chi tiết bản tin; **bấm Xóa/Sửa bản tin thực tế xóa/sửa thảo luận dự án trùng số hiệu**.
+  - Đã kiểm thử cục bộ (bản Node, dữ liệu mẫu, thư mục dữ liệu tạm ngoài kho mã): `GET /api/posts/1` trả 404 "Thảo luận không tồn tại."; `DELETE /api/posts/1` trả 200, xóa thảo luận dự án số 1, bản tin số 1 vẫn còn.
+  - Chưa kiểm chứng trên Cloudflare thật (không ghi vào dữ liệu thật). Chưa sửa.
+- **Kiểm thử bắt buộc mục 5 CLAUDE.md:** không chạy, vì phiên này không sửa mã chạy (chỉ thêm tài liệu).
+- **Ghi chú vận hành:** trong lúc tái hiện, một máy chủ Node thử nghiệm (PID 83064, cổng 3988, dữ liệu tạm) có thể vẫn chạy trên máy của chủ sở hữu; các máy chủ cổng 3986, 3987 đã dừng.
+
+## 07/11/2026. Sửa lỗi trùng đường dẫn Bảng tin – Thảo luận dự án (so-1.10.1), theo yêu cầu của chủ sở hữu
+- **Cách sửa:**
+  - Thảo luận dự án chuyển sang `/api/project-posts/:id` (`work-ext.js`, `public/work-report.js`); Bảng tin giữ `/api/posts/:id`.
+  - `route()` trong `server.js` dừng khởi động khi có hai route trùng phương thức và mẫu đường dẫn ("Trùng định tuyến: …").
+  - Bảo vệ giai đoạn chuyển tiếp: trình duyệt còn giao diện cũ sẽ gọi `/api/posts/:id` cho thảo luận dự án, nay rơi vào Bảng tin. Các lệnh sửa, xóa, bình luận bản tin bắt buộc có `?kind=bulletin` (giao diện mới gửi kèm); thiếu thì trả 409 "Giao diện đang dùng phiên bản cũ…". Có thể gỡ sau khi mọi trình duyệt đã cập nhật.
+  - `sw.js` lên `so-1.10.1`.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `work-ext-test`: thêm mục C1 (bản tin và thảo luận trùng số hiệu). Trên mã cũ 7 không đạt (mở bản tin trả thảo luận "Thảo luận trùng số 2"; bình luận bản tin ghi vào thảo luận); trên mã mới 98 đạt, 0 không đạt.
+  - `work-test` 125/0, `work-plan-test` 21/0, `auth-test` 78/0, `backup-test` 48/0; `node --check` toàn bộ đạt.
+  - `worker-smoke`: `KẾT QUẢ: đạt`, có `download 200 true`, `re-instantiate 200`, `lockout persist 429`, `backup-manifest 200`, `work-template 200 3`, `work-post 200`.
+  - Kiểm tra chặn trùng route: bản sao có route trùng thì dừng với "Trùng định tuyến: GET /api/posts/:id"; bản sạch khởi động bình thường. Lần chạy đầu không hợp lệ (dừng vì thiếu thư mục `public/` trong bản sao), đã chạy lại.
+  - Bản Node (`DATA_DIR` tạm, cổng 3999): `/healthz` ok, `/api/login` 200, `sw.js` = `so-1.10.1`.
+  - Giao diện, trình duyệt tích hợp: mở bản tin hiện đúng nội dung, bình luận bản tin lên 2; mở, bình luận, ghim, xóa thảo luận dự án qua đường dẫn mới; sau khi xóa thảo luận số 1, Bảng tin vẫn đủ bản tin 1, 2, 3. Bảng điều khiển trình duyệt có lỗi "An unknown error occurred when fetching the script" (đăng ký service worker trong khung trình duyệt tích hợp), chưa xác định có liên quan bản sửa hay không.
+  - **Chưa chạy** `work-ui.js`, `work-ui-full.js`: máy chưa cài Playwright.
+- **Chưa kiểm chứng trên Cloudflare thật**; chưa hợp nhất vào `main`.
+
+## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
+0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
 2. **Các việc P0 theo báo cáo rà soát:**
    - sửa khóa đăng nhập sai (`server.js:88`) và lưu bộ đếm bền vững;
@@ -235,3 +261,4 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 3. **Pháp chế** xác định nơi lưu dữ liệu và hồ sơ pháp lý khi kinh doanh dịch vụ.
 4. **Tên miền** `smartoffice.vnptninhbinh.com.vn` chưa gắn; chờ chọn phương án DNS.
 5. **Phân hệ Công việc – Dự án v2** đã triển khai (06/11/2026). Đề xuất P1: service worker tự kích hoạt bản mới khi API thay đổi không tương thích, tránh giao diện cũ gọi API mới.
+6. **Trợ lý AI (Phiên 16):** chờ chủ sở hữu chọn phương án phụ thuộc SDK (ADR-001), mô hình mặc định, và pháp chế xác nhận điều kiện gửi dữ liệu ra nhà cung cấp AI; sau đó lập ADR-010.

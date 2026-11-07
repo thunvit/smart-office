@@ -319,22 +319,22 @@ function register(H) {
     plog(p.id, user.id, 'post', title);
     return { ...postOf(id), comments: [] };
   });
-  route('GET', '/api/posts/:id', ({ user, params }) => {
+  route('GET', '/api/project-posts/:id', ({ user, params }) => {
     const x = postOf(int(params.id)); need(roleIn(user, x.project_id), 'Bạn không phải thành viên.');
     return { ...x, comments: all('SELECT * FROM project_post_comments WHERE post_id=? ORDER BY id LIMIT 500', x.id), can_edit: x.user_id === user.id || canManage(roleIn(user, x.project_id)) };
   });
-  route('PUT', '/api/posts/:id', ({ user, params, body }) => {
+  route('PUT', '/api/project-posts/:id', ({ user, params, body }) => {
     const x = postOf(int(params.id)); need(x.user_id === user.id || canManage(roleIn(user, x.project_id)), 'Chỉ người viết hoặc quản lý mới được sửa.');
     const title = str(body.title ?? x.title, 200); if (!title) bad('Vui lòng nhập tiêu đề.');
     run('UPDATE project_posts SET title=?, body=?, pinned=?, updated_at=? WHERE id=?', title, str(body.body ?? x.body, 20000), 'pinned' in body && canManage(roleIn(user, x.project_id)) ? (body.pinned ? 1 : 0) : x.pinned, now(), x.id);
     return { ...postOf(x.id), comments: all('SELECT * FROM project_post_comments WHERE post_id=? ORDER BY id LIMIT 500', x.id), can_edit: true };
   });
-  route('DELETE', '/api/posts/:id', ({ user, params }) => {
+  route('DELETE', '/api/project-posts/:id', ({ user, params }) => {
     const x = postOf(int(params.id)); need(x.user_id === user.id || canManage(roleIn(user, x.project_id)), 'Chỉ người viết hoặc quản lý mới được xóa.');
     tx(() => { run('DELETE FROM project_post_comments WHERE post_id=?', x.id); run('DELETE FROM project_posts WHERE id=?', x.id); });
     return { ok: true };
   });
-  route('POST', '/api/posts/:id/comments', ({ user, params, body }) => {
+  route('POST', '/api/project-posts/:id/comments', ({ user, params, body }) => {
     const x = postOf(int(params.id)); need(roleIn(user, x.project_id), 'Bạn không phải thành viên.');
     const b = str(body.body, 5000); if (!b) bad('Vui lòng nhập nội dung.');
     run('INSERT INTO project_post_comments(post_id,user_id,body,created_at) VALUES(?,?,?,?)', x.id, user.id, b, now());

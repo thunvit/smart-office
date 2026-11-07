@@ -63,7 +63,7 @@ const REQ_CAT = { thanhtoan: 'dichvu', mua: 'muasam', tamung: 'tamung' };
 const ASSET_CAT = { maytinh: 'Máy tính, thiết bị CNTT', noithat: 'Nội thất, bàn ghế', phuongtien: 'Phương tiện vận tải', thietbi: 'Máy móc, thiết bị', khac: 'Khác' };
 const ASSET_STATUS = ['dangdung', 'kho', 'suachua', 'thanhly'];
 
-function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate }) {
+function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate, HttpError }) {
   const st = () => D.getSettings();
   const isHead = u => !!get('SELECT 1 FROM departments WHERE head_id=?', u.id);
   const isFinance = u => isAdmin(u) || isDirector(u) || (st().accountant_id && get('SELECT dept_id d FROM users WHERE id=?', st().accountant_id)?.d === u.dept_id);
@@ -109,14 +109,20 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
     log(user.id, `đăng bản tin <b>${esc(x.t)}</b>`);
     return { id };
   });
-  route('PUT', '/api/posts/:id', ({ user, params, body }) => {
+  /* Trước bản so-1.10.1, Thảo luận dự án dùng chung /api/posts/:id với Bảng tin. Trình duyệt còn giao diện cũ trong bộ đệm sẽ gọi
+   * PUT/DELETE/bình luận /api/posts/:id cho THẢO LUẬN DỰ ÁN; nay các yêu cầu đó vào Bảng tin và có thể sửa, xóa nhầm bản tin trùng số hiệu.
+   * Giao diện mới gửi kèm ?kind=bulletin; thiếu tham số này thì từ chối (409) và yêu cầu cập nhật giao diện. */
+  const needBulletinClient = q => { if (q.kind !== 'bulletin') throw new HttpError(409, 'Giao diện đang dùng phiên bản cũ. Vui lòng bấm "Cập nhật" hoặc tải lại trang rồi thao tác lại.'); };
+  route('PUT', '/api/posts/:id', ({ user, params, body, query }) => {
+    needBulletinClient(query);
     const p = get('SELECT * FROM posts WHERE id=?', int(params.id)) || notFound();
     if (!(isAdmin(user) || p.author_id === user.id)) forbid();
     const x = postInput(body);
     run('UPDATE posts SET title=?, body=?, category=?, pinned=?, require_ack=?, updated_at=? WHERE id=?', x.t, x.body, x.cat, x.pin, x.ack, now(), p.id);
     return { ok: true };
   });
-  route('DELETE', '/api/posts/:id', ({ user, params }) => {
+  route('DELETE', '/api/posts/:id', ({ user, params, query }) => {
+    needBulletinClient(query);
     const p = get('SELECT * FROM posts WHERE id=?', int(params.id)) || notFound();
     if (!(isAdmin(user) || p.author_id === user.id)) forbid();
     run('DELETE FROM posts WHERE id=?', p.id); return { ok: true };
@@ -126,7 +132,8 @@ function register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log
     run(`INSERT INTO post_reads(post_id,user_id,read_at,ack_at) VALUES(?,?,?,?) ON CONFLICT(post_id,user_id) DO UPDATE SET ack_at=excluded.ack_at`, p.id, user.id, now(), now());
     return { ok: true };
   });
-  route('POST', '/api/posts/:id/comments', ({ user, params, body }) => {
+  route('POST', '/api/posts/:id/comments', ({ user, params, body, query }) => {
+    needBulletinClient(query);
     const p = get('SELECT * FROM posts WHERE id=?', int(params.id)) || notFound();
     const b = str(body.body, 3000); if (!b) bad('Vui lòng nhập nội dung bình luận.');
     run('INSERT INTO post_comments(post_id,user_id,body,created_at) VALUES(?,?,?,?)', p.id, user.id, b, now());

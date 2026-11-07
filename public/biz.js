@@ -37,9 +37,9 @@ async function postDetail(id) {
     <div class="inline-add"><input id="pc-new" placeholder="Viết bình luận…" aria-label="Viết bình luận"><button class="btn sm" data-act="m-cmt">Gửi</button></div><p class="err" id="pd-err" hidden></p></div>
   <div class="modal-f">${p.can_edit ? '<button class="btn danger" data-act="m-del" style="margin-right:auto">Xóa</button><button class="btn" data-act="m-edit">Sửa</button>' : ''}<button class="btn" data-act="close">Đóng</button></div>`, {
     'm-ack': btn => busy(btn, async () => { await POST(`/api/posts/${p.id}/ack`); toast('Đã xác nhận đọc'); postDetail(p.id); render(); }),
-    'm-cmt': async () => { const v = $('#pc-new').value.trim(); if (!v) return; try { await POST(`/api/posts/${p.id}/comments`, { body: v }); postDetail(p.id); } catch (e) { showErr('#pd-err', e); } },
+    'm-cmt': async () => { const v = $('#pc-new').value.trim(); if (!v) return; try { await POST(`/api/posts/${p.id}/comments?kind=bulletin`, { body: v }); postDetail(p.id); } catch (e) { showErr('#pd-err', e); } },
     'm-edit': () => postForm(p),
-    'm-del': async btn => { if (!armed(btn, 'Bấm lần nữa để xóa')) return; await DEL('/api/posts/' + p.id); closeModal(); render(); toast('Đã xóa bản tin'); }
+    'm-del': async btn => { if (!armed(btn, 'Bấm lần nữa để xóa')) return; await DEL('/api/posts/' + p.id + '?kind=bulletin'); closeModal(); render(); toast('Đã xóa bản tin'); }
   });
   render();
 }
@@ -51,7 +51,7 @@ function postForm(p) {
     <div class="field full"><label for="po-b">Nội dung</label><textarea id="po-b" style="min-height:220px">${esc(p ? p.body : '')}</textarea></div></div><p class="err" id="po-err" hidden></p></div>
   <div class="modal-f"><button class="btn" data-act="close">Hủy</button><button class="btn primary" data-act="m-save">${p ? 'Lưu' : 'Đăng'}</button></div>`, {
     'm-save': btn => busy(btn, async () => { const b = { title: $('#po-t').value, category: $('#po-c').value, pinned: $('#po-pin').checked, require_ack: $('#po-ack').checked, body: $('#po-b').value };
-      try { p ? await PUT('/api/posts/' + p.id, b) : await POST('/api/posts', b); closeModal(); render(); S.refreshBoot(); toast(p ? 'Đã lưu bản tin' : 'Đã đăng bản tin'); } catch (e) { showErr('#po-err', e); } })
+      try { p ? await PUT('/api/posts/' + p.id + '?kind=bulletin', b) : await POST('/api/posts', b); closeModal(); render(); S.refreshBoot(); toast(p ? 'Đã lưu bản tin' : 'Đã đăng bản tin'); } catch (e) { showErr('#po-err', e); } })
   });
 }
 ACTIONS['post-new'] = () => postForm(null);
