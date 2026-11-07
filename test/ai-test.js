@@ -270,13 +270,37 @@ async function webSearch(U) {
 
   // U. Người dùng xem token AI của chính mình
   r = await call('mai.bt', 'GET', '/api/ai/me/usage');
-  const dbMai = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out),0) n, COUNT(*) c, COALESCE(SUM(web_requests),0) w FROM ai_log WHERE user_id=? AND day=?', U['mai.bt'].id, D.today());
+  const dbMai = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out+(COALESCE(tokens_cached,0)+9)/10),0) n, COUNT(*) c, COALESCE(SUM(web_requests),0) w FROM ai_log WHERE user_id=? AND day=?', U['mai.bt'].id, D.today());
   ok(r.s === 200 && r.b.quota === 200000 && r.b.used_today === dbMai.n && r.b.today.turns === dbMai.c && r.b.today.web_requests === dbMai.w && r.b.quota_left === 200000 - dbMai.n, 'U: người dùng xem token đã dùng hôm nay, hạn mức còn lại', { api: r.b.used_today, db: dbMai });
   ok(r.b.days.length >= 1 && r.b.days[0].day === D.today() && r.b.total_30d.turns >= dbMai.c, 'U: thống kê theo ngày trong 30 ngày', r.b.days);
-  const dbHuy = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out),0) n FROM ai_log WHERE user_id=? AND day=?', U['huy.dq'].id, D.today()).n;
+  const dbHuy = D.get('SELECT COALESCE(SUM(tokens_in+tokens_out+(COALESCE(tokens_cached,0)+9)/10),0) n FROM ai_log WHERE user_id=? AND day=?', U['huy.dq'].id, D.today()).n;
   r = await call('huy.dq', 'GET', '/api/ai/me/usage');
   ok(r.s === 200 && r.b.used_today === dbHuy && r.b.used_today !== dbMai.n, 'U: mỗi người chỉ thấy số liệu của mình', { huy: r.b.used_today, mai: dbMai.n });
   sessions.anon = ''; ok((await call('anon', 'GET', '/api/ai/me/usage')).s === 401, 'U: chưa đăng nhập không xem được');
+
+  // C. Token đọc từ bộ đệm lời nhắc: ghi riêng, chỉ tính 10% vào hạn mức (ba nhà cung cấp)
+  const lastLog = uid => D.get('SELECT tokens_in, tokens_out, tokens_cached FROM ai_log WHERE user_id=? ORDER BY id DESC LIMIT 1', uid);
+  const before = (await call('huy.dq', 'GET', '/api/ai/me/usage')).b.used_today;
+  await chat('huy.dq', 'x', [{ content: [{ type: 'text', text: 'ok' }], stop_reason: 'end_turn', usage: { input_tokens: 300, cache_creation_input_tokens: 200, cache_read_input_tokens: 9001, output_tokens: 40 } }]);
+  let cl = lastLog(U['huy.dq'].id);
+  ok(cl.tokens_in === 500 && cl.tokens_cached === 9001 && cl.tokens_out === 40, 'C: Anthropic: tách token đọc bộ đệm khỏi token vào (ghi bộ đệm vẫn tính đủ)', cl);
+  const after = (await call('huy.dq', 'GET', '/api/ai/me/usage')).b;
+  ok(after.used_today - before === 500 + 40 + 901 && after.today.tokens_cached >= 9001 && after.cache_weight === 0.1, 'C: hạn mức tính 10% token bộ đệm (làm tròn lên)', { diff: after.used_today - before });
+  await chat('huy.dq', 'x', [{ choices: [{ message: { role: 'assistant', content: 'ok' }, finish_reason: 'stop' }], usage: { prompt_tokens: 1000, completion_tokens: 10, prompt_tokens_details: { cached_tokens: 800 } } }], { AI_PROVIDER: 'openai', AI_API_KEY: 'sk', AI_MODEL: 'm' });
+  cl = lastLog(U['huy.dq'].id);
+  ok(cl.tokens_in === 200 && cl.tokens_cached === 800, 'C: OpenAI: prompt_tokens_details.cached_tokens', cl);
+  await chat('huy.dq', 'x', [{ candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 700, cachedContentTokenCount: 600, candidatesTokenCount: 5 } }], { AI_PROVIDER: 'gemini', AI_API_KEY: 'g', AI_MODEL: 'm' });
+  cl = lastLog(U['huy.dq'].id);
+  ok(cl.tokens_in === 100 && cl.tokens_cached === 600, 'C: Gemini: cachedContentTokenCount', cl);
+  // Hạn mức chặn theo số đã quy đổi: tổng thô vượt hạn mức nhưng số quy đổi chưa vượt thì vẫn dùng được
+  const huyRaw = D.get('SELECT SUM(tokens_in+tokens_out+tokens_cached) n FROM ai_log WHERE user_id=? AND day=?', U['huy.dq'].id, D.today()).n;
+  const huyBilled = (await call('huy.dq', 'GET', '/api/ai/me/usage')).b.used_today;
+  const q = Math.max(1000, Math.floor((huyRaw + huyBilled) / 2));
+  await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: q });
+  let rq = await chat('huy.dq', 'x', [A.text('vẫn dùng được')]);
+  ok(huyRaw > q && huyBilled < q && !rq.err && rq.text === 'vẫn dùng được', 'C: tổng thô vượt hạn mức nhưng số quy đổi chưa vượt: vẫn dùng được', { huyRaw, huyBilled, q });
+  ok((await call('admin', 'GET', '/api/admin/ai-settings')).b.usage_30d.some(x => x.user_id === U['huy.dq'].id && x.tokens_cached >= 9001 && x.billed > 0), 'C: quản trị thấy token bộ đệm và token tính hạn mức');
+  await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000 });
 
   ok((await call('admin', 'PUT', '/api/admin/ai-settings', { enabled: true, daily_tokens: 200000, web_search: false })).b.web_search === false, 'W: tắt lại tìm Internet');
 }

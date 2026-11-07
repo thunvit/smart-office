@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS ai_user_config (user_id INTEGER PRIMARY KEY REFERENCE
 const KEY = require('./ai-key');
 D.addCol('ai_user_config', 'stt_model', "TEXT DEFAULT ''"); // mô hình chuyển giọng nói (OpenAI), bổ sung 07/11/2026
 D.addCol('ai_log', 'web_requests', 'INTEGER DEFAULT 0');
+D.addCol('ai_log', 'tokens_cached', 'INTEGER DEFAULT 0'); // token đọc từ bộ đệm lời nhắc (nhà cung cấp tính giá khoảng 10%), tách khỏi tokens_in
 D.addCol('ai_user_config', 'auto_brief', 'INTEGER DEFAULT 0'); // tự báo cáo tình hình khi vào hệ thống lần đầu mỗi ngày (lãnh đạo) // số lần tìm kiếm/đọc trang Internet trong lượt (nhà cung cấp tính phí riêng)
 /* Mỗi người dùng một cấu hình AI riêng (nhà cung cấp, mô hình, khóa API, cách trả lời). Khóa chỉ lưu dạng mã hóa. */
 const PROVIDERS = { anthropic: 'Anthropic (Claude)', openai: 'OpenAI', gemini: 'Google Gemini' };
@@ -52,15 +53,18 @@ function aiSettings() {
   const web_domains = s.ai_web_domains == null ? DEFAULT_WEB_DOMAINS.slice() : parseDomains(s.ai_web_domains).domains;
   return { enabled: s.ai_enabled === '1', allow_pii: s.ai_allow_pii === '1', daily_tokens: Number(s.ai_daily_tokens || DEFAULT_QUOTA), web_search: s.ai_web_search === '1', web_domains };
 }
-const usedToday = uid => get('SELECT COALESCE(SUM(tokens_in + tokens_out),0) n FROM ai_log WHERE user_id=? AND day=?', uid, D.today()).n;
+/* Token tính hạn mức: token vào + token ra + 10% token đọc từ bộ đệm lời nhắc (làm tròn lên mỗi lượt).
+ * Lý do: mô tả công cụ và lời nhắc hệ thống lặp lại ở mọi bước, được lưu bộ đệm và tính giá thấp; tính đủ thì lãnh đạo hết hạn mức rất sớm. */
+const BILLED = '(tokens_in + tokens_out + (COALESCE(tokens_cached,0) + 9) / 10)';
+const usedToday = uid => get(`SELECT COALESCE(SUM(${BILLED}),0) n FROM ai_log WHERE user_id=? AND day=?`, uid, D.today()).n;
 /** Token AI của chính người dùng: hôm nay (so với hạn mức) và 30 ngày gần nhất theo ngày. Chỉ trả số liệu của người đang đăng nhập. */
 function myUsage(uid) {
   const s = aiSettings(), from = D.addDays(D.today(), -29);
-  const days = all('SELECT day, COUNT(*) turns, COALESCE(SUM(tokens_in),0) tokens_in, COALESCE(SUM(tokens_out),0) tokens_out, COALESCE(SUM(web_requests),0) web_requests FROM ai_log WHERE user_id=? AND day>=? GROUP BY day ORDER BY day DESC', uid, from);
-  const today = days.find(d => d.day === D.today()) || { day: D.today(), turns: 0, tokens_in: 0, tokens_out: 0, web_requests: 0 };
+  const days = all(`SELECT day, COUNT(*) turns, COALESCE(SUM(tokens_in),0) tokens_in, COALESCE(SUM(tokens_out),0) tokens_out, COALESCE(SUM(tokens_cached),0) tokens_cached, COALESCE(SUM(${BILLED}),0) billed, COALESCE(SUM(web_requests),0) web_requests FROM ai_log WHERE user_id=? AND day>=? GROUP BY day ORDER BY day DESC`, uid, from);
+  const today = days.find(d => d.day === D.today()) || { day: D.today(), turns: 0, tokens_in: 0, tokens_out: 0, tokens_cached: 0, billed: 0, web_requests: 0 };
   const sum = k => days.reduce((a, d) => a + Number(d[k] || 0), 0);
-  return { quota: s.daily_tokens, used_today: Number(today.tokens_in) + Number(today.tokens_out), quota_left: Math.max(0, s.daily_tokens - Number(today.tokens_in) - Number(today.tokens_out)), today,
-    total_30d: { turns: sum('turns'), tokens_in: sum('tokens_in'), tokens_out: sum('tokens_out'), web_requests: sum('web_requests') }, days };
+  return { quota: s.daily_tokens, used_today: Number(today.billed), quota_left: Math.max(0, s.daily_tokens - Number(today.billed)), cache_weight: 0.1, today,
+    total_30d: { turns: sum('turns'), tokens_in: sum('tokens_in'), tokens_out: sum('tokens_out'), tokens_cached: sum('tokens_cached'), billed: sum('billed'), web_requests: sum('web_requests') }, days };
 }
 
 /* Mô tả để người dùng xác nhận: sinh từ tham số và dữ liệu trong CSDL, KHÔNG dùng lời văn của mô hình (chống prompt injection). */
@@ -121,7 +125,7 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
   });
   route('POST', '/api/ai/usage', ({ user, body }) => {
     const n = v => Math.max(0, Math.min(5e6, int(v)));
-    run('INSERT INTO ai_log(user_id,at,day,provider,model,tokens_in,tokens_out,tools,status,web_requests) VALUES(?,?,?,?,?,?,?,?,?,?)', user.id, now(), D.today(), str(body.provider, 30), str(body.model, 80), n(body.tokens_in), n(body.tokens_out), str((Array.isArray(body.tools) ? body.tools : []).join(','), 500), str(body.status, 30), Math.max(0, Math.min(1000, int(body.web_requests))));
+    run('INSERT INTO ai_log(user_id,at,day,provider,model,tokens_in,tokens_out,tokens_cached,tools,status,web_requests) VALUES(?,?,?,?,?,?,?,?,?,?,?)', user.id, now(), D.today(), str(body.provider, 30), str(body.model, 80), n(body.tokens_in), n(body.tokens_out), n(body.tokens_cached), str((Array.isArray(body.tools) ? body.tools : []).join(','), 500), str(body.status, 30), Math.max(0, Math.min(1000, int(body.web_requests))));
     return { ok: true };
   });
 
@@ -163,7 +167,7 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
   /* Quản trị: cấu hình trợ lý AI và thống kê sử dụng */
   route('GET', '/api/admin/ai-settings', () => {
     const s = aiSettings();
-    const usage = all('SELECT l.user_id, u.full_name, SUM(l.tokens_in) tokens_in, SUM(l.tokens_out) tokens_out, COUNT(*) turns, COALESCE(SUM(l.web_requests),0) web_requests FROM ai_log l LEFT JOIN users u ON u.id=l.user_id WHERE l.day>=? GROUP BY l.user_id ORDER BY SUM(l.tokens_in+l.tokens_out) DESC LIMIT 50', D.addDays(D.today(), -30));
+    const usage = all('SELECT l.user_id, u.full_name, SUM(l.tokens_in) tokens_in, SUM(l.tokens_out) tokens_out, COALESCE(SUM(l.tokens_cached),0) tokens_cached, SUM' + BILLED.replace(/tokens_/g, 'l.tokens_') + ' billed, COUNT(*) turns, COALESCE(SUM(l.web_requests),0) web_requests FROM ai_log l LEFT JOIN users u ON u.id=l.user_id WHERE l.day>=? GROUP BY l.user_id ORDER BY billed DESC LIMIT 50', D.addDays(D.today(), -30));
     return { ...s, usage_30d: usage };
   }, { admin: true });
   route('PUT', '/api/admin/ai-settings', ({ user, body, req }) => {

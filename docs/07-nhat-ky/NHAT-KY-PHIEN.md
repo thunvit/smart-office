@@ -362,6 +362,21 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Chất lượng báo cáo với mô hình thật; Cloudflare thật.
 - **Lưu ý chi phí:** mô tả 22 công cụ khoảng 15.600 ký tự, gửi kèm mỗi bước (có bộ đệm lời nhắc). Hạn mức ngày đang tính cả token đọc từ bộ đệm; lãnh đạo dùng nhiều nên được nâng hạn mức.
 
+## 07/11/2026 (chiều, tiếp). Hạn mức AI tính 10% token đọc bộ đệm (so-1.14.1)
+- **Yêu cầu:** chủ sở hữu đồng ý tính token đọc từ bộ đệm vào hạn mức theo tỷ lệ 10%, để lãnh đạo không hết hạn mức sớm.
+- **Việc đã làm:**
+  - `ai.js`: ba bộ chuyển đổi tách token đọc bộ đệm khỏi token vào (Anthropic `cache_read_input_tokens`; OpenAI `prompt_tokens_details.cached_tokens`; Gemini `cachedContentTokenCount`) và ghi `tokens_cached`.
+  - `ai-core.js`: cột `ai_log.tokens_cached`; hạn mức = vào + ra + 10% bộ đệm (làm tròn lên mỗi lượt), áp cho chặn 429, `/api/ai/me/usage`, thống kê quản trị.
+  - `public/ai.js`: thêm cột "Đọc bộ đệm", "Tính hạn mức" ở Tài khoản và Quản trị. `public/sw.js` so-1.14.1. ADR-010 mục 2E.7; hướng dẫn mục XII.12.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 189 đạt, 0 không đạt. Phần C mới:
+    - tách đúng cho ba nhà cung cấp;
+    - hạn mức tăng đúng vào + ra + 10%;
+    - tổng thô vượt hạn mức nhưng số quy đổi chưa vượt thì vẫn dùng được;
+    - quản trị thấy số liệu.
+  - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Lưu ý:** các lượt cũ trước bản này đã gộp token bộ đệm vào `tokens_in`, nên vẫn tính đủ; chỉ lượt mới được giảm.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

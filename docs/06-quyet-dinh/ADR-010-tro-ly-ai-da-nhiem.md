@@ -86,7 +86,10 @@ Yêu cầu: trợ lý được tra cứu hết các API nghiệp vụ (cấm ngh
    - Nút micro trong khung trợ lý dùng bộ ghi âm sẵn có (`Recorder`, mục 2B): Anthropic dùng nhận dạng của trình duyệt, tự gửi sau khoảng 1,6 giây im lặng; OpenAI/Gemini chuyển giọng nói tại máy chủ, bấm micro lần nữa để gửi.
    - Đọc câu trả lời bằng `speechSynthesis` của trình duyệt (`vi-VN`), không gửi văn bản ra máy chủ khác. Tự đọc khi câu hỏi được nói; nút 🔈 bật đọc cho mọi câu trả lời (lưu ở trình duyệt).
 6. **Tự báo cáo tình hình:** tùy chọn cá nhân `ai_user_config.auto_brief` (mặc định tắt). Khi bật, lần đầu vào hệ thống mỗi ngày trên trình duyệt đó, khung trợ lý tự mở và báo cáo. Mỗi lần báo cáo tốn token.
-7. **Chi phí:** mô tả 22 công cụ khoảng 15.600 ký tự, gửi kèm mỗi bước, được lưu bộ đệm lời nhắc. Hạn mức ngày đang tính cả token đọc từ bộ đệm, nên lãnh đạo dùng nhiều cần hạn mức cao hơn mặc định 200.000.
+7. **Chi phí và hạn mức** (sửa đổi theo chủ sở hữu, 07/11/2026):
+   - mô tả 22 công cụ khoảng 15.600 ký tự, gửi kèm mỗi bước, được lưu bộ đệm lời nhắc;
+   - token đọc từ bộ đệm được ghi riêng (`ai_log.tokens_cached`): Anthropic `cache_read_input_tokens`, OpenAI `prompt_tokens_details.cached_tokens`, Gemini `cachedContentTokenCount`; token ghi bộ đệm vẫn tính là token vào;
+   - hạn mức ngày tính: token vào + token ra + 10% token đọc bộ đệm (làm tròn lên mỗi lượt), tương ứng mức giá thấp mà nhà cung cấp áp cho token đọc bộ đệm.
 
 ## 3. Hệ quả
 

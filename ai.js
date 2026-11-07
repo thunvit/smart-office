@@ -117,7 +117,7 @@ function anthropic(cfg, fetchImpl) {
         text: text.trim(),
         calls: content.filter(b => b.type === 'tool_use').map(b => ({ id: b.id, name: b.name, args: b.input || {} })),
         stop: j.stop_reason === 'refusal' ? 'refusal' : j.stop_reason === 'max_tokens' ? 'max_tokens' : j.stop_reason === 'pause_turn' ? 'pause' : 'ok',
-        usage: { in: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.cache_read_input_tokens || 0), out: u.output_tokens || 0, web: (st.web_search_requests || 0) + (st.web_fetch_requests || 0) },
+        usage: { in: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), cached: u.cache_read_input_tokens || 0, out: u.output_tokens || 0, web: (st.web_search_requests || 0) + (st.web_fetch_requests || 0) },
         web: web ? { queries: content.filter(b => b.type === 'server_tool_use').map(b => b.name === 'web_fetch' ? 'Đọc trang ' + String((b.input && b.input.url) || '').slice(0, 200) : 'Tìm: ' + String((b.input && b.input.query) || '').slice(0, 200)), sources: webSources(content, web) } : null
       };
     },
@@ -141,7 +141,7 @@ function openai(cfg, fetchImpl) {
       const c = (j.choices && j.choices[0]) || {}, m = c.message || { role: 'assistant', content: '' };
       const calls = (m.tool_calls || []).map(tc => { let args = {}; try { args = JSON.parse((tc.function && tc.function.arguments) || '{}'); } catch (e) { args = { __invalid_json: true }; } return { id: tc.id, name: tc.function && tc.function.name, args }; });
       const u = j.usage || {};
-      return { native: [m], text: String(m.content || '').trim(), calls, stop: c.finish_reason === 'length' ? 'max_tokens' : c.finish_reason === 'content_filter' ? 'refusal' : 'ok', usage: { in: u.prompt_tokens || 0, out: u.completion_tokens || 0 } };
+      return { native: [m], text: String(m.content || '').trim(), calls, stop: c.finish_reason === 'length' ? 'max_tokens' : c.finish_reason === 'content_filter' ? 'refusal' : 'ok', usage: { in: Math.max(0, (u.prompt_tokens || 0) - ((u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) || 0)), cached: (u.prompt_tokens_details && u.prompt_tokens_details.cached_tokens) || 0, out: u.completion_tokens || 0 } };
     },
     results: rs => rs.map(r => ({ role: 'tool', tool_call_id: r.id, content: r.content })),
     async transcribe(b64, mime) {
@@ -176,7 +176,7 @@ function gemini(cfg, fetchImpl) {
         text: parts.filter(p => typeof p.text === 'string' && !p.thought).map(p => p.text).join('\n').trim(),
         calls: parts.filter(p => p.functionCall).map((p, i) => ({ id: p.functionCall.id || `call_${i}`, name: p.functionCall.name, args: p.functionCall.args || {} })),
         stop: cand.finishReason === 'MAX_TOKENS' ? 'max_tokens' : cand.finishReason === 'SAFETY' ? 'refusal' : 'ok',
-        usage: { in: u.promptTokenCount || 0, out: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) }
+        usage: { in: Math.max(0, (u.promptTokenCount || 0) - (u.cachedContentTokenCount || 0)), cached: u.cachedContentTokenCount || 0, out: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) }
       };
     },
     results: rs => [{ role: 'user', parts: rs.map(r => ({ functionResponse: { name: r.name, ...(r.callId ? { id: r.callId } : {}), response: { result: r.content } } })) }],
@@ -213,7 +213,7 @@ function makeProvider(cfg, fetchImpl) {
  * emit(event)  – sự kiện gửi về trình duyệt: status | action | text | error | done
  */
 async function handleChat({ body, env, callApi, emit, fetchImpl }) {
-  const toolsUsed = [], usage = { in: 0, out: 0, web: 0 }, sources = [];
+  const toolsUsed = [], usage = { in: 0, out: 0, cached: 0, web: 0 }, sources = [];
   let carry = ''; // văn bản của các bước bị tạm dừng (pause_turn) để ghép vào câu trả lời cuối
   let prov = null, turn = null, status = 'ok';
   try {
@@ -233,7 +233,7 @@ async function handleChat({ body, env, callApi, emit, fetchImpl }) {
     for (let step = 0; ; step++) {
       if (step >= MAX_STEPS) { emit({ type: 'text', text: 'Yêu cầu cần quá nhiều bước tra cứu. Vui lòng chia nhỏ yêu cầu.' }); status = 'max_steps'; break; }
       const r = await prov.step(msgs);
-      usage.in += r.usage.in; usage.out += r.usage.out; usage.web += r.usage.web || 0;
+      usage.in += r.usage.in; usage.out += r.usage.out; usage.cached += r.usage.cached || 0; usage.web += r.usage.web || 0;
       msgs.push(...r.native);
       if (r.web) {
         for (const q of r.web.queries) { emit({ type: 'status', text: q }); if (!toolsUsed.includes(q.startsWith('Tìm') ? 'web_search' : 'web_fetch')) toolsUsed.push(q.startsWith('Tìm') ? 'web_search' : 'web_fetch'); }
@@ -256,7 +256,7 @@ async function handleChat({ body, env, callApi, emit, fetchImpl }) {
     emit({ type: 'error', status: e.status || 500, message: e instanceof AiError || e.status ? e.message : 'Lỗi hệ thống khi xử lý yêu cầu trợ lý.' });
     if (!(e instanceof AiError) && typeof console !== 'undefined') console.error('ai', e && e.stack || e);
   }
-  if (turn && prov) { try { await callApi('POST', '/api/ai/usage', { provider: prov.name, model: prov.model, tokens_in: usage.in, tokens_out: usage.out, web_requests: usage.web, tools: toolsUsed, status }); } catch (e) {} }
+  if (turn && prov) { try { await callApi('POST', '/api/ai/usage', { provider: prov.name, model: prov.model, tokens_in: usage.in, tokens_out: usage.out, tokens_cached: usage.cached, web_requests: usage.web, tools: toolsUsed, status }); } catch (e) {} }
   emit({ type: 'done', usage });
 }
 
@@ -302,7 +302,7 @@ async function handleTest({ env, callApi, fetchImpl }) {
   try {
     const cfg = configFor(t.json, env); prov = makeProvider(cfg, fetchImpl || fetch);
     const r = await prov.step([prov.user('Kiểm tra kết nối. Trả lời đúng một từ: OK')]);
-    try { await callApi('POST', '/api/ai/usage', { provider: prov.name, model: prov.model, tokens_in: r.usage.in, tokens_out: r.usage.out, tools: [], status: 'test' }); } catch (e) {}
+    try { await callApi('POST', '/api/ai/usage', { provider: prov.name, model: prov.model, tokens_in: r.usage.in, tokens_out: r.usage.out, tokens_cached: r.usage.cached || 0, tools: [], status: 'test' }); } catch (e) {}
     return { status: 200, json: { ok: true, provider: prov.name, model: prov.model, source: cfg.source, reply: String(r.text || '').slice(0, 200) } };
   } catch (e) { return { status: 200, json: { ok: false, provider: prov && prov.name, error: e.message } }; }
 }
@@ -315,7 +315,7 @@ async function openTurn(callApi, env, fetchImpl) {
   return { turn: t.json, cfg, prov: makeProvider(cfg, fetchImpl || fetch) };
 }
 const ctxOf = turn => ({ org_name: turn.org_name, user_name: turn.user.full_name, user_title: turn.user.title, dept: turn.user.dept, today_vn: turn.today.split('-').reverse().join('/') });
-const logUse = (callApi, prov, model, usage, tool, status) => callApi('POST', '/api/ai/usage', { provider: prov.name, model, tokens_in: usage.in, tokens_out: usage.out, tools: [tool], status }).catch(() => {});
+const logUse = (callApi, prov, model, usage, tool, status) => callApi('POST', '/api/ai/usage', { provider: prov.name, model, tokens_in: usage.in, tokens_out: usage.out, tokens_cached: usage.cached || 0, tools: [tool], status }).catch(() => {});
 const fail = e => ({ status: e.status || 500, json: { error: e instanceof AiError || e.status ? e.message : 'Lỗi hệ thống khi xử lý yêu cầu trợ lý.' } });
 
 /** Soạn văn bản hành chính. body: { doc_type, brief, recipient?, references?, tone?, previous?, revision? } */
