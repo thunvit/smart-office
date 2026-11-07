@@ -19,7 +19,7 @@ SmartOffice là phần mềm văn phòng số nội bộ, gồm 19 phân hệ, b
 | 6 | Chấm công – Bảng công | Chấm công vào/ra ca trên web (nút **Vào ca** trên thanh menu); bảng công tháng tự tổng hợp từ dữ liệu chấm công, nghỉ phép, công tác, làm thêm giờ, giải trình đã duyệt và ngày nghỉ lễ; Phòng HC–NS điều chỉnh có ghi lý do; xuất bảng công. |
 | 7 | Tiền lương | Hồ sơ lương từng người; lập bảng lương tháng từ bảng công; tự tính BHXH, BHYT, BHTN, giảm trừ gia cảnh, thuế TNCN lũy tiến; nhập thưởng, tạm ứng, khấu trừ; chốt bảng lương để phát hành phiếu lương tới từng nhân sự; xuất bảng thanh toán tiền lương. |
 | 8 | Bảng tin | Đăng thông báo, chính sách, sự kiện; ghim tin quan trọng; yêu cầu nhân sự **xác nhận đã đọc**, người đăng theo dõi danh sách chưa đọc, chưa xác nhận; bình luận. |
-| 9 | Lịch họp | Lịch tuần; đặt phòng họp, **tự cảnh báo trùng phòng**; mời thành viên theo phòng ban, theo dõi phản hồi tham dự; biên bản, kết luận; **giao việc trực tiếp từ kết luận** sang phân hệ Công việc. |
+| 9 | Lịch họp | Lịch tuần; đặt phòng họp, **tự cảnh báo trùng phòng**; mời thành viên theo phòng ban, theo dõi phản hồi tham dự; biên bản, kết luận; **giao việc trực tiếp từ kết luận** sang phân hệ Công việc. Từ 1.16: trợ lý cuộc họp ghi ai phát biểu (gợi ý theo mẫu giọng), lập biên bản và thông báo kết luận theo thể thức Nghị định 30/2020, đề xuất người chủ trì, phối hợp cho từng đầu việc. |
 | 10 | Tài liệu – Tri thức | Kho văn bản theo loại (quy phạm pháp luật, quy chế nội bộ, văn bản đến, văn bản đi, biểu mẫu, hướng dẫn, hợp đồng); số ký hiệu, ngày ban hành, cơ quan ban hành; đính kèm tệp (tối đa 20 MB); bài viết hướng dẫn; giới hạn phạm vi xem theo phòng ban; tìm kiếm toàn văn. |
 | 11 | Khách hàng | Danh sách khách hàng; cơ hội bán hàng theo 6 giai đoạn (bảng Kanban kéo thả); lịch sử chăm sóc (gọi điện, gặp mặt, báo giá…); lịch hẹn. Nhân viên xem khách hàng của phòng mình; lãnh đạo xem toàn bộ. |
 | 12 | Thu chi – Ngân sách | Phiếu thu, phiếu chi có số chứng từ tự động; **lập phiếu chi trực tiếp từ đề xuất đã duyệt**; ngân sách năm theo phòng ban và khoản mục, so sánh kế hoạch – thực hiện; tồn quỹ; biểu đồ thu chi theo tháng; hủy chứng từ có ghi lý do; xuất sổ thu chi. Chỉ Ban Giám đốc, Phòng TC–KT, quản trị viên truy cập. |
@@ -284,4 +284,70 @@ Cần làm → Đang làm → (Chờ đánh giá, nếu dự án bật "Yêu c�
 ### 7. Chưa có trong phiên bản này
 
 Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hình nền dự án.
+
+## XII. TRỢ LÝ AI (PHIÊN BẢN 1.11–1.15, KHI QUẢN TRỊ VIÊN ĐÃ BẬT)
+
+0. **Cấu hình trợ lý của bạn (lần đầu):** mỗi người một trợ lý riêng. Vào **Tài khoản › Trợ lý AI của tôi** (hoặc bấm ⚙ trong khung trợ lý):
+   - chọn **Nhà cung cấp**: Anthropic (Claude), OpenAI hoặc Google Gemini;
+   - chọn hoặc nhập **Mô hình** (Anthropic để trống thì dùng `claude-opus-5-5`; OpenAI, Gemini phải nhập tên mô hình theo tài liệu của nhà cung cấp);
+   - dán **Khóa API** lấy từ trang quản lý khóa của nhà cung cấp. Khóa được mã hóa khi lưu, không hiển thị lại (chỉ thấy 4 ký tự cuối); để trống nếu giữ khóa cũ; bấm **Xóa khóa** để gỡ;
+   - tùy chọn: **Tên trợ lý**, **Cách trả lời mong muốn** (ví dụ "trả lời ngắn, gạch đầu dòng"), **Mức suy luận** (Anthropic);
+   - bấm **Lưu cấu hình**, rồi **Kiểm tra kết nối** để thử khóa.
+
+   Chi phí sử dụng tính vào tài khoản của khóa bạn nhập. Không chia sẻ khóa cho người khác.
+1. **Mở trợ lý:** bấm nút **Trợ lý** ở góc phải dưới màn hình, hoặc nhấn `Ctrl + /`. Nhấn `Esc` để đóng.
+2. **Hỏi bằng tiếng Việt thông thường**, một câu có thể gồm nhiều việc. Ví dụ:
+   - "Hôm nay tôi cần làm gì?"; "Việc nào của tôi đang quá hạn?";
+   - "Đề xuất nào đang chờ tôi duyệt? Tóm tắt từng cái";
+   - "Lịch họp tuần này của tôi"; "Quy chế chi tiêu nội bộ quy định công tác phí thế nào?";
+   - "Giao Lan làm báo cáo tuần, hạn thứ Sáu, ưu tiên cao, trong dự án Triển khai văn phòng số".
+3. **Thao tác ghi luôn cần bạn xác nhận.** Khi trợ lý đề nghị tạo công việc, đổi trạng thái, gửi trao đổi, gửi đề xuất, duyệt/từ chối hoặc đặt lịch họp, một thẻ "Đề nghị" hiện ra với nội dung do hệ thống lập. Đọc kỹ rồi bấm **Xác nhận** (thực hiện) hoặc **Bỏ qua**. Đề nghị hết hạn sau 10 phút.
+4. **Trợ lý chỉ làm được những gì bạn có quyền làm.** Trợ lý không xóa dữ liệu, không tính lương, không thao tác quản trị.
+5. **Lưu ý:** trợ lý có thể sai, hãy kiểm tra trước khi xác nhận. Câu hỏi của bạn và dữ liệu tra cứu được gửi tới nhà cung cấp AI; thông tin cá nhân (thư điện tử, số điện thoại, số giấy tờ…) được ẩn theo cấu hình của đơn vị. Cuộc trò chuyện không được lưu; tải lại trang là bắt đầu cuộc trò chuyện mới.
+6. **Soạn văn bản:** Tài liệu › **✨ Soạn văn bản bằng AI** (hoặc nút "Soạn văn bản…" trong khung trợ lý).
+   - Chọn loại văn bản (công văn, tờ trình, quyết định, thông báo, kế hoạch, báo cáo, giấy mời, biên bản, thư) và giọng văn; nhập nơi nhận, ý chính (gõ hoặc bấm **● Ghi âm** để đọc), căn cứ tham khảo.
+   - Bấm **Soạn thảo**. Sửa trực tiếp bản thảo, hoặc nhập yêu cầu chỉnh sửa rồi bấm **Soạn lại theo yêu cầu**.
+   - **Sao chép**, **Tải tệp Word (.doc)**, hoặc **Lưu vào Tài liệu** (nếu có quyền cập nhật kho Tài liệu).
+   - Bản thảo do AI lập: người soạn kiểm tra nội dung, thể thức, căn cứ trước khi trình ký. Chỗ thiếu thông tin được đánh dấu "[cần bổ sung: …]".
+7. **Ghi âm, nhận dạng người phát biểu, biên bản và kết luận cuộc họp (từ phiên bản 1.16):** Lịch họp › mở cuộc họp › **✨ Trợ lý cuộc họp**.
+   - **Trước cuộc họp (khuyến nghị):** mỗi thành viên vào Tài khoản › **Mẫu giọng nói của tôi**, tích đồng ý, bấm **● Ghi mẫu giọng** và đọc to đoạn văn mẫu trong 20 giây (nên dùng micro thường dùng khi họp). Hệ thống chỉ lưu dãy số đặc trưng giọng, không lưu âm thanh. Đăng ký một lần là các cuộc họp sau nhận ra ngay; mẫu còn được cập nhật thêm từ các đoạn phát biểu thư ký đã xác nhận. Xóa được bất kỳ lúc nào; mẫu tự xóa khi tài khoản ngừng hoạt động.
+   - Bấm **● Ghi âm** khi bắt đầu họp. Người chủ trì hoặc người tạo cuộc họp để tích ô **Lưu bản ghi âm trên máy chủ 24 giờ** nếu cần lưu âm thanh: sau khi dừng, bản ghi hiện trong danh sách **Bản ghi âm**, thành phần cuộc họp bấm **Tải về** (mỗi lần tải ghi nhật ký an ninh). Hết 24 giờ hệ thống tự xóa; người chủ trì xóa sớm được. Nếu mất mạng, trình duyệt gửi lại phần còn thiếu; không gửi được thì hiện nút **Tải bản ghi trên máy này**. Từng đoạn phát biểu hiện kèm mốc thời gian và **người nói được gợi ý** theo mẫu giọng. Đoạn có dấu "?" là trợ lý chưa chắc. Chỉ ghi âm khi đã thông báo cho người dự họp.
+   - Thư ký chọn lại người nói ở đoạn sai; trợ lý học thêm từ các đoạn đã chọn trong phiên. Thành viên chưa có mẫu giọng: bấm **Lấy mẫu** cạnh tên khi người đó đang nói (6 giây, chỉ dùng trong phiên). Có thể **+ Thêm đoạn**, sửa, xóa đoạn và thêm **Ghi chép bổ sung**.
+   - Người chủ trì hoặc người tạo cuộc họp bấm **Lưu bản ghi phát biểu** để lưu ai nói gì, lúc nào. Khi lưu, mẫu giọng của người đã đăng ký được cập nhật từ các đoạn đã chọn người nói (đoạn có dấu "?" chưa được chọn lại thì không dùng). Thành phần cuộc họp xem lại được; dòng thống kê cho biết mỗi người phát biểu bao nhiêu lượt, khoảng bao nhiêu phút.
+   - Cách chuyển giọng nói tùy cấu hình của bạn:
+     - OpenAI hoặc Gemini: máy chủ chuyển từng đoạn 60 giây. Với OpenAI, nên chọn mô hình chuyển giọng nói `whisper-1` (có mốc thời gian từng đoạn) hoặc `gpt-4o-transcribe-diarize` (có tách người nói).
+     - Anthropic (Claude) không nhận âm thanh nên dùng nhận dạng giọng nói của trình duyệt Chrome/Edge.
+   - Bấm **✨ Lập biên bản, kết luận và đề xuất phân công**. Trợ lý trả:
+     - ý kiến của từng người phát biểu và kết luận của chủ trì;
+     - các đầu việc kèm **người chủ trì**, **người phối hợp**, hạn và lý do chọn người. Nhãn **Giao trong cuộc họp** là việc đã được giao rõ; **Trợ lý đề xuất** là người trợ lý gợi ý theo chức trách, nội dung phát biểu và số việc đang làm. Người chủ trì cuộc họp thấy số việc đang làm, quá hạn của từng người để cân đối.
+   - Ở mục **Thể thức văn bản**, nhập cơ quan chủ quản, chữ viết tắt tên cơ quan (ký hiệu), địa danh, thư ký, giờ kết thúc, người ký thông báo (trình duyệt nhớ cho lần sau). Sửa trực tiếp diễn biến, kết luận, đầu việc; văn bản xem trước cập nhật ngay.
+   - Hai văn bản theo thể thức Nghị định 30/2020/NĐ-CP:
+     - **Biên bản** (Mẫu 1.9, ký hiệu BB): chữ ký thư ký và chủ tọa;
+     - **Thông báo kết luận** (Mẫu 1.4, ký hiệu TB): nơi nhận, quyền hạn và chức vụ người ký.
+     Số văn bản để trống để Văn thư cấp. Bấm **Tải Word** (khổ A4, lề và phông theo Phụ lục I), **Lưu biên bản vào cuộc họp**, hoặc chọn việc, dự án rồi bấm **Giao các việc đã chọn** (người phối hợp được thêm vào danh sách theo dõi công việc).
+   - Âm thanh chỉ được lưu khi tích ô lưu bản ghi âm, và chỉ trong 24 giờ; bản sao lưu dữ liệu không chứa âm thanh. Người nói do trợ lý gợi ý, có thể nhầm khi phòng ồn, nhiều người nói chồng tiếng, hoặc mẫu giọng ghi bằng micro khác; thư ký chịu trách nhiệm kiểm tra.
+8. **Tra cứu trên Internet (phiên bản 1.13, khi quản trị viên bật; hiện chỉ với Anthropic):** hỏi về văn bản pháp luật, chỉ đạo của Chính phủ, công báo, thông tin đấu thầu. Ví dụ: "Mức lương cơ sở hiện nay theo văn bản nào?"; "Tra thông báo mời thầu gói mua sắm máy tính trên hệ thống mua sắm công".
+   - Trợ lý chỉ tìm trong các trang quản trị viên cho phép. Mặc định: chinhphu.vn, vanban.chinhphu.vn, congbao.chinhphu.vn, muasamcong.mof.gov.vn, dauthau.asia (trang của doanh nghiệp, không phải cổng thông tin nhà nước).
+   - Trong lúc xử lý, khung trợ lý hiện câu tìm kiếm và trang đang đọc. Câu trả lời kèm mục **Nguồn tham khảo trên Internet**; bấm để mở trang gốc.
+   - **Ưu tiên dữ liệu nội bộ:** trợ lý luôn tìm trong kho tài liệu và dữ liệu của đơn vị trước; chỉ khi nội bộ không có hoặc không đủ mới tìm trên Internet, và nói rõ phần nào lấy từ đâu.
+   - Thông tin từ Internet chỉ để tham khảo: luôn mở nguồn kiểm tra hiệu lực văn bản trước khi sử dụng.
+   - **Quản trị viên:** Quản trị › Trợ lý AI › đánh dấu **Cho phép trợ lý tìm kiếm trên Internet**, sửa danh sách tên miền (mỗi dòng một tên miền, không nhập `http://`, đường dẫn hay ký tự `*`), bấm **Lưu cấu hình**. Mỗi lượt tìm được nhà cung cấp tính phí riêng ngoài token (Anthropic: 10 USD/1.000 lượt) nên được quy thành 2.500 token vào hạn mức của người hỏi; nội dung trang đọc về tính theo token. Bảng thống kê có cột "Lượt tìm Internet" (rê chuột để xem số lượt đọc trang). Khi hạn mức còn lại không đủ một lượt tìm, trợ lý trả lời bằng dữ liệu nội bộ và báo chưa tìm Internet.
+9. **Nắm tình hình không cần thao tác (phiên bản 1.14):**
+   - Hỏi "Tình hình hôm nay thế nào?" hoặc bấm gợi ý **Tình hình hôm nay**. Trợ lý tổng hợp các nguồn bạn có quyền xem: công việc, việc quá hạn, tải công việc theo người, đề xuất tồn đọng, hồ sơ quy trình, lịch họp, hoạt động gần đây, thu chi, chấm công, lịch hẹn khách hàng. Sau đó nêu điểm nóng và việc cần chỉ đạo.
+   - Hỏi sâu bất kỳ phân hệ nào: "Phòng Kinh doanh tuần này hoàn thành bao nhiêu việc?", "Ai đang có nhiều việc quá hạn nhất?", "Hôm qua anh Long đã làm những gì?", "Hồ sơ quy trình nào đang chậm?".
+   - Trợ lý chỉ xem được dữ liệu bạn có quyền xem. Trợ lý không tra cứu phân quyền, vai trò, tài khoản người dùng, nhật ký an ninh, sao lưu. Tiền lương: đọc được theo quyền của bạn, nhưng số tiền bị ẩn nếu đơn vị chưa cho phép gửi thông tin cá nhân. Tin nhắn: trợ lý đọc thay bạn không làm tin chuyển sang đã đọc.
+   - **Tự báo cáo mỗi ngày:** Tài khoản › Trợ lý AI của tôi › đánh dấu **Tự động báo cáo tình hình khi tôi vào hệ thống lần đầu mỗi ngày**. Khung trợ lý sẽ tự mở và báo cáo.
+10. **Nói và nghe:**
+   - Bấm biểu tượng micro cạnh nút Gửi rồi nói.
+     - Anthropic (Claude): dùng nhận dạng giọng nói của Chrome/Edge, nói xong khoảng 2 giây sẽ tự gửi.
+     - OpenAI/Gemini: bấm micro lần nữa để gửi.
+   - Hỏi bằng giọng nói thì trợ lý tự đọc câu trả lời. Bấm 🔈 ở đầu khung để luôn đọc câu trả lời.
+   - Giọng đọc dùng sẵn của trình duyệt. Nếu máy chưa có giọng tiếng Việt, cài giọng nói tiếng Việt cho Windows hoặc dùng Edge.
+11. **Trợ lý mở màn hình cho bạn:** nói hoặc gõ "Mở đề xuất số 12", "Chuyển đến dự án Triển khai văn phòng số", "Cho tôi xem hồ sơ nhân sự của Lan". Trợ lý chuyển màn hình và mở cửa sổ chi tiết. Trên điện thoại, khung trợ lý tự đóng để bạn xem. Từ phiên bản 1.15.3, tên người, công việc, đề xuất, cuộc họp… trong câu trả lời hiện dạng liên kết gạch chân: bấm vào để mở chi tiết ngay, không cần hỏi lại.
+12. **Xem token AI bạn đã dùng:** Tài khoản › Trợ lý AI của tôi › mục **Token AI tôi đã dùng**: số token hôm nay so với hạn mức, số còn lại (tính lại lúc 0 giờ, giờ Việt Nam), bảng theo ngày trong 30 ngày gần nhất (số lượt, token vào, token ra, đọc bộ đệm, tính hạn mức, lượt tìm Internet). Token đọc từ bộ đệm (phần mô tả và lời nhắc lặp lại ở mỗi bước) chỉ tính 10% vào hạn mức; mỗi lượt tìm Internet tính thêm 2.500 token. Mỗi người chỉ xem được số liệu của mình. Chi phí thực tế xem tại trang quản lý tài khoản của nhà cung cấp.
+13. **Lịch sử trò chuyện (phiên bản 1.15):**
+   - Mỗi cuộc trò chuyện được lưu lại. Bấm 🕘 ở đầu khung trợ lý để xem danh sách, mở lại, xóa từng cuộc trò chuyện. Bấm **Cuộc trò chuyện mới** để bắt đầu chủ đề khác. Tải lại trang thì cuộc trò chuyện đang dở tự mở lại.
+   - Chỉ bạn xem được lịch sử của mình; quản trị viên cũng không xem được.
+   - Lịch sử tự xóa sau số ngày quản trị viên đặt, tính từ lần dùng cuối (mặc định 180 ngày). Quản trị viên đặt tại Quản trị › Trợ lý AI › **Lưu lịch sử trò chuyện (ngày)**.
+14. **Kiểm tra toàn diện:** Tài khoản › Trợ lý AI của tôi › **Kiểm tra toàn diện**. Trợ lý chạy thử bằng khóa của bạn các bước: hội thoại, gọi công cụ nhiều bước, tìm Internet (nếu bật), soạn văn bản. Bước nào lỗi thì hiện nguyên văn thông báo của nhà cung cấp. Nên chạy sau khi đổi mô hình, khóa API, hoặc khi hệ thống được cập nhật. Mỗi lần chạy tốn một ít token.
 
