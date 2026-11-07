@@ -392,6 +392,24 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
     - các đường dẫn phân quyền, quản trị vẫn bị chặn.
   - `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
 
+## 07/11/2026 (chiều, tiếp). Sửa lỗi Anthropic từ chối mã quốc gia VN trong công cụ tìm kiếm (so-1.14.3)
+- **Sự cố (chủ sở hữu thử với Anthropic thật tại `localhost:3100`):** hỏi "Hôm nay tôi cần làm gì?" nhận lỗi "Nhà cung cấp AI báo lỗi. (HTTP 400: tools.22.web_search_20260209: Country code VN is not supported.)".
+- **Nguyên nhân (do tôi):**
+  - Tôi khai báo `user_location.country = "VN"` cho `web_search` (bản so-1.13.0). Tài liệu Anthropic có ghi mã quốc gia không được hỗ trợ sẽ bị trả lỗi 400, nhưng tôi không kiểm tra VN có được hỗ trợ không.
+  - Kiểm thử dùng máy chủ giả lập chấp nhận mọi tham số, nên không phát hiện được.
+  - Lỗi chỉ xảy ra ở bước sau khi trợ lý đã tra nội bộ (bước có công cụ web), và làm hỏng cả câu trả lời.
+- **Phạm vi ảnh hưởng:** mọi lượt hỏi dùng Anthropic khi quản trị viên đã bật tìm Internet, từ so-1.13.0. Mã chưa hợp nhất vào `main`, nên hệ thống thật trên Cloudflare không bị ảnh hưởng.
+- **Cách sửa (`ai.js`):**
+  - bỏ `user_location`;
+  - thêm dự phòng: lỗi 400 nhắc tới `web_search`/`web_fetch` thì gửi lại bước đó không kèm công cụ web, tắt web cho phần còn lại của lượt, báo cho người dùng và trả lời bằng dữ liệu nội bộ.
+- **Kiểm thử tái hiện:**
+  - `ai-test` thêm điều kiện "không gửi user_location": báo không đạt trên mã cũ (`{"country":"VN",...}`), đạt trên mã mới;
+  - thêm 3 kiểm thử dự phòng: máy chủ giả lập trả đúng thông báo lỗi trên thì vẫn trả lời và có thông báo trạng thái; lỗi 400 khác vẫn báo lỗi, không thử lại.
+  - `ai-test` 201 đạt, 0 không đạt; `worker-smoke` đạt; `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Mức kiểm chứng:**
+  - Đã chạy thật với Anthropic do chủ sở hữu thử: bước đầu (công cụ nội bộ) chạy được.
+  - Bản sửa mới kiểm thử cục bộ với máy chủ giả lập; chưa thử lại với Anthropic thật.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

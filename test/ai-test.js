@@ -247,7 +247,9 @@ async function webSearch(U) {
   r = await chat('mai.bt', 'Mức lương cơ sở hiện nay?', [A.tool('tim_tai_lieu', { q: 'lương cơ sở' }), webAnswer]);
   const cIn = r.calls[0], c0 = r.calls[1], ws = c0 && c0.body.tools.find(t => t.type === 'web_search_20260209'), wf = c0 && c0.body.tools.find(t => t.type === 'web_fetch_20260209');
   ok(cIn && !cIn.body.tools.some(t => t.type) && ws && wf && cIn.body.system[0].text === c0.body.system[0].text, 'W: ưu tiên nội bộ: tra tài liệu nội bộ trước, bước sau mới có công cụ Internet; lời nhắc không đổi (giữ bộ đệm)');
-  ok(ws && ws.name === 'web_search' && JSON.stringify(ws.allowed_domains) === JSON.stringify(DOMS) && ws.max_uses === 5 && JSON.stringify(ws.allowed_callers) === '["direct"]' && ws.user_location.country === 'VN' && !('blocked_domains' in ws), 'W: web_search giới hạn tên miền được phép, số lần tìm, gọi trực tiếp', ws);
+  ok(ws && ws.name === 'web_search' && JSON.stringify(ws.allowed_domains) === JSON.stringify(DOMS) && ws.max_uses === 5 && JSON.stringify(ws.allowed_callers) === '["direct"]' && !('blocked_domains' in ws), 'W: web_search giới hạn tên miền được phép, số lần tìm, gọi trực tiếp', ws);
+  // Lỗi thật 07/11/2026 (chủ sở hữu thử với Anthropic): "tools.22.web_search_20260209: Country code VN is not supported" → không gửi user_location
+  ok(ws && !('user_location' in ws) && !/"country"/.test(JSON.stringify(c0.body.tools)), 'W: không gửi user_location (Anthropic từ chối mã quốc gia VN)', ws && ws.user_location);
   ok(wf && wf.name === 'web_fetch' && JSON.stringify(wf.allowed_domains) === JSON.stringify(DOMS) && wf.citations.enabled === true && wf.url_sources.client_tool_results.type === 'none' && wf.max_content_tokens > 0, 'W: web_fetch giới hạn tên miền, không đọc địa chỉ lấy từ dữ liệu nội bộ, bật trích dẫn', wf);
   ok(c0 && c0.body.tools.filter(t => !t.type).length === TOOLS.length && /TUYỆT ĐỐI không đưa dữ liệu nội bộ/.test(c0.body.system[0].text) && /dauthau\.asia là trang của doanh nghiệp/.test(c0.body.system[0].text), 'W: vẫn giữ công cụ nội bộ; lời nhắc cấm đưa dữ liệu nội bộ vào truy vấn, nêu dauthau.asia là trang doanh nghiệp');
   ok(r.text === 'Tôi sẽ tìm trên trang Chính phủ.\n\nTheo nguồn chính thức, mức lương cơ sở là 2.340.000 ₫/tháng.', 'W: nối các khối văn bản có trích dẫn thành câu liền mạch', r.text);
@@ -257,6 +259,14 @@ async function webSearch(U) {
   ok(r.events.some(e => e.type === 'status' && e.text === 'Tìm trên Internet: mức lương cơ sở 2026') && r.events.some(e => e.type === 'status' && /^Đọc trang https:\/\/congbao/.test(e.text)), 'W: hiện cho người dùng câu truy vấn và trang đã đọc', r.events.filter(e => e.type === 'status'));
   const lg = D.get('SELECT web_requests, tools FROM ai_log WHERE user_id=? ORDER BY id DESC LIMIT 1', U['mai.bt'].id);
   ok(lg && lg.web_requests === 2 && /web_search/.test(lg.tools) && /web_fetch/.test(lg.tools), 'W: ghi số lượt tìm/đọc trang vào ai_log', lg);
+
+  // Dự phòng: nhà cung cấp từ chối công cụ web (400) → bỏ công cụ web trong lượt đó, vẫn trả lời bằng dữ liệu nội bộ, không báo lỗi cả câu
+  const reject = { __status: 400, type: 'error', error: { type: 'invalid_request_error', message: 'tools.22.web_search_20260209: Country code VN is not supported.' } };
+  r = await chat('mai.bt', 'Hôm nay tôi cần làm gì?', [A.tool('xem_tong_quan', {}), body => body.tools.some(t => t.type) ? reject : A.text('Trả lời bằng dữ liệu nội bộ')]);
+  ok(!r.err && r.text === 'Trả lời bằng dữ liệu nội bộ' && r.calls.length === 3 && r.calls[1].body.tools.some(t => t.type) && !r.calls[2].body.tools.some(t => t.type), 'W: công cụ web bị từ chối (400): thử lại không có công cụ web, vẫn trả lời', { err: r.err, n: r.calls.length, text: r.text });
+  ok(r.events.some(e => e.type === 'status' && /Tìm kiếm Internet tạm không dùng được/.test(e.text)), 'W: báo cho người dùng việc tìm Internet tạm không dùng được', r.events.filter(e => e.type === 'status'));
+  r = await chat('mai.bt', 'x', [A.tool('xem_tong_quan', {}), { __status: 400, type: 'error', error: { type: 'invalid_request_error', message: 'messages.1: invalid' } }]);
+  ok(r.err && r.err.status === 502 && r.calls.length === 2, 'W: lỗi 400 không liên quan công cụ web vẫn báo lỗi như cũ (không thử lại)', r.err);
 
   // pause_turn: gửi lại nguyên văn khối của trợ lý (kể cả encrypted_content), không thêm tin nhắn người dùng
   const paused = { content: [{ type: 'text', text: 'Đang tra cứu công báo.' }, srch, srchRes], stop_reason: 'pause_turn', usage: { input_tokens: 300, output_tokens: 10, server_tool_use: { web_search_requests: 1 } } };

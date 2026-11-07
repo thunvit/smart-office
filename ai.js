@@ -94,20 +94,29 @@ function anthropic(cfg, fetchImpl) {
    * web_fetch không đọc địa chỉ chỉ xuất hiện trong kết quả công cụ nội bộ (url_sources) → bình luận/tài liệu nội bộ không dẫn được trợ lý tới trang lạ. */
   const web = cfg.web && Array.isArray(cfg.web.domains) && cfg.web.domains.length ? cfg.web.domains : null;
   const webTools = web ? [
-    { type: 'web_search_20260209', name: 'web_search', allowed_domains: web, max_uses: WEB_MAX_USES, allowed_callers: ['direct'], user_location: { type: 'approximate', country: 'VN', timezone: 'Asia/Ho_Chi_Minh' } },
+    { type: 'web_search_20260209', name: 'web_search', allowed_domains: web, max_uses: WEB_MAX_USES, allowed_callers: ['direct'] }, // không gửi user_location: Anthropic từ chối mã quốc gia VN (lỗi thật 07/11/2026); các trang được phép đều là trang Việt Nam
     { type: 'web_fetch_20260209', name: 'web_fetch', allowed_domains: web, max_uses: WEB_MAX_USES, allowed_callers: ['direct'], citations: { enabled: true }, max_content_tokens: WEB_MAX_CONTENT_TOKENS, url_sources: { client_tool_results: { type: 'none' } } }
   ] : [];
+  let webOff = ''; // nhà cung cấp từ chối cấu hình công cụ web: tắt công cụ web cho các bước còn lại của lượt
   return {
     name: 'anthropic', model, web: !!web,
     user: text => ({ role: 'user', content: text }),
     assistant: text => ({ role: 'assistant', content: text }),
     async step(messages, opt = {}) {
       /* Ưu tiên nội bộ: lời nhắc về Internet giữ cố định (tận dụng bộ đệm), nhưng công cụ web chỉ cấp khi vòng lặp báo đã tra nội bộ (opt.web) */
-      const webRules = !opt.noTools && web, useWeb = webRules && opt.web === true;
+      const webRules = !opt.noTools && web, useWeb = webRules && opt.web === true && !webOff;
       const body = { model, max_tokens: opt.maxTokens || 8000, system: [{ type: 'text', text: (opt.system || SYSTEM) + (webRules ? WEB_RULES : ''), cache_control: { type: 'ephemeral' } }], messages, output_config: { effort: opt.effort || cfg.effort || 'medium' } };
       if (!opt.noTools) body.tools = useWeb ? tools.concat(webTools) : tools;
       if (cfg.fallback) body.fallbacks = 'default';
-      const j = await postJson(fetchImpl, url, headers, body);
+      let j, webDisabled = '';
+      try { j = await postJson(fetchImpl, url, headers, body); }
+      catch (e) {
+        /* Dự phòng: lỗi 400 do công cụ web (tham số không được hỗ trợ, tên miền bị tổ chức chặn…) không được làm hỏng cả câu trả lời */
+        if (!(useWeb && e instanceof AiError && /HTTP 400/.test(e.message) && /web_(search|fetch)/.test(e.message))) throw e;
+        webOff = webDisabled = e.message; body.tools = tools;
+        if (typeof console !== 'undefined') console.error('ai web tools rejected', e.message);
+        j = await postJson(fetchImpl, url, headers, body);
+      }
       const content = Array.isArray(j.content) ? j.content : [];
       const u = j.usage || {}, st = u.server_tool_use || {};
       /* Trích dẫn làm khối văn bản bị tách nhỏ: nối liền các khối liên tiếp, xuống dòng khi có khối công cụ xen giữa */
@@ -119,6 +128,7 @@ function anthropic(cfg, fetchImpl) {
         calls: content.filter(b => b.type === 'tool_use').map(b => ({ id: b.id, name: b.name, args: b.input || {} })),
         stop: j.stop_reason === 'refusal' ? 'refusal' : j.stop_reason === 'max_tokens' ? 'max_tokens' : j.stop_reason === 'pause_turn' ? 'pause' : 'ok',
         usage: { in: (u.input_tokens || 0) + (u.cache_creation_input_tokens || 0), cached: u.cache_read_input_tokens || 0, out: u.output_tokens || 0, web: (st.web_search_requests || 0) + (st.web_fetch_requests || 0) },
+        webDisabled,
         web: web ? { queries: content.filter(b => b.type === 'server_tool_use').map(b => b.name === 'web_fetch' ? 'Đọc trang ' + String((b.input && b.input.url) || '').slice(0, 200) : 'Tìm trên Internet: ' + String((b.input && b.input.query) || '').slice(0, 200)), sources: webSources(content, web) } : null
       };
     },
@@ -237,6 +247,7 @@ async function handleChat({ body, env, callApi, emit, fetchImpl }) {
       const r = await prov.step(msgs, { web: internalTried });
       usage.in += r.usage.in; usage.out += r.usage.out; usage.cached += r.usage.cached || 0; usage.web += r.usage.web || 0;
       msgs.push(...r.native);
+      if (r.webDisabled) emit({ type: 'status', text: 'Tìm kiếm Internet tạm không dùng được, trả lời bằng dữ liệu nội bộ' });
       if (r.web) {
         for (const q of r.web.queries) { emit({ type: 'status', text: q }); if (!toolsUsed.includes(q.startsWith('Tìm') ? 'web_search' : 'web_fetch')) toolsUsed.push(q.startsWith('Tìm') ? 'web_search' : 'web_fetch'); }
         for (const s of r.web.sources) if (!sources.some(x => x.url === s.url)) sources.push(s);
