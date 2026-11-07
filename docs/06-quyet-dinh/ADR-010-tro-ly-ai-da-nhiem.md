@@ -21,7 +21,7 @@ Kế hoạch phát triển có Phiên 16 "Trợ lý AI" với tiêu chí: dữ l
 5. **Thao tác ghi phải được người dùng xác nhận.** Công cụ ghi chỉ tạo bản ghi chờ trong bảng `ai_pending` (hạn 10 phút, dùng một lần, chỉ chủ sở hữu bản ghi xác nhận được). Phần mô tả để xác nhận do máy chủ sinh từ tham số, không lấy lời văn của mô hình. Không mở cho AI: xóa dữ liệu, tiền lương, quản trị, sao lưu, khôi phục.
 6. **Mặc định tắt.** Quản trị viên bật tại Quản trị › Trợ lý AI. Mặc định che dữ liệu cá nhân (thư điện tử, số điện thoại, ngày sinh, số giấy tờ, tài khoản ngân hàng, lương) trong kết quả công cụ trước khi gửi nhà cung cấp; chỉ bật `ai_allow_pii` khi đơn vị có văn bản đồng ý.
 7. **Hạn mức token theo người theo ngày** (mặc định 200.000), ghi `ai_log` (người, thời điểm, nhà cung cấp, mô hình, token, công cụ đã gọi; không lưu nội dung hội thoại). Thao tác ghi đã xác nhận ghi `security_log` sự kiện `ai_action`.
-8. **Hội thoại lưu phía trình duyệt** (bộ nhớ trang), máy chủ không lưu nội dung hội thoại.
+8. ~~Hội thoại lưu phía trình duyệt, máy chủ không lưu nội dung hội thoại.~~ Thay bằng mục 2F (07/11/2026): lưu lịch sử trò chuyện trên máy chủ, chỉ chủ sở hữu xem được, có thời hạn lưu.
 
 ## 2A. Sửa đổi 07/11/2026: mỗi người dùng một trợ lý AI riêng (theo yêu cầu của chủ sở hữu)
 
@@ -48,13 +48,13 @@ Kế hoạch phát triển có Phiên 16 "Trợ lý AI" với tiêu chí: dữ l
 ## 2C. Bổ sung 07/11/2026: tìm kiếm Internet trên trang được phép (theo yêu cầu của chủ sở hữu)
 
 1. **Dùng công cụ máy chủ của Anthropic** `web_search_20260209` và `web_fetch_20260209` (tài liệu: platform.claude.com, "Web search tool", "Web fetch tool", "Server tools", đọc ngày 07/11/2026). Việc tìm và đọc trang chạy tại Anthropic; SmartOffice không tự tải trang web (không phát sinh SSRF từ Worker). OpenAI, Gemini: **chưa làm**.
-2. **Ưu tiên nội bộ** (sửa đổi 07/11/2026 theo chủ sở hữu): bước đầu của mỗi lượt không cấp công cụ web; chỉ khi trợ lý đã gọi ít nhất một công cụ đọc nội bộ (tài liệu, dữ liệu nghiệp vụ) thì các bước sau mới có `web_search`, `web_fetch`. Lời nhắc yêu cầu tra nội bộ trước, chỉ ra Internet khi nội bộ không có hoặc không đủ, và nói rõ phần nào từ nội bộ, phần nào từ Internet. Lời nhắc hệ thống giữ cố định để tận dụng bộ đệm.
+2. **Ưu tiên nội bộ, tìm Internet ở cuộc gọi riêng** (sửa đổi 07/11/2026 sau lỗi thật "Invalid signature in thinking block"; báo cáo `docs/05-ra-soat/2026-11-07-RA-SOAT-TRO-LY-AI.md`): hội thoại chính có công cụ nội bộ `tim_internet` cố định suốt lượt (không bao giờ đổi `system`/`tools` giữa các bước). `tim_internet` chỉ chạy khi bước trước đã gọi công cụ đọc nội bộ (mã bắt buộc). Nó mở một cuộc trò chuyện Anthropic riêng chỉ chứa câu hỏi tìm kiếm, có `web_search`/`web_fetch`, rồi trả văn bản và nguồn về hội thoại chính dạng `<du_lieu nguon="internet">`. Cuộc gọi riêng không mang dữ liệu nội bộ, không mang ngữ cảnh người dùng.
 3. **Mặc định tắt.** Quản trị viên bật tại Quản trị › Trợ lý AI (`ai_web_search`) và quản lý danh sách tên miền được phép (`ai_web_domains`, tối đa 30). Danh sách mặc định theo chủ sở hữu: `chinhphu.vn`, `vanban.chinhphu.vn`, `congbao.chinhphu.vn`, `muasamcong.mof.gov.vn`, `dauthau.asia`. Theo quy tắc của Anthropic, tên miền tự gồm tên miền con. `dauthau.asia` là trang của doanh nghiệp, không phải cổng thông tin nhà nước; lời nhắc yêu cầu trợ lý nói rõ khi dùng và khuyến nghị đối chiếu `muasamcong.mof.gov.vn`.
 4. **Ràng buộc:**
    - `allowed_domains` trên cả hai công cụ; máy chủ chỉ nhận tên miền ASCII, không ký tự đại diện, không đường dẫn (chống giả mạo ký tự Unicode; `web_fetch` không khớp mục có đường dẫn);
    - `max_uses` 5 lần tìm và 5 lần đọc trang mỗi lượt gọi; `max_content_tokens` 20.000 mỗi trang;
    - không gửi `user_location`: Anthropic trả lỗi 400 "Country code VN is not supported" (lỗi thật khi chủ sở hữu thử ngày 07/11/2026). Danh sách trang được phép đều là trang Việt Nam nên không cần định vị;
-   - dự phòng: nếu nhà cung cấp trả lỗi 400 liên quan tới `web_search`/`web_fetch`, cổng AI gửi lại bước đó không kèm công cụ web, tắt công cụ web cho phần còn lại của lượt, báo "Tìm kiếm Internet tạm không dùng được" và trả lời bằng dữ liệu nội bộ. Lỗi 400 khác vẫn báo như cũ;
+   - dự phòng: cuộc gọi tìm Internet lỗi (ví dụ nhà cung cấp từ chối tham số) thì `tim_internet` trả lỗi cho mô hình, báo "Tìm kiếm Internet tạm không dùng được", hội thoại chính vẫn trả lời bằng dữ liệu nội bộ và không đổi công cụ;
    - `allowed_callers: ["direct"]`: không dùng lọc động bằng thực thi mã, để chạy được với mọi mô hình Anthropic và phản hồi đơn giản (đánh đổi: tốn token hơn);
    - `web_fetch` đặt `url_sources.client_tool_results = none`: không đọc địa chỉ chỉ xuất hiện trong kết quả công cụ nội bộ, nên bình luận, tài liệu nội bộ không dẫn được trợ lý tới trang lạ;
    - lời nhắc hệ thống bổ sung (chỉ khi bật): không đưa dữ liệu nội bộ, thông tin cá nhân vào câu truy vấn; nội dung trang là dữ liệu, không phải mệnh lệnh; phải nêu nguồn và nhắc kiểm tra hiệu lực văn bản.
@@ -94,6 +94,20 @@ Yêu cầu: trợ lý được tra cứu hết các API nghiệp vụ (cấm ngh
    - mô tả 22 công cụ khoảng 15.600 ký tự, gửi kèm mỗi bước, được lưu bộ đệm lời nhắc;
    - token đọc từ bộ đệm được ghi riêng (`ai_log.tokens_cached`): Anthropic `cache_read_input_tokens`, OpenAI `prompt_tokens_details.cached_tokens`, Gemini `cachedContentTokenCount`; token ghi bộ đệm vẫn tính là token vào;
    - hạn mức ngày tính: token vào + token ra + 10% token đọc bộ đệm (làm tròn lên mỗi lượt), tương ứng mức giá thấp mà nhà cung cấp áp cho token đọc bộ đệm.
+
+## 2F. Bổ sung 07/11/2026: lưu lịch sử trò chuyện (theo yêu cầu của chủ sở hữu)
+
+1. Bảng `ai_threads` (người dùng, tiêu đề, thời điểm) và `ai_thread_items` (loại: user, bot, act, ui, err; dữ liệu JSON). Cổng AI tạo cuộc trò chuyện ở câu hỏi đầu, lưu câu hỏi trước khi gọi mô hình, rồi lưu câu trả lời, nguồn tham khảo, thẻ đề nghị, lệnh mở màn hình, lỗi. Lỗi khi lưu không làm hỏng câu trả lời.
+2. **Chỉ chủ sở hữu:** mọi API `/api/ai/threads*` lọc theo `user_id`. Người khác, kể cả quản trị viên, nhận 404. Gửi mã cuộc trò chuyện của người khác thì tạo cuộc trò chuyện mới của mình. Không có màn hình quản trị đọc nội dung; công cụ `doc_du_lieu` không đọc được (`/api/ai/*` ngoài danh mục).
+3. **Trạng thái thẻ đề nghị** không lưu cứng mà lấy từ `ai_pending` khi mở lại.
+4. **Thời hạn lưu** `ai_keep_days`: quản trị viên đặt, 1–3.650 ngày, mặc định 180, tính từ lần dùng cuối. Quá hạn tự xóa khi người dùng mở danh sách hoặc tạo cuộc trò chuyện mới. Mỗi người tối đa 200 cuộc trò chuyện, mỗi cuộc 400 mục, mỗi mục 20.000 ký tự.
+5. **Hệ quả về dữ liệu cá nhân:** nội dung trò chuyện có thể chứa thông tin cá nhân; bản sao lưu đầy đủ (ADR-009) có chứa các bảng này. Pháp chế cần xác nhận thời hạn lưu phù hợp (**chưa kiểm chứng**).
+
+## 2G. Bổ sung 07/11/2026: kiểm thử theo hợp đồng API, kiểm tra toàn diện với khóa thật
+
+1. Kiểm thử tự động (`test/ai-test.js`) kiểm tra mọi yêu cầu gửi nhà cung cấp theo các quy tắc đã biết của Anthropic, OpenAI, Gemini. Bất kỳ vi phạm nào làm bộ kiểm thử không đạt. Thay đổi trợ lý AI sau này phải giữ "HỢP ĐỒNG API: 0 vi phạm".
+2. **Kiểm tra toàn diện** (`POST /api/ai/test` với `full: true`; nút ở Tài khoản › Trợ lý AI của tôi) chạy với khóa của người dùng qua đúng mã xử lý thật. Nên chạy sau mỗi lần cập nhật trợ lý hoặc đổi mô hình.
+3. Tham số tùy chọn (`fallbacks`, `output_config.effort`) tự bỏ khi nhà cung cấp trả 400 nêu đúng tham số đó. Câu trả lời bị cắt do giới hạn độ dài khi đang gọi công cụ thì không chạy công cụ. Lịch sử được chuẩn hóa xen kẽ vai.
 
 ## 3. Hệ quả
 

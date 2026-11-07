@@ -24,7 +24,16 @@ CREATE TABLE IF NOT EXISTS ai_user_config (user_id INTEGER PRIMARY KEY REFERENCE
 const KEY = require('./ai-key');
 D.addCol('ai_user_config', 'stt_model', "TEXT DEFAULT ''"); // mô hình chuyển giọng nói (OpenAI), bổ sung 07/11/2026
 D.addCol('ai_log', 'web_requests', 'INTEGER DEFAULT 0');
-D.addCol('ai_log', 'tokens_cached', 'INTEGER DEFAULT 0'); // token đọc từ bộ đệm lời nhắc (nhà cung cấp tính giá khoảng 10%), tách khỏi tokens_in
+D.addCol('ai_log', 'tokens_cached', 'INTEGER DEFAULT 0');
+/* Lịch sử trò chuyện với trợ lý (07/11/2026, theo yêu cầu của chủ sở hữu): mỗi người chỉ xem, xóa được cuộc trò chuyện của mình.
+ * Thời hạn lưu do quản trị viên đặt (ai_keep_days, mặc định 180 ngày); quá hạn tự xóa. */
+D.db.exec(`
+CREATE TABLE IF NOT EXISTS ai_threads (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, title TEXT NOT NULL DEFAULT '', created_at TEXT, updated_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_ai_threads_user ON ai_threads(user_id, updated_at);
+CREATE TABLE IF NOT EXISTS ai_thread_items (id INTEGER PRIMARY KEY, thread_id INTEGER NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL, created_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_ai_thread_items ON ai_thread_items(thread_id, id);
+`);
+const THREAD_KINDS = ['user', 'bot', 'act', 'ui', 'err'], MAX_THREADS = 200, MAX_ITEMS = 400, MAX_ITEM_TEXT = 20000, DEFAULT_KEEP_DAYS = 180; // token đọc từ bộ đệm lời nhắc (nhà cung cấp tính giá khoảng 10%), tách khỏi tokens_in
 D.addCol('ai_user_config', 'auto_brief', 'INTEGER DEFAULT 0'); // tự báo cáo tình hình khi vào hệ thống lần đầu mỗi ngày (lãnh đạo) // số lần tìm kiếm/đọc trang Internet trong lượt (nhà cung cấp tính phí riêng)
 /* Mỗi người dùng một cấu hình AI riêng (nhà cung cấp, mô hình, khóa API, cách trả lời). Khóa chỉ lưu dạng mã hóa. */
 const PROVIDERS = { anthropic: 'Anthropic (Claude)', openai: 'OpenAI', gemini: 'Google Gemini' };
@@ -49,9 +58,9 @@ function parseDomains(v) {
   return { domains: [...new Set(raw.filter(d => DOMAIN_RE.test(d)))], bad };
 }
 function aiSettings() {
-  const s = {}; for (const r of all("SELECT key, value FROM settings WHERE key IN ('ai_enabled','ai_allow_pii','ai_daily_tokens','ai_web_search','ai_web_domains')")) s[r.key] = r.value;
+  const s = {}; for (const r of all("SELECT key, value FROM settings WHERE key IN ('ai_enabled','ai_allow_pii','ai_daily_tokens','ai_web_search','ai_web_domains','ai_keep_days')")) s[r.key] = r.value;
   const web_domains = s.ai_web_domains == null ? DEFAULT_WEB_DOMAINS.slice() : parseDomains(s.ai_web_domains).domains;
-  return { enabled: s.ai_enabled === '1', allow_pii: s.ai_allow_pii === '1', daily_tokens: Number(s.ai_daily_tokens || DEFAULT_QUOTA), web_search: s.ai_web_search === '1', web_domains };
+  return { enabled: s.ai_enabled === '1', allow_pii: s.ai_allow_pii === '1', daily_tokens: Number(s.ai_daily_tokens || DEFAULT_QUOTA), web_search: s.ai_web_search === '1', web_domains, keep_days: Number(s.ai_keep_days || DEFAULT_KEEP_DAYS) };
 }
 /* Token tính hạn mức: token vào + token ra + 10% token đọc từ bộ đệm lời nhắc (làm tròn lên mỗi lượt).
  * Lý do: mô tả công cụ và lời nhắc hệ thống lặp lại ở mọi bước, được lưu bộ đệm và tính giá thấp; tính đủ thì lãnh đạo hết hạn mức rất sớm. */
@@ -76,7 +85,68 @@ const ctxNames = () => ({
   room: x => { const r = get('SELECT name FROM rooms WHERE id=?', Number(x)); return r ? `phòng ${r.name}` : `phòng #${x}`; }
 });
 
+/* Xóa cuộc trò chuyện quá thời hạn lưu và vượt số lượng tối đa của một người */
+function purgeThreads(uid) {
+  const cut = D.addDays(D.today(), -aiSettings().keep_days) + ' 00:00';
+  const old = all('SELECT id FROM ai_threads WHERE user_id=? AND (updated_at < ? OR id NOT IN (SELECT id FROM ai_threads WHERE user_id=? ORDER BY updated_at DESC, id DESC LIMIT ?))', uid, cut, uid, MAX_THREADS - 1).map(r => r.id);
+  if (old.length) D.tx(() => { for (const id of old) { run('DELETE FROM ai_thread_items WHERE thread_id=?', id); run('DELETE FROM ai_threads WHERE id=?', id); } });
+}
+/** Chuẩn hóa một mục lịch sử: chỉ nhận loại đã biết, chỉ các trường cần hiển thị lại, cắt độ dài */
+function cleanItem(it) {
+  if (!it || !THREAD_KINDS.includes(it.kind)) return null;
+  const d = it.data || {}, t = v => String(v == null ? '' : v).slice(0, MAX_ITEM_TEXT);
+  if (it.kind === 'act') return { kind: 'act', data: { id: parseInt(d.id, 10) || 0, label: t(d.label).slice(0, 200), summary: t(d.summary).slice(0, 2000) } };
+  const out = { text: t(d.text) };
+  if (it.kind === 'bot' && Array.isArray(d.src)) out.src = d.src.slice(0, 20).map(x => ({ url: String(x && x.url || '').slice(0, 500), title: String(x && x.title || '').slice(0, 200) })).filter(x => /^https?:\/\//i.test(x.url));
+  return out.text || out.src ? { kind: it.kind, data: out } : null;
+}
+
 function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, HttpError, internalCall }) {
+  /* ---------- Lịch sử trò chuyện: chỉ chủ sở hữu (điều kiện user_id ở mọi truy vấn) ---------- */
+  const ownThread = (user, id) => get('SELECT * FROM ai_threads WHERE id=? AND user_id=?', int(id), user.id) || notFound('Không tìm thấy cuộc trò chuyện.');
+  route('GET', '/api/ai/threads', ({ user, query }) => {
+    purgeThreads(user.id);
+    const w = ['t.user_id=?'], a = [user.id];
+    if (query.q) { w.push('t.title LIKE ?'); a.push('%' + str(query.q, 100) + '%'); }
+    return all(`SELECT t.id, t.title, t.created_at, t.updated_at, (SELECT COUNT(*) FROM ai_thread_items i WHERE i.thread_id=t.id AND i.kind IN ('user','bot')) n
+      FROM ai_threads t WHERE ${w.join(' AND ')} ORDER BY t.updated_at DESC, t.id DESC LIMIT 100`, ...a);
+  });
+  route('POST', '/api/ai/threads', ({ user, body }) => {
+    if (!aiSettings().enabled) forbid('Trợ lý AI chưa được quản trị viên bật.');
+    purgeThreads(user.id);
+    const title = str(body.title, 120) || 'Cuộc trò chuyện ' + now().slice(0, 16);
+    const id = Number(run('INSERT INTO ai_threads(user_id,title,created_at,updated_at) VALUES(?,?,?,?)', user.id, title, now(), now()).lastInsertRowid);
+    return { id, title };
+  });
+  route('GET', '/api/ai/threads/:id', ({ user, params }) => {
+    const t = ownThread(user, params.id);
+    const items = all('SELECT id, kind, data, created_at FROM ai_thread_items WHERE thread_id=? ORDER BY id', t.id).map(r => { let d = {}; try { d = JSON.parse(r.data); } catch (e) {} return { id: r.id, kind: r.kind, data: d, created_at: r.created_at }; });
+    /* Trạng thái thẻ đề nghị lấy từ ai_pending (của chính người dùng), không lưu cứng trong lịch sử */
+    const ids = items.filter(i => i.kind === 'act' && i.data.id).map(i => i.data.id);
+    if (ids.length) {
+      const st = {}; for (const p of all(`SELECT id, status, result, expires_at FROM ai_pending WHERE user_id=? AND id IN (${ids.map(() => '?').join(',')})`, user.id, ...ids)) st[p.id] = p;
+      for (const i of items) if (i.kind === 'act') { const p = st[i.data.id]; i.data.st = !p ? 'expired' : p.status === 'pending' && p.expires_at < Date.now() ? 'expired' : p.status; i.data.msg = p ? p.result || '' : ''; }
+    }
+    return { id: t.id, title: t.title, created_at: t.created_at, updated_at: t.updated_at, items };
+  });
+  route('POST', '/api/ai/threads/:id/items', ({ user, params, body }) => {
+    const t = ownThread(user, params.id);
+    const list = (Array.isArray(body.items) ? body.items : []).slice(0, 50).map(cleanItem).filter(Boolean);
+    const have = get('SELECT COUNT(*) n FROM ai_thread_items WHERE thread_id=?', t.id).n;
+    if (have + list.length > MAX_ITEMS) bad('Cuộc trò chuyện đã quá dài. Vui lòng bắt đầu cuộc trò chuyện mới.');
+    D.tx(() => { for (const it of list) run('INSERT INTO ai_thread_items(thread_id,kind,data,created_at) VALUES(?,?,?,?)', t.id, it.kind, JSON.stringify(it.data), now()); run('UPDATE ai_threads SET updated_at=? WHERE id=?', now(), t.id); });
+    return { ok: true, n: list.length };
+  });
+  route('PUT', '/api/ai/threads/:id', ({ user, params, body }) => {
+    const t = ownThread(user, params.id), title = str(body.title, 120); if (!title) bad('Vui lòng nhập tiêu đề.');
+    run('UPDATE ai_threads SET title=? WHERE id=?', title, t.id); return { id: t.id, title };
+  });
+  route('DELETE', '/api/ai/threads/:id', ({ user, params }) => {
+    const t = ownThread(user, params.id);
+    D.tx(() => { run('DELETE FROM ai_thread_items WHERE thread_id=?', t.id); run('DELETE FROM ai_threads WHERE id=?', t.id); });
+    return { ok: true };
+  });
+
   /* Mở lượt hội thoại. Gọi bằng cookie của người dùng (qua cổng AI), nên đã qua kiểm tra phiên, Origin, ép đổi mật khẩu. */
   route('POST', '/api/ai/turn', ({ user, req }) => {
     const s = aiSettings();
@@ -96,7 +166,7 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
   route('GET', '/api/ai/status', ({ user }) => {
     const s = aiSettings(), c = myConfig(user.id);
     return { enabled: s.enabled, allow_pii: s.allow_pii, quota_left: Math.max(0, s.daily_tokens - usedToday(user.id)), configured: !!(c && c.key_enc) || orgKeyAvailable(), personal: !!(c && c.key_enc), org_key: orgKeyAvailable(), assistant_name: c && c.assistant_name || '', provider: effectiveProvider(c), audio_server: ['openai', 'gemini'].includes(effectiveProvider(c)),
-      web_search: s.web_search && s.web_domains.length > 0 && effectiveProvider(c) === 'anthropic', web_domains: s.web_search ? s.web_domains : [], auto_brief: !!(c && c.auto_brief) };
+      web_search: s.web_search && s.web_domains.length > 0 && effectiveProvider(c) === 'anthropic', web_domains: s.web_search ? s.web_domains : [], auto_brief: !!(c && c.auto_brief), keep_days: s.keep_days };
   });
 
   /* Cấu hình AI cá nhân: mỗi người tự chọn nhà cung cấp, mô hình, khóa API, tên và cách trả lời của trợ lý. */
@@ -185,8 +255,9 @@ function register({ route, bad, forbid, notFound, str, int, secLog, clientIp, Ht
     D.setSetting('ai_enabled', body.enabled ? '1' : '0'); D.setSetting('ai_allow_pii', body.allow_pii ? '1' : '0'); D.setSetting('ai_daily_tokens', q);
     D.setSetting('ai_web_search', web ? '1' : '0');
     if (domains) D.setSetting('ai_web_domains', domains.join('\n'));
+    if (body.keep_days !== undefined) { const k = int(body.keep_days); if (k < 1 || k > 3650) bad('Thời hạn lưu lịch sử trò chuyện phải từ 1 đến 3.650 ngày.'); D.setSetting('ai_keep_days', k); }
     const after = aiSettings();
-    secLog('ai_settings', { user_id: user.id, username: user.username, ip: clientIp(req), detail: `bật: ${before.enabled}→${after.enabled}; dữ liệu cá nhân: ${before.allow_pii}→${after.allow_pii}; hạn mức: ${before.daily_tokens}→${after.daily_tokens}; Internet: ${before.web_search}→${after.web_search}; tên miền: ${after.web_domains.join(' ')}`.slice(0, 1000) });
+    secLog('ai_settings', { user_id: user.id, username: user.username, ip: clientIp(req), detail: `bật: ${before.enabled}→${after.enabled}; dữ liệu cá nhân: ${before.allow_pii}→${after.allow_pii}; hạn mức: ${before.daily_tokens}→${after.daily_tokens}; Internet: ${before.web_search}→${after.web_search}; lưu lịch sử: ${before.keep_days}→${after.keep_days} ngày; tên miền: ${after.web_domains.join(' ')}`.slice(0, 1000) });
     return after;
   }, { admin: true });
 }

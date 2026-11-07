@@ -410,6 +410,36 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - Đã chạy thật với Anthropic do chủ sở hữu thử: bước đầu (công cụ nội bộ) chạy được.
   - Bản sửa mới kiểm thử cục bộ với máy chủ giả lập; chưa thử lại với Anthropic thật.
 
+## 07/11/2026 (chiều, tiếp). Rà soát tổng thể trợ lý AI; sửa lỗi chữ ký thinking block; lưu lịch sử trò chuyện (so-1.15.0)
+- **Sự cố (chủ sở hữu thử với Anthropic thật):** câu hỏi "có gói thầu nào tên mạng đang gặp vấn đề lớn" báo "HTTP 400: messages.1.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation…".
+- **Yêu cầu:** "cần test kỹ để hoàn thiện"; "cần rà soát tổng thể, đừng có fix theo từng case"; "cần lưu các thread/session trò chuyện cũ".
+- **Nguyên nhân (do tôi):**
+  - Ở so-1.14.2 tôi làm "ưu tiên nội bộ" bằng cách đổi danh sách `tools` giữa các bước của một lượt. Anthropic gắn thinking block với `system` + `tools` + các tin trước, nên đổi `tools` làm thinking block mất hiệu lực.
+  - Bản dự phòng so-1.14.3 cũng đổi `tools`.
+  - Nguyên nhân gốc: máy chủ giả lập trong kiểm thử chấp nhận mọi yêu cầu.
+- **Phạm vi ảnh hưởng:** mọi lượt hỏi Anthropic có từ 2 bước trở lên khi đã bật tìm Internet (so-1.14.2–1.14.3). Mã chưa hợp nhất vào `main`.
+- **Rà soát tổng thể:** báo cáo `docs/05-ra-soat/2026-11-07-RA-SOAT-TRO-LY-AI.md`.
+  - **Sửa:**
+    - danh sách công cụ cố định trong lượt; tìm Internet qua công cụ `tim_internet` chạy ở cuộc gọi riêng, chỉ chạy sau khi đã tra nội bộ;
+    - chuẩn hóa lịch sử xen kẽ vai (Gemini);
+    - không chạy công cụ khi câu trả lời bị cắt do giới hạn độ dài;
+    - tự bỏ tham số tùy chọn (`fallbacks`, `output_config.effort`) khi mô hình không hỗ trợ.
+  - **Kiểm thử theo hợp đồng API:** máy chủ giả lập từ chối mọi vi phạm quy tắc Anthropic/OpenAI/Gemini đã biết. Chạy trên mã so-1.14.3 tái hiện đúng lỗi chủ sở hữu gặp (4 vi phạm, 10 kiểm thử không đạt); mã mới 0 vi phạm.
+  - **Kiểm tra toàn diện với khóa thật** (Tài khoản › Trợ lý AI của tôi; `POST /api/ai/test` với `full: true`).
+- **Lưu lịch sử trò chuyện (ADR-010 mục 2F):**
+  - bảng `ai_threads`, `ai_thread_items`; API `/api/ai/threads*` chỉ chủ sở hữu;
+  - cổng AI tự lưu câu hỏi, câu trả lời, nguồn, thẻ đề nghị (trạng thái lấy từ `ai_pending`), lệnh mở màn hình, lỗi;
+  - thời hạn lưu `ai_keep_days` (mặc định 180 ngày);
+  - giao diện: nút 🕘 Lịch sử, mở lại, xóa; tự mở lại cuộc trò chuyện đang dở khi tải trang.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ai-test` 233 đạt, 0 không đạt ("HỢP ĐỒNG API" 0 vi phạm; phần R, K, T mới);
+  - `worker-smoke` đạt (`backup-manifest 200 74 1`); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `node --check` toàn bộ.
+- **Chưa kiểm chứng:**
+  - với Anthropic thật: cần chủ sở hữu bấm Kiểm tra toàn diện;
+  - giao diện Lịch sử trên trình duyệt;
+  - pháp chế về thời hạn lưu nội dung trò chuyện.
+- **Tài liệu:** ADR-010 (mục 8 được thay bằng 2F; 2C.2, 2F, 2G); hướng dẫn XII.13–14; CLAUDE.md 3g (điều kiện "HỢP ĐỒNG API"); `public/sw.js` so-1.15.0.
+
 ## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).

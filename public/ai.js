@@ -10,6 +10,11 @@ const S = window.SO;
 const { $, esc, GET, POST, PUT, toast, showErr, render, ACTIONS } = S;
 const SUGGEST = ['Hôm nay tôi cần làm gì?', 'Đề xuất nào đang chờ tôi duyệt?', 'Lịch họp tuần này của tôi', 'Tìm quy chế chi tiêu nội bộ'];
 let enabled = false, open = false, busy = false, hist = [], items = [], status = {};
+/* Lịch sử trò chuyện lưu trên máy chủ (chỉ chủ sở hữu xem được); trình duyệt chỉ nhớ mã cuộc trò chuyện đang mở để mở lại khi tải trang */
+let curThread = null, histMode = false, threads = null, resumeTried = false;
+const TKEY = () => 'so-ai-thread-' + ((typeof B !== 'undefined' && B && B.me && B.me.id) || '');
+const setThread = id => { curThread = id || null; try { if (curThread) localStorage.setItem(TKEY(), String(curThread)); else localStorage.removeItem(TKEY()); } catch (e) {} };
+const fmtAt = v => { const x = String(v || ''); return x.length >= 16 ? x.slice(8, 10) + '/' + x.slice(5, 7) + '/' + x.slice(0, 4) + ' ' + x.slice(11, 16) : x; };
 const MODELS = { anthropic: ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'], openai: [], gemini: [] };
 const MODEL_PH = { anthropic: 'Để trống = claude-opus-5-5', openai: 'Bắt buộc, theo tài liệu của OpenAI', gemini: 'Bắt buộc, theo tài liệu của Google' };
 const goConfig = () => { toggle(false); if (location.hash !== '#tai-khoan') location.hash = 'tai-khoan'; else render(); setTimeout(() => { const el = document.getElementById('ai-me'); if (el) el.scrollIntoView({ block: 'start' }); }, 300); };
@@ -29,6 +34,7 @@ function ensurePanel() {
   <aside class="ai-panel" id="ai-panel" role="dialog" aria-modal="false" aria-labelledby="ai-title" hidden>
     <header class="ai-head"><h2 id="ai-title">Trợ lý AI</h2><span class="spacer"></span>
       <button class="btn sm ai-x" id="ai-voice" data-act="ai-voice" aria-pressed="false" aria-label="Đọc to câu trả lời" title="Đọc to câu trả lời">🔈</button>
+      <button class="btn sm ai-x" data-act="ai-hist" aria-label="Lịch sử trò chuyện" title="Lịch sử trò chuyện">🕘</button>
       <button class="btn sm ai-x" data-act="ai-config" aria-label="Cấu hình trợ lý của tôi" title="Cấu hình trợ lý của tôi">⚙</button>
       <button class="btn sm" data-act="ai-new" title="Bắt đầu cuộc trò chuyện mới">Cuộc trò chuyện mới</button>
       <button class="btn sm ai-x" data-act="ai-toggle" aria-label="Đóng trợ lý">✕</button></header>
@@ -46,8 +52,17 @@ function ensurePanel() {
   draw();
 }
 
+function histHtml() {
+  if (!threads) return '<p class="hint" style="padding:12px">Đang tải lịch sử…</p>';
+  return `<div class="ai-hist"><div class="ai-hist-h"><b>Lịch sử trò chuyện</b><span class="spacer"></span><button class="btn sm" data-act="ai-new">+ Cuộc trò chuyện mới</button><button class="btn sm" data-act="ai-hist-back">Quay lại</button></div>
+    ${threads.length ? '<ul class="ai-hist-l">' + threads.map(t => `<li class="${t.id === curThread ? 'cur' : ''}"><button type="button" class="ai-hist-it" data-act="ai-thread" data-id="${t.id}"><span class="ai-hist-t">${esc(t.title || 'Cuộc trò chuyện')}</span><span class="hint">${fmtAt(t.updated_at)} · ${t.n} tin</span></button><button type="button" class="btn sm ai-x" data-act="ai-thread-del" data-id="${t.id}" aria-label="Xóa cuộc trò chuyện ${esc(t.title || '')}" title="Xóa">✕</button></li>`).join('') + '</ul>' : '<p class="hint">Chưa có cuộc trò chuyện nào được lưu.</p>'}
+    <p class="hint" style="margin-top:8px">Chỉ bạn xem được lịch sử của mình. Cuộc trò chuyện được lưu ${status.keep_days || 180} ngày kể từ lần dùng cuối rồi tự xóa.</p></div>`;
+}
+
 function draw() {
   const log = $('#ai-log'); if (!log) return;
+  const f = $('#ai-form'); if (f) f.hidden = histMode;
+  if (histMode) { log.innerHTML = histHtml(); return; }
   log.innerHTML = items.length ? items.map(it => {
     if (it.k === 'user') return `<div class="ai-msg me"><div class="ai-bub">${esc(it.text).replace(/\n/g, '<br>')}</div></div>`;
     if (it.k === 'ui') return `<div class="ai-msg"><p class="hint ai-ui">↗ ${esc(it.text)}</p></div>`;
@@ -71,7 +86,7 @@ async function send(text, viaVoice) {
   hist.push({ role: 'user', text }); items.push({ k: 'user', text }); busy = true; draw();
   let answered = false;
   try {
-    const res = await fetch('/api/ai/chat', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: hist.slice(-20) }) });
+    const res = await fetch('/api/ai/chat', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: hist.slice(-20), thread_id: curThread }) });
     if (!res.ok || !res.body) { let m = 'Lỗi ' + res.status; try { m = (await res.json()).error || m; } catch (e) {} throw new Error(m); }
     const rd = res.body.getReader(), dec = new TextDecoder(); let buf = '';
     for (;;) {
@@ -86,6 +101,7 @@ async function send(text, viaVoice) {
   function onEvent(ev) {
     if (ev.type === 'status') { busy = ev.text + '…'; draw(); }
     else if (ev.type === 'action') { items.push({ k: 'act', id: ev.id, label: ev.label, summary: ev.summary, st: 'pending' }); draw(); }
+    else if (ev.type === 'thread') { setThread(ev.id); threads = null; }
     else if (ev.type === 'text') { items.push({ k: 'bot', text: ev.text }); hist.push({ role: 'assistant', text: ev.text }); draw(); if (voice || spoken) speak(ev.text); }
     else if (ev.type === 'ui') { items.push({ k: 'ui', text: 'Đã mở ' + ev.label }); draw(); uiDo(ev).catch(e => toast(e.message, true)); }
     else if (ev.type === 'sources') { const last = [...items].reverse().find(x => x.k === 'bot'); if (last && Array.isArray(ev.items)) { last.src = ev.items.slice(0, 20); draw(); } }
@@ -157,6 +173,26 @@ async function micToggle() {
   try { await r.start(); } catch (e) { mic = null; micUi(null); toast(e.message, true); }
 }
 
+/* Mở lại một cuộc trò chuyện đã lưu: dựng lại khung trò chuyện và lịch sử gửi mô hình (trạng thái thẻ đề nghị lấy từ máy chủ) */
+async function loadThread(id, quiet) {
+  let t; try { t = await GET('/api/ai/threads/' + Number(id)); } catch (e) { if (!quiet) toast(e.message, true); if (Number(id) === curThread) setThread(null); return false; }
+  items = []; hist = [];
+  for (const it of t.items) {
+    const d = it.data || {};
+    if (it.kind === 'user') { items.push({ k: 'user', text: d.text }); hist.push({ role: 'user', text: d.text }); }
+    else if (it.kind === 'bot') { items.push({ k: 'bot', text: d.text, src: d.src }); hist.push({ role: 'assistant', text: d.text }); }
+    else if (it.kind === 'act') { items.push({ k: 'act', id: d.id, label: d.label, summary: d.summary, st: d.st || 'expired', msg: d.st === 'expired' ? 'Đề nghị đã hết hạn.' : d.msg }); if (['done', 'cancelled', 'failed'].includes(d.st)) hist.push({ role: 'assistant', text: `[Hệ thống] Đề nghị số ${d.id} (${d.summary}): ${d.st === 'done' ? 'đã thực hiện' : d.st === 'cancelled' ? 'người dùng bỏ qua' : 'không thực hiện được'}.` }); }
+    else if (it.kind === 'ui') items.push({ k: 'ui', text: d.text });
+    else if (it.kind === 'err') items.push({ k: 'err', text: d.text });
+  }
+  setThread(t.id); histMode = false; draw(); return true;
+}
+async function showHistory() {
+  histMode = true; threads = null; draw();
+  try { threads = await GET('/api/ai/threads'); } catch (e) { threads = []; toast(e.message, true); }
+  if (histMode) draw();
+}
+
 async function decide(id, ok) {
   const it = items.find(x => x.k === 'act' && x.id === id); if (!it || it.st !== 'pending') return;
   try {
@@ -172,6 +208,8 @@ function toggle(force) {
   if (!enabled && force !== false) return;
   open = force === undefined ? !open : force;
   ensurePanel();
+  /* Lần mở đầu tiên sau khi tải trang: mở lại cuộc trò chuyện đang dở (nếu còn) */
+  if (open && !resumeTried && !items.length && !busy) { resumeTried = true; let id = null; try { id = Number(localStorage.getItem(TKEY())) || null; } catch (e) {} if (id) loadThread(id, true); }
   $('#ai-panel').hidden = !open; $('#ai-fab').setAttribute('aria-expanded', String(open)); document.body.classList.toggle('ai-open', open);
   if (open) setTimeout(() => $('#ai-in') && $('#ai-in').focus(), 30); else if (!$('#ai-fab').hidden) $('#ai-fab').focus();
 }
@@ -182,6 +220,7 @@ function autoBrief() {
   let last = ''; try { last = localStorage.getItem('so-ai-brief') || ''; } catch (e) {}
   if (last === TODAY()) return;
   try { localStorage.setItem('so-ai-brief', TODAY()); } catch (e) {}
+  resumeTried = true; setThread(null); // báo cáo đầu ngày là một cuộc trò chuyện mới
   toggle(true); send('Báo cáo tình hình hôm nay cho tôi: điểm nóng, việc cần chỉ đạo.');
 }
 
@@ -213,13 +252,26 @@ Object.assign(ACTIONS, {
       out.className = r.ok ? 'notice ok' : 'err'; out.textContent = r.ok ? `Kết nối thành công: ${r.provider} · ${r.model}${r.source === 'org' ? ' (đang dùng khóa chung của đơn vị)' : ''}. Trả lời thử: “${r.reply}”` : (r.error || 'Kết nối không thành công.');
     } catch (e) { out.className = 'err'; out.textContent = e.message; }
   }),
-  'ai-new': () => { if (busy) return; hist = []; items = []; if ('speechSynthesis' in window) speechSynthesis.cancel(); draw(); $('#ai-in').focus(); },
+  'ai-me-full': btn => S.busy(btn, async () => {
+    const out = $('#aime-test'); out.className = 'hint'; out.textContent = 'Đang chạy kiểm tra toàn diện (khoảng 30–90 giây)…';
+    try {
+      const res = await fetch('/api/ai/test', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ full: true }) });
+      const r = await res.json();
+      out.className = r.ok ? 'notice ok' : 'notice warn';
+      out.innerHTML = `<b>${r.ok ? 'Tất cả các bước đạt' : 'Có bước không đạt'}</b>${r.provider ? ' · ' + esc(r.provider) + ' · ' + esc(r.model || '') : ''}${r.error ? '<br>' + esc(r.error) : ''}<ul class="ai-chk">${(r.steps || []).map(s => `<li class="${s.ok ? 'ok' : 'bad'}">${s.ok ? '✓' : '✗'} ${esc(s.name)} <span class="hint">(${(s.ms / 1000).toFixed(1)} giây)</span><br><span class="hint">${esc(s.ok ? s.detail || '' : s.error || '')}</span></li>`).join('')}</ul>`;
+    } catch (e) { out.className = 'err'; out.textContent = e.message; }
+  }),
+  'ai-new': () => { if (busy) return; hist = []; items = []; histMode = false; setThread(null); if ('speechSynthesis' in window) speechSynthesis.cancel(); draw(); $('#ai-in').focus(); },
+  'ai-hist': () => { if (busy) return; if (histMode) { histMode = false; draw(); } else showHistory(); },
+  'ai-hist-back': () => { histMode = false; draw(); },
+  'ai-thread': b => { if (!busy) loadThread(Number(b.dataset.id)); },
+  'ai-thread-del': b => { if (!S.armed(b, 'Bấm lần nữa để xóa')) return; S.busy(b, async () => { try { await DEL('/api/ai/threads/' + Number(b.dataset.id)); if (Number(b.dataset.id) === curThread) { setThread(null); items = []; hist = []; } threads = (threads || []).filter(t => t.id !== Number(b.dataset.id)); draw(); toast('Đã xóa cuộc trò chuyện'); } catch (e) { toast(e.message, true); } }); },
   'ai-sug': b => send(b.textContent),
   'ai-ok': b => decide(Number(b.dataset.id), true),
   'ai-no': b => decide(Number(b.dataset.id), false),
   'ai-save': btn => S.busy(btn, async () => {
     try {
-      const r = await PUT('/api/admin/ai-settings', { enabled: $('#ai-en').checked, allow_pii: $('#ai-pii').checked, daily_tokens: Number(String($('#ai-q').value).replace(/\D/g, '')), web_search: $('#ai-web').checked, web_domains: $('#ai-dom').value });
+      const r = await PUT('/api/admin/ai-settings', { enabled: $('#ai-en').checked, allow_pii: $('#ai-pii').checked, daily_tokens: Number(String($('#ai-q').value).replace(/\D/g, '')), web_search: $('#ai-web').checked, web_domains: $('#ai-dom').value, keep_days: Number(String($('#ai-keep').value).replace(/D/g, '')) });
       toast('Đã lưu cấu hình trợ lý AI'); enabled = r.enabled; check(); render();
     } catch (e) { showErr('#ai-err', e); }
   })
@@ -249,7 +301,7 @@ async function mountAccount(el) {
       <div class="field full"><label for="aime-i">Cách trả lời mong muốn</label><textarea id="aime-i" maxlength="1000" rows="3" placeholder="Ví dụ: trả lời ngắn gọn, gạch đầu dòng; luôn nêu hạn hoàn thành.">${esc(m.instructions)}</textarea></div>
     </div>
     <p class="err" id="aime-err" hidden></p><div id="aime-test" aria-live="polite"></div></div>
-    <div class="modal-f">${m.has_key ? '<button class="btn danger" data-act="ai-me-clear" style="margin-right:auto">Xóa khóa</button>' : ''}<button class="btn" data-act="ai-me-test">Kiểm tra kết nối</button><button class="btn primary" data-act="ai-me-save">Lưu cấu hình</button></div></section>`;
+    <div class="modal-f">${m.has_key ? '<button class="btn danger" data-act="ai-me-clear" style="margin-right:auto">Xóa khóa</button>' : ''}<button class="btn" data-act="ai-me-test">Kiểm tra kết nối</button><button class="btn" data-act="ai-me-full" title="Chạy thử các luồng chính với khóa của bạn: hội thoại, gọi công cụ nhiều bước, tìm Internet, soạn văn bản (tốn một ít token)">Kiểm tra toàn diện</button><button class="btn primary" data-act="ai-me-save">Lưu cấu hình</button></div></section>`;
   $('#aime-p').addEventListener('change', provChanged);
   provChanged();
   el.insertAdjacentHTML('beforeend', '<section class="card" id="aime-use" style="margin-top:14px"><div class="card-h"><h2>Token AI tôi đã dùng</h2></div><div class="card-b"><p class="hint">Đang tải…</p></div></section>');
@@ -292,6 +344,7 @@ async function adminHtml() {
     <label class="check"><input type="checkbox" id="ai-en" ${s.enabled ? 'checked' : ''}> Bật trợ lý AI cho toàn đơn vị</label>
     <label class="check"><input type="checkbox" id="ai-pii" ${s.allow_pii ? 'checked' : ''}> Cho phép gửi thông tin cá nhân (thư điện tử, số điện thoại, ngày sinh, số giấy tờ, tài khoản ngân hàng, lương) tới nhà cung cấp AI</label>
     <div class="field" style="max-width:320px"><label for="ai-q">Hạn mức token mỗi người mỗi ngày</label><input id="ai-q" inputmode="numeric" value="${n(s.daily_tokens)}"></div>
+    <div class="field" style="max-width:320px"><label for="ai-keep">Lưu lịch sử trò chuyện (ngày)</label><input id="ai-keep" inputmode="numeric" value="${s.keep_days || 180}"><span class="hint">Mỗi người chỉ xem được lịch sử của mình. Quá hạn kể từ lần dùng cuối thì tự xóa.</span></div>
     <label class="check"><input type="checkbox" id="ai-web" ${s.web_search ? 'checked' : ''}> Cho phép trợ lý tìm kiếm trên Internet, chỉ trong các trang dưới đây (hiện chỉ dùng được với Anthropic)</label>
     <div class="field" style="max-width:480px"><label for="ai-dom">Tên miền được phép (mỗi dòng một tên miền; tự gồm tên miền con)</label><textarea id="ai-dom" rows="5" spellcheck="false" autocomplete="off">${esc((s.web_domains || []).join('\n'))}</textarea>
       <span class="hint">Chỉ nhập tên miền, ví dụ chinhphu.vn. Không nhập http://, đường dẫn hay ký tự *. dauthau.asia là trang của doanh nghiệp, không phải cổng thông tin nhà nước.</span></div>

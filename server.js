@@ -768,7 +768,8 @@ async function handle(req, res) {
     return json(r.status, r.json);
   }
   if (url.pathname === '/api/ai/test' && req.method === 'POST' && !IS_WORKER) {
-    const r = await AI.handleTest({ env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b) });
+    let body = {}; try { body = await readBody(req, 1e4) || {}; } catch (e) {}
+    const r = await AI.handleTest({ body, env: process.env, callApi: (m, p, b) => internalCall(req, m, p, b) });
     return json(r.status, r.json);
   }
   try {

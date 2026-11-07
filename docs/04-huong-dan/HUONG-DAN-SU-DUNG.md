@@ -285,7 +285,7 @@ Cần làm → Đang làm → (Chờ đánh giá, nếu dự án bật "Yêu c�
 
 Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hình nền dự án.
 
-## XII. TRỢ LÝ AI (PHIÊN BẢN 1.11–1.14, KHI QUẢN TRỊ VIÊN ĐÃ BẬT)
+## XII. TRỢ LÝ AI (PHIÊN BẢN 1.11–1.15, KHI QUẢN TRỊ VIÊN ĐÃ BẬT)
 
 0. **Cấu hình trợ lý của bạn (lần đầu):** mỗi người một trợ lý riêng. Vào **Tài khoản › Trợ lý AI của tôi** (hoặc bấm ⚙ trong khung trợ lý):
    - chọn **Nhà cung cấp**: Anthropic (Claude), OpenAI hoặc Google Gemini;
@@ -334,4 +334,9 @@ Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hìn
    - Giọng đọc dùng sẵn của trình duyệt. Nếu máy chưa có giọng tiếng Việt, cài giọng nói tiếng Việt cho Windows hoặc dùng Edge.
 11. **Trợ lý mở màn hình cho bạn:** nói hoặc gõ "Mở đề xuất số 12", "Chuyển đến dự án Triển khai văn phòng số", "Cho tôi xem hồ sơ nhân sự của Lan". Trợ lý chuyển màn hình và mở cửa sổ chi tiết. Trên điện thoại, khung trợ lý tự đóng để bạn xem.
 12. **Xem token AI bạn đã dùng:** Tài khoản › Trợ lý AI của tôi › mục **Token AI tôi đã dùng**: số token hôm nay so với hạn mức, số còn lại (tính lại lúc 0 giờ, giờ Việt Nam), bảng theo ngày trong 30 ngày gần nhất (số lượt, token vào, token ra, đọc bộ đệm, tính hạn mức, lượt tìm Internet). Token đọc từ bộ đệm (phần mô tả và lời nhắc lặp lại ở mỗi bước) chỉ tính 10% vào hạn mức. Mỗi người chỉ xem được số liệu của mình. Chi phí thực tế xem tại trang quản lý tài khoản của nhà cung cấp.
+13. **Lịch sử trò chuyện (phiên bản 1.15):**
+   - Mỗi cuộc trò chuyện được lưu lại. Bấm 🕘 ở đầu khung trợ lý để xem danh sách, mở lại, xóa từng cuộc trò chuyện. Bấm **Cuộc trò chuyện mới** để bắt đầu chủ đề khác. Tải lại trang thì cuộc trò chuyện đang dở tự mở lại.
+   - Chỉ bạn xem được lịch sử của mình; quản trị viên cũng không xem được.
+   - Lịch sử tự xóa sau số ngày quản trị viên đặt, tính từ lần dùng cuối (mặc định 180 ngày). Quản trị viên đặt tại Quản trị › Trợ lý AI › **Lưu lịch sử trò chuyện (ngày)**.
+14. **Kiểm tra toàn diện:** Tài khoản › Trợ lý AI của tôi › **Kiểm tra toàn diện**. Trợ lý chạy thử bằng khóa của bạn các bước: hội thoại, gọi công cụ nhiều bước, tìm Internet (nếu bật), soạn văn bản. Bước nào lỗi thì hiện nguyên văn thông báo của nhà cung cấp. Nên chạy sau khi đổi mô hình, khóa API, hoặc khi hệ thống được cập nhật. Mỗi lần chạy tốn một ít token.
 
