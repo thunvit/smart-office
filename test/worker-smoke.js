@@ -70,6 +70,11 @@ const chk = (label, cond, info = '') => { if (!cond) { FAILS++; console.log('SAI
   r = await call('POST', '/api/ai/pending', { tool: 'binh_luan_cong_viec', args: { task_id: 1, body: 'Kiểm thử' } });
   console.log('ai', aiOff, aiOn, r.status); chk('trợ lý AI mặc định tắt, bật được, lập đề nghị chờ xác nhận', aiOff === 403 && aiOn === 200 && r.status === 200 && r.body.id > 0, { aiOff, aiOn, s: r.status });
   await call('PUT', '/api/admin/ai-settings', { enabled: false, daily_tokens: 200000 });
+  /* ADR-012: bảng checkins tạo được trên ctx.storage.sql; lưu cập nhật tuần; cảnh báo nhóm; huy hiệu trên bootstrap */
+  { const ck = await call('PUT', '/api/ops/checkin', { done: 'Kiểm thử lõi Cloudflare', next: 'Tiếp tục' });
+    const al = await call('GET', '/api/ops/alerts?scope=team'); const bs = await call('GET', '/api/bootstrap');
+    console.log('ops', ck.status, al.status, typeof (bs.body.counts || {}).ops);
+    chk('vận hành tự chủ: cập nhật tuần, cảnh báo, huy hiệu', ck.status === 200 && al.status === 200 && Array.isArray(al.body.items) && typeof bs.body.counts.ops === 'number', { ck: ck.status, al: al.status }); }
   r = await call('GET', '/api/admin/restore/check'); console.log('restore-check', r.status, r.body && r.body.ok); chk('kiểm tra khả năng khôi phục', r.status === 200 && r.body.ok === true, r.body);
   // Durable Object được khởi tạo lại trong cùng isolate: storage cũ không còn dùng được
   st1.kill();

@@ -573,7 +573,44 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 - **Kiểm thử:** xem mô tả PR. Không có kiểm thử tái hiện tự động: lỗi chỉ xuất hiện khi Worker chạy tại Hồng Kông trên Cloudflare thật, bản mô phỏng không tái hiện được.
 - **Chưa kiểm chứng:** Cloudflare thật. Sau triển khai cần: tiêu đề `cf-placement` trên phản hồi `/healthz`; Kiểm tra toàn diện với khóa thật không còn 403; thời gian phản hồi các màn hình nghiệp vụ.
 
-## Việc còn dở và sự cố đang mở (cập nhật 07/11/2026)
+## 08/11/2026. Vận hành tự chủ: cập nhật tiến độ tuần, giám sát – cảnh báo – leo thang (so-1.17.0, ADR-012)
+- **Yêu cầu của chủ sở hữu:** triển khai mô hình vận hành tự chủ: nhân sự chủ động thực hiện nhiệm vụ, hệ thống giám sát. Căn cứ: Thuyết minh kiến trúc SmartOffice, Mục IV Nhóm E.
+- **Phạm vi phiên:** phân hệ 26 (Cập nhật tiến độ tuần) và 30 (Giám sát, cảnh báo, leo thang).
+  - Phân hệ 25 (Mục tiêu và phân rã chỉ tiêu) đã có sẵn (Mục tiêu – KPI ba cấp, công việc gắn mục tiêu).
+  - Phân hệ 24, 27, 28, 29 để các phiên sau, theo nguyên tắc mỗi phiên một mục tiêu (Kế hoạch phát triển, Mục III).
+- **Việc đã làm:** nhánh `claude/van-hanh-tu-chu-giam-sat`.
+  - `ops.js` (mới):
+    - bảng `checkins`, chỉ mục `tasks(status, due_date)`;
+    - API `GET/PUT /api/ops/checkin`, `GET /api/ops/checkins`, `POST /api/ops/checkins/:id/ack`, `GET /api/ops/alerts`, `GET/PUT /api/ops/settings`;
+    - 7 loại cảnh báo tính tại thời điểm xem, 3 mức leo thang;
+    - tham số `settings.ops_params`; lần chạy đầu ghi ngày áp dụng.
+  - `server.js`: nạp mô-đun; huy hiệu `counts.ops`.
+  - `public/ops.js` (mới), `public/app.js`: 2 màn hình trong menu Công việc, biểu tượng, huy hiệu.
+  - `public/app.css`, `public/index.html`; `public/sw.js` so-1.17.0.
+  - Kiểm thử: `test/ops-test.js` (mới); `test/worker-smoke.js` thêm điều kiện `ops`; CI thêm bước; CLAUDE.md mục 5.3h.
+  - Tài liệu: ADR-012 (Đề xuất), hướng dẫn sử dụng mục XIII, mục lục tài liệu.
+- **Lỗi phát hiện nhờ kiểm thử trong lúc làm:** ngày áp dụng `2026-13-01` lọt qua kiểm tra vì chỉ kiểm định dạng. Đã sửa: kiểm tra ngày có thật. Kiểm thử C12 báo lỗi trên mã cũ, đạt trên mã mới.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `ops-test` 62 đạt, 0 không đạt:
+    - giới hạn tuần sửa được;
+    - phạm vi xem của nhân viên, trưởng phòng, giám đốc; không lộ phòng khác;
+    - ghi nhận, sửa sau ghi nhận;
+    - mức 1/2/3 theo số ngày; việc chưa có người nhận; quá tải; mục tiêu chậm; chưa cập nhật tuần theo ngày áp dụng;
+    - huy hiệu tăng, giảm; hoàn thành việc thì hết cảnh báo;
+    - tham số chỉ quản trị viên sửa, kiểm tra khoảng; chưa đăng nhập 401.
+  - `worker-smoke` đạt (`ops 200 200 number`, `backup-manifest 200 77 1`, `ai 403 200 200`, `download 200 true`, `re-instantiate 200`, `lockout persist 429`, `work-template 200 3`, `work-post 200`).
+  - `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `ai-test` 335/0; `node --check` toàn bộ.
+  - **Bản Node, cổng 3999, dữ liệu mẫu:** thêm 3.000 việc quá hạn, `/api/bootstrap` tối đa 13 ms, `/api/ops/alerts?scope=team` tối đa 10 ms.
+  - **Trình duyệt (Playwright, Chromium):**
+    - nhân viên lưu cập nhật có đề nghị hỗ trợ; trưởng phòng xem nhóm; giám đốc xem cảnh báo toàn đơn vị;
+    - 1280 px và 360 px, chế độ sáng và tối;
+    - không lỗi JavaScript, không tràn ngang.
+- **Chưa kiểm chứng:**
+  - chạy trên Cloudflare (CPU thật của huy hiệu trên mỗi lần tải bootstrap);
+  - trình duyệt Safari, điện thoại thật;
+  - `work-ui`, `work-ui-full` chưa chạy lại (không đổi giao diện phân hệ Công việc).
+
+## Việc còn dở và sự cố đang mở (cập nhật 08/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
 2. **Các việc P0 theo báo cáo rà soát:**
@@ -591,3 +628,4 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 5. **Phân hệ Công việc – Dự án v2** đã triển khai (06/11/2026). Đề xuất P1: service worker tự kích hoạt bản mới khi API thay đổi không tương thích, tránh giao diện cũ gọi API mới.
 6. **Trợ lý AI (Phiên 16, Đợt 2):** đã viết trên nhánh (so-1.11.0, ADR-010 ở trạng thái Đề xuất). Chờ: chủ sở hữu duyệt ADR-010; chủ sở hữu tự khai báo `AI_API_KEY` và thử với Anthropic thật; pháp chế xác nhận điều kiện gửi dữ liệu ra nhà cung cấp AI trước khi bật trên hệ thống thật.
 7. **Trợ lý cuộc họp (ADR-011, so-1.16.1):** ADR-011 đã duyệt ngày 07/11/2026 (kèm 4 ý kiến, đã thực hiện trên nhánh). Chờ pháp chế xác nhận căn cứ xử lý đặc trưng giọng nói (dữ liệu sinh trắc học) và bản ghi âm; quy chế cần nêu việc PITR 30 ngày trên Cloudflare có thể đưa bản ghi âm đã xóa trở lại. Cần thử ghi âm thật trong một cuộc họp, đo độ chính xác gợi ý người nói, mở tệp Word bằng Microsoft Word, và đối chiếu với tệp Mẫu 1.4, 1.9 gốc.
+8. **Vận hành tự chủ (ADR-012, so-1.17.0):** chờ chủ sở hữu duyệt ADR-012 (3 câu hỏi cuối ADR) và hợp nhất nhánh `claude/van-hanh-tu-chu-giam-sat`. Sau triển khai: kiểm tra trên Cloudflare thật; đơn vị bổ sung quy chế về cập nhật tuần và phạm vi giám sát trước khi áp dụng chính thức. Đợt sau của Nhóm E: phân hệ 24, 27, 28, 29.

@@ -102,6 +102,7 @@ let HR2API = { isPayroll: () => false };
 let EXTAPI = { canRecruit: () => false, isLead: () => false, badges: () => ({}) };
 let WORKAPI = null;
 let BIZAPI = { isFinance: () => false, canPost: () => false, canManageAssets: () => false, badges: () => ({}) };
+let OPSAPI = { badge: () => 0 };
 const publicUser = u => u && ({ id: u.id, username: u.username, full_name: u.full_name, title: u.title, dept_id: u.dept_id, role: u.role, email: u.email, phone: u.phone, color: u.color, must_change_pw: !!u.must_change_pw, is_hr: isHR(u), is_director: isDirector(u), is_payroll: HR2API.isPayroll(u), is_finance: BIZAPI.isFinance(u), can_post: BIZAPI.canPost(u), can_assets: BIZAPI.canManageAssets(u), can_recruit: EXTAPI.canRecruit(u), is_lead: EXTAPI.isLead(u) });
 
 route('POST', '/api/login', ({ body, res, req }) => {
@@ -169,7 +170,8 @@ function counts(user) {
     wf: get(`SELECT COUNT(*) n FROM wf_run_steps s JOIN wf_runs r ON r.id=s.run_id WHERE s.assignee_id=? AND s.status='active' AND r.status='running'`, user.id).n,
     tasks: get(`SELECT COUNT(*) n FROM tasks WHERE assignee_id=? AND status NOT IN ('done','failed')`, user.id).n,
     ...BIZAPI.badges(user),
-    ...EXTAPI.badges(user)
+    ...EXTAPI.badges(user),
+    ops: OPSAPI.badge(user)
   };
 }
 
@@ -687,6 +689,8 @@ EXTAPI = EXT.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector,
 WORKAPI = WORK.register({ route, bad, forbid, notFound, isAdmin, isDirector, log, esc, str, int, isDate });
 BIZAPI = BIZ.register({ route, bad, forbid, notFound, isAdmin, isHR, isDirector, log, esc, str, int, isDate, HttpError });
 require('./backup').register({ route, bad, str, int, secLog, clientIp, cookieAttrs });
+/* Vận hành tự chủ: cập nhật tiến độ tuần, giám sát – cảnh báo – leo thang (ADR-012) */
+OPSAPI = require('./ops').register({ route, bad, forbid, notFound, isAdmin, isDirector, log, str, int });
 
 /* ================= Trợ lý AI (ADR-010) ================= */
 /* Gọi một API của chính hệ thống dưới danh nghĩa người dùng của yêu cầu gốc (cùng cookie, Origin, IP),
@@ -806,6 +810,7 @@ HR2.seedExtras();
 BIZ.seedBiz();
 EXT.seedExt();
 WORK.migrate();
+require('./ops').migrate();
 
 /* Cloudflare: đặt mật khẩu quản trị ban đầu theo bí mật ADMIN_PASSWORD.
  * P0-7: chỉ áp dụng MỘT LẦN (cờ admin_bootstrapped trong settings) và chỉ khi tài khoản admin chưa đổi mật khẩu.

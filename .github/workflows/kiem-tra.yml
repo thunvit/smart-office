@@ -32,6 +32,7 @@ jobs:
           grep -q "work-template 200 3" out.txt
           grep -q "work-post 200" out.txt
           grep -q "ai 403 200 200" out.txt
+          grep -q "ops 200 200 number" out.txt
       - name: Kiểm thử phân hệ Công việc – Dự án (phân quyền, luồng trạng thái)
         run: |
           node test/work-test.js | tee work.txt
@@ -59,3 +60,8 @@ jobs:
           set -o pipefail
           node test/ai-test.js | tee ai.txt
           grep -q "0 không đạt" ai.txt
+      - name: Kiểm thử vận hành tự chủ (cập nhật tiến độ tuần, cảnh báo, leo thang, phạm vi xem; ADR-012)
+        run: |
+          set -o pipefail
+          node test/ops-test.js | tee ops.txt
+          grep -q "0 không đạt" ops.txt

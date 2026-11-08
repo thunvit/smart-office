@@ -351,3 +351,48 @@ Thông báo email (hoãn theo chỉ đạo), webhook dự án, tùy chỉnh hìn
    - Lịch sử tự xóa sau số ngày quản trị viên đặt, tính từ lần dùng cuối (mặc định 180 ngày). Quản trị viên đặt tại Quản trị › Trợ lý AI › **Lưu lịch sử trò chuyện (ngày)**.
 14. **Kiểm tra toàn diện:** Tài khoản › Trợ lý AI của tôi › **Kiểm tra toàn diện**. Trợ lý chạy thử bằng khóa của bạn các bước: hội thoại, gọi công cụ nhiều bước, tìm Internet (nếu bật), soạn văn bản. Bước nào lỗi thì hiện nguyên văn thông báo của nhà cung cấp. Nên chạy sau khi đổi mô hình, khóa API, hoặc khi hệ thống được cập nhật. Mỗi lần chạy tốn một ít token.
 
+## XIII. VẬN HÀNH TỰ CHỦ: CẬP NHẬT TIẾN ĐỘ TUẦN, GIÁM SÁT – CẢNH BÁO (PHIÊN BẢN 1.17)
+
+Nhân sự chủ động báo tiến độ và xử lý việc của mình. Hệ thống tự phát hiện việc cần chú ý và chuyển lên quản lý khi để lâu. Quyết định thiết kế: ADR-012.
+
+### 1. Cập nhật tiến độ tuần (menu Công việc › Cập nhật tiến độ tuần)
+
+1. Mỗi tuần, trước hạn quản trị viên đặt (mặc định Thứ Sáu), nhập ba phần:
+   - **Đã làm trong tuần**;
+   - **Sẽ làm tuần tới**;
+   - **Vướng mắc**.
+2. Khung **Gợi ý từ dữ liệu công việc** liệt kê việc đã hoàn thành trong tuần, việc đang mở đến hạn trong 2 tuần, mục tiêu cá nhân. Bấm **Chèn vào "Đã làm"** hoặc **Chèn vào "Sẽ làm"** để đưa danh sách vào báo cáo, rồi sửa lại cho gọn.
+3. Cần quản lý giúp: tích **Đề nghị quản lý hỗ trợ** và mô tả vướng mắc. Trưởng phòng sẽ nhận cảnh báo mức 2 cho đến khi ghi nhận.
+4. Chỉ sửa được tuần này và tuần liền trước. Sửa sau khi quản lý đã ghi nhận thì quản lý cần ghi nhận lại.
+5. **Trưởng phòng, giám đốc:** chọn **Nhóm của tôi** để xem ai đã cập nhật, ai chưa, ai cần hỗ trợ. Nhập phản hồi (không bắt buộc) rồi bấm **Ghi nhận**.
+
+### 2. Giám sát – Cảnh báo (menu Công việc › Giám sát – Cảnh báo)
+
+1. Số trên menu là số cảnh báo cần bạn xử lý:
+   - cảnh báo của chính bạn;
+   - với trưởng phòng: thêm các cảnh báo đã chuyển lên mức 2 của nhân viên trong phòng;
+   - với giám đốc: thêm các cảnh báo mức 3.
+2. **Ba mức cảnh báo:**
+   - **Mức 1 · Người thực hiện:** sắp đến hạn, mới quá hạn, chưa cập nhật tuần này, mục tiêu hơi chậm;
+   - **Mức 2 · Trưởng phòng:** quá hạn từ 3 ngày, chưa cập nhật tuần trước, cần hỗ trợ, quá tải gấp đôi ngưỡng, việc quá hạn chưa có người nhận;
+   - **Mức 3 · Giám đốc:** quá hạn từ 7 ngày.
+3. Bấm ô số của một mức để chỉ xem từ mức đó trở lên. Bấm một cảnh báo để mở công việc, mục tiêu hoặc cập nhật tuần liên quan.
+4. **Cảnh báo tự hết khi xử lý xong:** hoàn thành hoặc gia hạn công việc (theo quyền của dự án), giao người nhận, cập nhật tuần, ghi nhận đề nghị hỗ trợ, cập nhật tiến độ mục tiêu.
+5. **Quản trị viên** chỉnh tham số ở cuối màn hình:
+   - số ngày báo trước hạn;
+   - số ngày quá hạn chuyển trưởng phòng, giám đốc;
+   - ngưỡng quá tải;
+   - mức chậm của mục tiêu;
+   - hạn cập nhật tuần;
+   - ngày bắt đầu áp dụng.
+
+### 3. Lưu ý khi đưa vào sử dụng
+
+- Trước khi áp dụng, đơn vị bổ sung vào nội quy lao động hoặc quy chế nội bộ:
+  - nghĩa vụ cập nhật tiến độ tuần;
+  - phạm vi hệ thống giám sát (chỉ tiến độ, kết quả công việc);
+  - cách dùng dữ liệu cảnh báo khi đánh giá.
+- Thông báo cho người lao động về việc xử lý dữ liệu này.
+- Cảnh báo là căn cứ tham khảo. Đánh giá, khen thưởng, kỷ luật do người có thẩm quyền quyết định.
+- Phiên bản này chưa gửi thư điện tử hay thông báo đẩy khi có cảnh báo; nhân sự xem trên màn hình.
+
