@@ -120,12 +120,14 @@ const ICON = {
   'danh-gia': '<path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.5 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/>',
   'khen-thuong': '<circle cx="12" cy="9" r="6"/><path d="M8.5 14 7 22l5-3 5 3-1.5-8"/>',
   'cham-cong': '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2.5M9 2h6"/>',
-  'tien-luong': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/>'
+  'tien-luong': '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9.5v5M18 9.5v5"/>',
+  'cap-nhat-tuan': '<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4M8 14l2.5 2.5L16 12"/>',
+  'giam-sat': '<path d="M12 3a6 6 0 0 0-6 6v4l-2 3h16l-2-3V9a6 6 0 0 0-6-6z"/><path d="M10 19a2 2 0 0 0 4 0"/>'
 };
-const ROUTES = [['tong-quan', 'Tổng quan'], ['cong-viec', 'Công việc – Dự án'], ['phe-duyet', 'Phê duyệt'], ['quy-trinh', 'Quy trình'], ['nhan-su', 'Hồ sơ nhân sự'], ['cham-cong', 'Chấm công – Bảng công'], ['tien-luong', 'Tiền lương'], ['muc-tieu', 'Mục tiêu – KPI'], ['bang-tin', 'Bảng tin'], ['lich-hop', 'Lịch họp'], ['tai-lieu', 'Tài liệu'], ['khach-hang', 'Khách hàng'], ['thu-chi', 'Thu chi – Ngân sách', 'finance'], ['tai-san', 'Tài sản'], ['nhan-tin', 'Nhắn tin'], ['khach-den', 'Đăng ký khách đến'], ['tuyen-dung', 'Tuyển dụng', 'recruit'], ['dao-tao', 'Đào tạo'], ['danh-gia', 'Đánh giá năng lực'], ['khen-thuong', 'Khen thưởng – Kỷ luật'], ['quan-tri', 'Quản trị', 'admin'], ['tai-khoan', 'Tài khoản']];
+const ROUTES = [['tong-quan', 'Tổng quan'], ['cong-viec', 'Công việc – Dự án'], ['phe-duyet', 'Phê duyệt'], ['quy-trinh', 'Quy trình'], ['nhan-su', 'Hồ sơ nhân sự'], ['cham-cong', 'Chấm công – Bảng công'], ['tien-luong', 'Tiền lương'], ['muc-tieu', 'Mục tiêu – KPI'], ['cap-nhat-tuan', 'Cập nhật tiến độ tuần'], ['giam-sat', 'Giám sát – Cảnh báo'], ['bang-tin', 'Bảng tin'], ['lich-hop', 'Lịch họp'], ['tai-lieu', 'Tài liệu'], ['khach-hang', 'Khách hàng'], ['thu-chi', 'Thu chi – Ngân sách', 'finance'], ['tai-san', 'Tài sản'], ['nhan-tin', 'Nhắn tin'], ['khach-den', 'Đăng ký khách đến'], ['tuyen-dung', 'Tuyển dụng', 'recruit'], ['dao-tao', 'Đào tạo'], ['danh-gia', 'Đánh giá năng lực'], ['khen-thuong', 'Khen thưởng – Kỷ luật'], ['quan-tri', 'Quản trị', 'admin'], ['tai-khoan', 'Tài khoản']];
 const NAV = [
   { k: 'tong-quan', l: 'Tổng quan' },
-  { l: 'Công việc', items: ['cong-viec', 'quy-trinh', 'muc-tieu'] },
+  { l: 'Công việc', items: ['cong-viec', 'quy-trinh', 'muc-tieu', 'cap-nhat-tuan', 'giam-sat'] },
   { k: 'phe-duyet', l: 'Phê duyệt' },
   { l: 'Thông tin', items: ['bang-tin', 'nhan-tin', 'lich-hop', 'tai-lieu', 'khach-den'] },
   { l: 'Nhân sự', items: ['nhan-su', 'cham-cong', 'tien-luong', 'tuyen-dung', 'dao-tao', 'danh-gia', 'khen-thuong'] },
@@ -162,7 +164,7 @@ function renderOffline(msg) {
 async function refreshBoot() { try { B = await GET('/api/bootstrap'); renderNav(); } catch (e) {} }
 function renderNav() {
   const cur = current(), c = B.counts;
-  const badge = { 'phe-duyet': c.inbox, 'quy-trinh': c.wf, 'cong-viec': c.tasks, 'bang-tin': c.posts, 'lich-hop': c.meetings, 'nhan-tin': c.chat, 'danh-gia': c.reviews, 'khach-den': c.visitors };
+  const badge = { 'phe-duyet': c.inbox, 'quy-trinh': c.wf, 'cong-viec': c.tasks, 'bang-tin': c.posts, 'lich-hop': c.meetings, 'nhan-tin': c.chat, 'danh-gia': c.reviews, 'khach-den': c.visitors, 'giam-sat': c.ops };
   const ic = k => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[k] || ICON['tong-quan']}</svg>`;
   const cnt = n => n ? `<span class="count">${n}</span>` : '';
   $('#nav').innerHTML = NAV.filter(g => !g.admin || B.me.role === 'admin').map(g => {
