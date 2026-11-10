@@ -65,3 +65,8 @@ jobs:
           set -o pipefail
           node test/ops-test.js | tee ops.txt
           grep -q "0 không đạt" ops.txt
+      - name: Kiểm thử thể thức văn bản theo Nghị định 30/2020/NĐ-CP (ADR-013)
+        run: |
+          set -o pipefail
+          node test/nd30-test.js | tee nd30.txt
+          grep -q "0 không đạt" nd30.txt

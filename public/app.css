@@ -766,6 +766,24 @@ tr.voided td{opacity:.5;text-decoration:line-through}
 /* Giấy A4 xem trước: luôn nền trắng chữ đen như bản in, kể cả chế độ tối */
 .nd30-paper{background:#fff;color:#000;border:1px solid var(--line-strong);border-radius:4px;padding:20px 18px 20px 26px;margin:8px 0;max-height:520px;overflow:auto;font-family:"Times New Roman",serif;font-size:15px;line-height:1.4}
 .nd30-paper p{margin:0 0 6px}
+/* Soạn văn bản theo thể thức Nghị định 30/2020/NĐ-CP (ADR-013) */
+.modal:has(#nd-root){width:min(1240px,100%)}
+#nd-root .btn{white-space:normal;text-align:center}
+.nd-grid{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:16px;align-items:start}
+.nd-form{display:flex;flex-direction:column;gap:12px;min-width:0}
+.nd-form fieldset{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:0;min-width:0}
+.nd-form legend{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);padding:0 6px}
+.nd-form code{background:var(--sunken);border-radius:4px;padding:0 4px;font-size:12px}
+.nd-pl{border:1px dashed var(--line-strong);border-radius:8px;padding:8px 10px;margin-bottom:10px;display:grid;gap:8px}
+.nd-pl-h{display:flex;justify-content:space-between;align-items:center}
+.nd-prev{position:sticky;top:0;min-width:0;display:flex;flex-direction:column;gap:10px}
+.nd-fit{border:1px solid var(--line-strong);border-radius:6px;background:var(--sunken);padding:8px;overflow:auto;max-height:64vh}
+.nd-sheet{width:210mm;min-height:297mm;box-sizing:border-box;padding:20mm 15mm 20mm 30mm;margin:0 auto;background:#fff;color:#000;font-family:"Times New Roman",Times,serif;font-size:14pt;box-shadow:0 1px 6px rgba(0,0,0,.25)}
+.nd-ck{list-style:none;margin:0;padding:0;display:grid;gap:6px;font-size:13px;max-height:64vh;overflow:auto}
+.nd-ck li{border-left:3px solid var(--warn);background:var(--warn-weak);padding:6px 10px;border-radius:0 6px 6px 0}
+.nd-ck li.loi{border-color:var(--bad);background:var(--bad-weak)}
+.nd-ck small{display:block;color:var(--muted)}
+@media (max-width:900px){.nd-grid{grid-template-columns:1fr}.nd-prev{position:static}}
 
 /* Vận hành tự chủ (ADR-012) */
 .pill.lv-3{background:var(--bad-weak);color:var(--bad)} .pill.lv-2{background:var(--warn-weak);color:var(--warn)} .pill.lv-1{background:var(--info-weak);color:var(--info)}

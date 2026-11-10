@@ -15,7 +15,7 @@ const S = window.SO;
 const { $, esc, GET, POST, PUT, DEL, toast, showErr, openModal, closeModal, ACTIONS, TODAY, addDays, fmtD } = S;
 const B = () => S.B;
 const AIS = () => (window.SO_AI && window.SO_AI.status && window.SO_AI.status()) || {};
-const DOC_TYPES = { congvan: 'Công văn', totrinh: 'Tờ trình', quyetdinh: 'Quyết định', thongbao: 'Thông báo', kehoach: 'Kế hoạch', baocao: 'Báo cáo', giaymoi: 'Giấy mời', bienban: 'Biên bản', thu: 'Thư điện tử / thư công tác', khac: 'Văn bản khác' };
+const DOC_TYPES = { thu: 'Thư điện tử / thư công tác', khac: 'Văn bản khác' }; // văn bản tự do; các loại có thể thức soạn ở draftModal
 const TONES = { trangtrong: 'Trang trọng', ngangon: 'Ngắn gọn', chitiet: 'Chi tiết' };
 const opts = (o, v) => Object.entries(o).map(([k, l]) => `<option value="${k}" ${k === v ? 'selected' : ''}>${esc(l)}</option>`).join('');
 const api = async (path, body) => {
@@ -194,21 +194,172 @@ function bindRecorder(anchor, target, ui) {
   return rec;
 }
 
-/* ================= 1. Soạn văn bản ================= */
+/* ================= 1. Soạn văn bản theo thể thức Nghị định 30/2020/NĐ-CP (ADR-013) ================= */
+const slug = t => String(t || 'van-ban').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').replace(/[^\w]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+function saveFile(blob, name) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); }
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const SAVE_KEYS = ['org_parent', 'org_name', 'abbr', 'dv', 'place', 'dia_chi', 'soan']; // thông tin thể thức nhớ tại trình duyệt này
+const QUYEN = { '': 'Ký trực tiếp (không ghi quyền hạn)', 'TM.': 'TM. – thay mặt tập thể', 'Q.': 'Q. – quyền cấp trưởng', 'KT.': 'KT. – ký thay người đứng đầu', 'TL.': 'TL. – thừa lệnh', 'TUQ.': 'TUQ. – thừa ủy quyền' };
+const KHAN = { '': 'Không', khan: 'KHẨN', thuong_khan: 'THƯỢNG KHẨN', hoa_toc: 'HỎA TỐC' };
+const PHAMVI = { '': 'Không', 'XEM XONG TRẢ LẠI': 'XEM XONG TRẢ LẠI', 'LƯU HÀNH NỘI BỘ': 'LƯU HÀNH NỘI BỘ' };
+const CONTENT_KEYS = ['trich_yeu', 'kinh_gui', 'tham_quyen', 'can_cu', 'mo_dau', 'noi_dung', 'noi_nhan', 'gm', 'cd', 'bb', 'phu_luc'];
+
+let NDFIT = null; window.addEventListener('resize', () => { if (NDFIT) NDFIT(); });
 function draftModal(seed = {}) {
+  const N = ND(); if (!N) { toast('Chưa tải được mô-đun thể thức văn bản.', true); return; }
+  const st = AIS(), kind = engine(), me = B().me, saved = loadHdr();
+  let loai = N.TYPES[seed.doc_type] ? seed.doc_type : 'congvan', MODEL = null, Q = { k: '', d: '' };
+  const R = Object.assign({ org_parent: '', org_name: (B().settings && B().settings.org_name) || '', abbr: '', dv: '', place: '', so: '', date: TODAY(), soan: '', so_ban: '', dia_chi: '', khan: '', pham_vi: '',
+    trich_yeu: '', kinh_gui: '', tham_quyen: '', can_cu: '', mo_dau: '', noi_dung: '', noi_nhan: '', ky: { quyen: '', chuc_vu: me.title || '', name: me.full_name || '' },
+    gm: {}, ggt: {}, gnp: {}, bb: {}, cd: { nguoi_dien: '', gui: '' }, phu_luc: [] }, Object.fromEntries(Object.entries(saved).filter(([, v]) => v)), seed.fields || {});
+  const val = k => { const v = k.split('.').reduce((o, x) => (o == null ? '' : o[x]), R); return Array.isArray(v) ? v.join('\n') : v == null ? '' : v; };
+  const setv = (k, v) => { const ps = k.split('.'); let o = R; for (let i = 0; i < ps.length - 1; i++) { if (o[ps[i]] == null || typeof o[ps[i]] !== 'object') o[ps[i]] = {}; o = o[ps[i]]; } o[ps[ps.length - 1]] = v; };
+  const T = () => N.TYPES[loai], K = () => T().k;
+  const f = (k, label, o = {}) => {
+    const id = 'nd-' + k.replace(/\W/g, '_'), v = esc(val(k));
+    const ctl = o.sel ? `<select id="${id}" data-k="${k}">${Object.entries(o.sel).map(([a, l]) => `<option value="${esc(a)}" ${String(val(k)) === a ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`
+      : o.area ? `<textarea id="${id}" data-k="${k}" rows="${o.rows || 3}" maxlength="${o.max || 8000}" placeholder="${esc(o.ph || '')}">${v}</textarea>`
+      : `<input id="${id}" data-k="${k}" type="${o.type || 'text'}" value="${v}" maxlength="${o.max || 300}" placeholder="${esc(o.ph || '')}">`;
+    return `<div class="field ${o.full || o.area ? 'full' : ''}"><label for="${id}">${label}</label>${ctl}${o.hint ? `<span class="hint">${o.hint}</span>` : ''}</div>`;
+  };
+  const typeOpts = () => N.GROUPS.map(([g, keys]) => `<optgroup label="${esc(g)}">${keys.map(k => `<option value="${k}" ${k === loai ? 'selected' : ''}>${esc(N.TYPES[k].ten)} — Mẫu ${N.TYPES[k].mau}</option>`).join('')}</optgroup>`).join('') + '<optgroup label="Không theo thể thức"><option value="__free">Thư, ghi chú, văn bản tự do…</option></optgroup>';
+  const plHtml = () => R.phu_luc.map((p, i) => `<div class="nd-pl"><div class="nd-pl-h"><b>Phụ lục ${R.phu_luc.length > 1 ? ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'][i] : ''}</b><button class="btn sm" data-act="nd-pdel" data-i="${i}" type="button">Xóa</button></div>${f(`phu_luc.${i}.ten`, 'Tên phụ lục', { max: 200 })}${f(`phu_luc.${i}.noi_dung`, 'Nội dung phụ lục', { area: true, rows: 4, max: 40000 })}</div>`).join('');
+  function formHtml() {
+    const k = K(), t = T(), bb = k === 'bb', free = ['gm', 'ggt', 'gnp'].includes(k);
+    const aiOk = t.ai && st.configured;
+    const ai = t.ai ? `<fieldset><legend>Soạn nội dung bằng trợ lý AI</legend>${aiOk ? `<div class="form">
+      <div class="field"><label for="nd-tone">Giọng văn</label><select id="nd-tone">${opts(TONES, 'trangtrong')}</select></div><div></div>
+      <div class="field full"><label for="nd-brief">Yêu cầu, ý chính cần soạn</label><textarea id="nd-brief" rows="4" maxlength="8000" placeholder="Ví dụ: đề nghị Sở TT&TT hỗ trợ đào tạo chuyển đổi số cho 20 cán bộ trong tháng 12; kinh phí do đơn vị tự đảm bảo."></textarea>
+        <div class="actions" style="margin-top:6px">${kind !== 'none' ? '<button class="btn sm" data-act="nd-mic" id="nd-mic" aria-pressed="false" type="button">● Ghi âm</button>' : ''}<span class="hint" id="nd-ms"></span><span class="hint" id="nd-mi"></span></div></div>
+      <div class="field full"><label for="nd-ref">Căn cứ, tài liệu tham khảo (tùy chọn)</label><textarea id="nd-ref" rows="3" maxlength="8000" placeholder="Dán trích đoạn văn bản căn cứ, số liệu… Trợ lý không tự bịa căn cứ pháp lý."></textarea></div></div>
+      <div class="actions"><button class="btn primary" data-act="nd-ai" type="button">✨ Soạn nội dung</button><span class="hint" id="nd-st" aria-live="polite"></span></div>
+      <p class="hint">Trợ lý chỉ viết <b>nội dung</b> (trích yếu, căn cứ, nội dung, nơi nhận). Thể thức do hệ thống dựng theo Nghị định 30/2020/NĐ-CP; bạn kiểm tra và sửa các ô bên dưới.</p>`
+      : `<p class="hint">Chưa cấu hình trợ lý AI (Tài khoản › Trợ lý AI của tôi). Vẫn nhập tay các ô bên dưới được; thể thức do hệ thống dựng.</p>`}</fieldset>` : `<p class="hint">Loại văn bản này nhập trực tiếp các ô bên dưới.</p>`;
+    const the = `<fieldset><legend>Thể thức ban hành</legend><div class="form">
+      ${f('org_parent', 'Cơ quan, tổ chức chủ quản trực tiếp (nếu có)', { max: 200, ph: 'Ví dụ: UBND tỉnh Ninh Bình' })}${f('org_name', 'Tên cơ quan, tổ chức ban hành', { max: 200 })}
+      ${f('abbr', 'Chữ viết tắt tên cơ quan (ký hiệu)', { max: 40, ph: 'Ví dụ: SNV' })}${f('dv', k === 'cv' ? 'Chữ viết tắt đơn vị soạn thảo, lĩnh vực (ký hiệu công văn)' : 'Đơn vị soạn thảo (viết tắt, ghi ở dòng Lưu)', { max: 40, ph: 'Ví dụ: VP' })}
+      ${bb ? '' : f('place', 'Địa danh', { max: 60, ph: 'Ví dụ: Ninh Bình' }) + f('date', 'Ngày ban hành', { type: 'date' })}
+      ${f('so', 'Số văn bản', { max: 6, ph: 'Để trống nếu Văn thư cấp số', hint: 'Số nhỏ hơn 10 tự thêm số 0 phía trước.' })}${f('soan', 'Ký hiệu người soạn, số lượng bản phát hành', { max: 40, ph: 'Ví dụ: NVT (3)' })}
+      ${f('khan', 'Mức độ khẩn', { sel: KHAN })}${f('pham_vi', 'Chỉ dẫn phạm vi lưu hành', { sel: PHAMVI })}
+      ${f('dia_chi', 'Địa chỉ cơ quan, thư điện tử, điện thoại (chân trang đầu)', { area: true, rows: 2, max: 900, ph: 'Mỗi dòng một thông tin' })}</div></fieldset>
+      <fieldset><legend>${bb ? 'Chủ tọa ký' : 'Người ký'}</legend><div class="form">
+      <div class="field"><label for="nd-qk">Quyền hạn người ký</label><select id="nd-qk" data-k="_qk">${Object.entries(QUYEN).map(([a, l]) => `<option value="${esc(a)}" ${Q.k === a ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+      <div class="field"><label for="nd-qd">Chức vụ người đứng đầu hoặc tên tập thể</label><input id="nd-qd" data-k="_qd" value="${esc(Q.d)}" maxlength="90" placeholder="Ví dụ: Giám đốc (khi ký thay)"></div>
+      ${f('ky.chuc_vu', 'Chức vụ của người ký', { max: 100 })}${f('ky.name', 'Họ và tên người ký', { max: 100, hint: 'Không ghi học hàm, học vị.' })}</div></fieldset>`;
+    const body = `<fieldset><legend>Nội dung</legend><div class="form">
+      ${bb || free ? (bb ? f('trich_yeu', 'Tên cuộc họp, hội nghị', { full: true, max: 500 }) : k === 'gm' ? f('trich_yeu', 'Trích yếu (nội dung cuộc họp)', { full: true, max: 500 }) : '') : f('trich_yeu', k === 'cv' ? 'Trích yếu (sau chữ “V/v”)' : k === 'qd' ? 'Trích yếu (sau chữ “Về việc”)' : 'Trích yếu nội dung', { full: true, max: 500, area: true, rows: 2 })}
+      ${['cv', 'tl'].includes(k) ? f('kinh_gui', 'Kính gửi (mỗi dòng một nơi)', { area: true, rows: 2, max: 3000, hint: ['totrinh', 'baocao'].includes(loai) ? 'Tờ trình, báo cáo gửi cấp trên bắt buộc có “Kính gửi”.' : '' }) : ''}
+      ${['nq', 'qd', 'qdbh'].includes(k) ? f('tham_quyen', 'Thẩm quyền ban hành', { full: true, max: 200, ph: 'Ví dụ: GIÁM ĐỐC SỞ NỘI VỤ' }) : ''}
+      ${['nq', 'qd', 'qdbh', 'tl'].includes(k) ? f('can_cu', 'Căn cứ ban hành (mỗi dòng một căn cứ)', { area: true, rows: 3, max: 12000, ph: 'Căn cứ Luật …;\nTheo đề nghị của …' }) : ''}
+      ${(N.FIELDS[k] || []).map(([p, lab, ph, area, ty]) => f(p, lab, { area: !!area, rows: 2, ph, type: ty === 'date' ? 'date' : ty === 'time' ? 'time' : ty === 'datetime' ? 'datetime-local' : 'text', max: 2000, full: !!area })).join('')}
+      ${free ? '' : f('noi_dung', bb ? 'Diễn biến, kết luận cuộc họp' : 'Nội dung văn bản', { area: true, rows: 12, max: 60000, hint: 'Mỗi dòng một đoạn. <code>Điều 1. Tiêu đề</code> · <code>1.</code> khoản · <code>a)</code> điểm · <code>-</code> gạch đầu dòng · <code>I.</code> mục lớn. Chỗ thiếu ghi <code>[cần bổ sung: …]</code>.' })}
+      ${bb ? '' : f('noi_nhan', 'Nơi nhận (mỗi dòng một nơi; “Như trên” và “Lưu: VT” tự thêm)', { area: true, rows: 2, max: 6000 })}</div></fieldset>
+      <fieldset><legend>Phụ lục</legend><div id="nd-pl">${plHtml()}</div><div class="actions"><button class="btn sm" data-act="nd-padd" type="button" ${R.phu_luc.length >= 10 ? 'disabled' : ''}>+ Thêm phụ lục</button><span class="hint">Mỗi phụ lục bắt đầu ở trang mới, đánh số trang riêng.</span></div></fieldset>`;
+    return ai + the + body;
+  }
+  openModal(`${S.mh('Soạn văn bản theo thể thức Nghị định 30/2020/NĐ-CP', 'Bản thảo; người soạn chịu trách nhiệm kiểm tra nội dung, thể thức trước khi trình ký (Điều 10, 12)')}<div class="modal-b" id="nd-root">
+    <div class="field full"><label for="nd-type">Loại văn bản</label><select id="nd-type" data-k="loai">${typeOpts()}</select><span class="hint" id="nd-tn"></span></div>
+    <div class="nd-grid"><div class="nd-form" id="nd-form">${formHtml()}</div>
+      <div class="nd-prev"><div class="seg" role="group" aria-label="Chế độ xem"><button aria-pressed="true" data-act="nd-tab" data-t="prev" type="button">Xem trước</button><button aria-pressed="false" data-act="nd-tab" data-t="chk" type="button" id="nd-chk-b">Kiểm tra thể thức</button></div>
+        <div class="nd-fit" id="nd-fit"><div class="nd-sheet" id="nd-sheet" aria-live="polite"></div></div>
+        <div id="nd-chk" hidden></div>
+        <div class="actions"><button class="btn primary" data-act="nd-docx" type="button">Tải Word (.docx)</button><button class="btn" data-act="nd-copy" type="button">Sao chép văn bản</button><button class="btn" data-act="nd-save" type="button">Lưu vào Tài liệu</button></div>
+        <div class="field full" id="nd-revw"><label for="nd-rv">Yêu cầu chỉnh sửa bằng trợ lý AI</label><div class="actions"><input id="nd-rv" maxlength="2000" placeholder="Ví dụ: thêm mục kinh phí, rút gọn còn 1 trang" style="flex:1;min-width:180px"><button class="btn" data-act="nd-rev" type="button">Soạn lại</button></div></div>
+        <p class="hint">${esc(ENGINE_NOTE[kind](st.provider))}</p></div></div>
+    <p class="err" id="nd-err" hidden></p></div>
+  <div class="modal-f"><button class="btn" data-act="close">Đóng</button></div>`, {
+    'nd-tab': b => { document.querySelectorAll('#nd-root [data-act=nd-tab]').forEach(t => t.setAttribute('aria-pressed', String(t === b))); $('#nd-fit').hidden = b.dataset.t !== 'prev'; $('#nd-chk').hidden = b.dataset.t !== 'chk'; if (b.dataset.t === 'prev') fit(); },
+    'nd-padd': () => { R.phu_luc.push({ ten: '', noi_dung: '' }); $('#nd-pl').innerHTML = plHtml(); refresh(); },
+    'nd-pdel': b => { R.phu_luc.splice(Number(b.dataset.i), 1); $('#nd-pl').innerHTML = plHtml(); refresh(); },
+    'nd-mic': () => { const r = CURRENT && CURRENT.anchor === 'nd-root' ? CURRENT.rec : bindRecorder('nd-root', '#nd-brief', { btn: '#nd-mic', stat: '#nd-ms', interim: '#nd-mi' }); (r.active ? r.stop() : r.start()).catch(e => showErr('#nd-err', e)); },
+    'nd-ai': btn => S.busy(btn, () => ai(false)),
+    'nd-rev': btn => S.busy(btn, () => ai(true)),
+    'nd-docx': () => { const m = refresh(), n = N.check(Object.assign({}, R, { loai }), TODAY()).filter(x => x.level === 'loi').length; saveFile(new Blob([N.docx(m, m.title)], { type: DOCX_MIME }), `${slug(T().ten)}-${TODAY()}.docx`); toast(n ? `Đã tải tệp Word. Còn ${n} mục thể thức cần sửa (xem tab Kiểm tra thể thức).` : 'Đã tải tệp Word', !!n); },
+    'nd-copy': async () => { const m = refresh(); try { await navigator.clipboard.writeText(m.text); } catch (e) { const ta = document.createElement('textarea'); ta.value = m.text; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove(); } toast('Đã sao chép'); },
+    'nd-save': btn => S.busy(btn, async () => {
+      const m = refresh(); $('#nd-err').hidden = true;
+      try { const r = await POST('/api/docs', { title: m.title.slice(0, 300), category: 'khac', description: `Bản thảo ${T().ten} theo thể thức Nghị định 30/2020/NĐ-CP, soạn ngày ${fmtD(TODAY())}, chưa ban hành.`, body: m.text }); toast('Đã lưu vào Tài liệu (mã ' + r.id + ')'); }
+      catch (e) { showErr('#nd-err', (e.message || String(e)) + ' Bạn có thể tải tệp Word hoặc sao chép bản thảo.'); }
+    })
+  });
+  const root = $('#nd-root');
+  function rerender() { // dựng lại các ô theo loại văn bản hoặc kết quả AI, giữ nguyên chữ đang nhập ở khung trợ lý
+    const keep = ['nd-brief', 'nd-ref', 'nd-tone'].map(id => [id, ($('#' + id) || {}).value]);
+    $('#nd-form').innerHTML = formHtml(); keep.forEach(([id, v]) => { const e = $('#' + id); if (e && v != null) e.value = v; });
+  }
+  function mark() { $('#nd-tn').textContent = `Mẫu ${T().mau} Phụ lục III${T().ab ? '; chữ viết tắt trong ký hiệu: ' + T().ab : '; ký hiệu gồm chữ viết tắt cơ quan và đơn vị soạn thảo'}.`; $('#nd-revw').hidden = !(T().ai && st.configured); }
+  function fit() { const box = $('#nd-fit'), sh = $('#nd-sheet'); if (!box || !sh || box.hidden) return; sh.style.zoom = String(Math.min(1, Math.max(0.3, (box.clientWidth - 18) / 794))); }
+  function refresh() {
+    const doc = Object.assign({}, R, { loai });
+    try { MODEL = N.compose(doc); } catch (e) { $('#nd-sheet').textContent = 'Không dựng được văn bản: ' + e.message; return MODEL; }
+    $('#nd-sheet').innerHTML = N.toHtml(MODEL); fit();
+    const ck = N.check(doc, TODAY()), nl = ck.filter(x => x.level === 'loi').length;
+    $('#nd-chk-b').textContent = `Kiểm tra thể thức (${ck.length ? nl + ' lỗi, ' + (ck.length - nl) + ' lưu ý' : 'đạt'})`;
+    $('#nd-chk').innerHTML = ck.length ? `<ul class="nd-ck">${ck.map(x => `<li class="${x.level}"><b>${x.level === 'loi' ? 'Cần sửa' : 'Lưu ý'}:</b> ${esc(x.msg)}<small>${esc(x.ref)}</small></li>`).join('')}</ul>` : '<p class="notice ok">Các thành phần thể thức bắt buộc đã đủ. Người trình ký vẫn kiểm tra nội dung trước khi ký.</p>';
+    return MODEL;
+  }
+  let tmr = null; const later = () => { clearTimeout(tmr); tmr = setTimeout(refresh, 250); };
+  const quyen = () => { R.ky.quyen = Q.k ? (Q.k + (Q.d.trim() ? ' ' + Q.d.trim() : '')) : ''; };
+  const onEdit = e => {
+    const t = e.target, k = t.dataset && t.dataset.k; if (!k) return;
+    if (k === 'loai') {
+      if (t.value === '__free') { closeModal(); draftFreeModal({ brief: (($('#nd-brief') || {}).value) || '' }); return; }
+      loai = t.value; rerender(); mark(); refresh(); return;
+    }
+    if (k === '_qk') { Q.k = t.value; quyen(); later(); return; }
+    if (k === '_qd') { Q.d = t.value; quyen(); later(); return; }
+    setv(k, t.value);
+    if (SAVE_KEYS.includes(k)) saveHdr(Object.assign(loadHdr(), { [k]: t.value }));
+    later();
+  };
+  root.addEventListener('input', onEdit); root.addEventListener('change', onEdit);
+  NDFIT = fit;
+  async function ai(revise) {
+    const t = T(); $('#nd-err').hidden = true; const st_ = $('#nd-st');
+    const brief = (($('#nd-brief') || {}).value || '').trim(), rv = ($('#nd-rv').value || '').trim();
+    if (revise && !rv) return showErr('#nd-err', 'Vui lòng nhập yêu cầu chỉnh sửa.');
+    if (!revise && !brief) return showErr('#nd-err', 'Vui lòng nhập yêu cầu, ý chính của văn bản.');
+    const content = {}; CONTENT_KEYS.forEach(k => { content[k] = R[k]; });
+    const body = { doc_type: loai, format: 'nd30', tone: ($('#nd-tone') || {}).value, brief: brief || rv, references: (($('#nd-ref') || {}).value) || '', org_name: R.org_name, org_parent: R.org_parent,
+      recipient: String(val('kinh_gui') || val('noi_nhan') || '').slice(0, 800) };
+    if (revise) { body.previous = JSON.stringify(N.normDoc(Object.assign({}, R, { loai }))).slice(0, 40000); body.revision = rv; }
+    if (st_) st_.textContent = 'Đang soạn… (có thể mất 10–60 giây)';
+    try {
+      const r = await api('/api/ai/compose', body);
+      if (r.structured) {
+        const d = r.doc || {};
+        ['trich_yeu', 'tham_quyen', 'mo_dau', 'noi_dung'].forEach(k => { if (d[k]) R[k] = d[k]; });
+        ['kinh_gui', 'can_cu', 'noi_nhan'].forEach(k => { if (d[k] && d[k].length) R[k] = d[k].join('\n'); });
+        ['gm', 'bb'].forEach(g => { if (d[g]) R[g] = Object.assign(R[g] || {}, Object.fromEntries(Object.entries(d[g]).filter(([, v]) => v))); });
+        if (d.cd) { if (d.cd.nguoi_dien) R.cd.nguoi_dien = d.cd.nguoi_dien; if (d.cd.gui && d.cd.gui.length) R.cd.gui = d.cd.gui.join('\n'); }
+        if (d.phu_luc && d.phu_luc.length) R.phu_luc = d.phu_luc;
+        rerender(); refresh();
+        $('#nd-st') && ($('#nd-st').textContent = `Đã soạn bằng ${r.provider} · ${r.model}${r.truncated ? ' — nội dung quá dài, có thể bị cắt' : ''}. Hãy đọc và sửa các ô bên dưới.`);
+      } else {
+        R.noi_dung = r.text || ''; rerender(); refresh();
+        $('#nd-st') && ($('#nd-st').textContent = 'Trợ lý không trả đúng cấu trúc; toàn bộ chữ nhận được đã đưa vào ô Nội dung để bạn tự phân chia.');
+      }
+      $('#nd-rv').value = '';
+    } catch (e) { if (st_) st_.textContent = ''; showErr('#nd-err', e); }
+  }
+  mark(); refresh();
+}
+
+/* ================= 1b. Soạn văn bản tự do (thư, ghi chú; không theo thể thức) ================= */
+function draftFreeModal(seed = {}) {
   const st = AIS();
   if (!st.configured) { toast('Bạn chưa cấu hình trợ lý AI (Tài khoản › Trợ lý AI của tôi).', true); return; }
   const kind = engine();
   openModal(`${S.mh('Soạn văn bản bằng AI', 'Bản thảo do AI lập; người soạn chịu trách nhiệm kiểm tra nội dung, thể thức trước khi trình ký')}<div class="modal-b" id="aid-root">
     <div class="form">
-      <div class="field"><label for="aid-t">Loại văn bản</label><select id="aid-t">${opts(DOC_TYPES, seed.doc_type || 'congvan')}</select></div>
+      <div class="field"><label for="aid-t">Loại văn bản</label><select id="aid-t">${opts(DOC_TYPES, seed.doc_type || 'thu')}</select></div>
       <div class="field"><label for="aid-g">Giọng văn</label><select id="aid-g">${opts(TONES, 'trangtrong')}</select></div>
       <div class="field full"><label for="aid-r">Kính gửi / nơi nhận</label><input id="aid-r" maxlength="500" value="${esc(seed.recipient || '')}"></div>
       <div class="field full"><label for="aid-b">Yêu cầu, ý chính cần soạn</label><textarea id="aid-b" rows="5" maxlength="8000" placeholder="Ví dụ: đề nghị Sở TT&TT hỗ trợ đào tạo chuyển đổi số cho 20 cán bộ trong tháng 12; kinh phí do đơn vị tự đảm bảo.">${esc(seed.brief || '')}</textarea>
         <div class="actions" style="margin-top:6px">${kind !== 'none' ? '<button class="btn sm" data-act="aid-mic" id="aid-mic" aria-pressed="false">● Ghi âm</button>' : ''}<span class="hint" id="aid-ms"></span><span class="hint" id="aid-mi"></span></div></div>
       <div class="field full"><label for="aid-c">Căn cứ, tài liệu tham khảo (tùy chọn)</label><textarea id="aid-c" rows="3" maxlength="8000" placeholder="Dán trích đoạn văn bản căn cứ, số liệu… Trợ lý không tự bịa căn cứ pháp lý."></textarea></div>
     </div>
-    <div class="actions"><button class="btn primary" data-act="aid-go">✨ Soạn thảo</button><span class="hint" id="aid-st" aria-live="polite"></span></div>
+    <div class="actions"><button class="btn primary" data-act="aid-go">✨ Soạn thảo</button><button class="btn" data-act="aid-nd">Soạn theo thể thức Nghị định 30/2020</button><span class="hint" id="aid-st" aria-live="polite"></span></div>
     <div id="aid-out" hidden>
       <div class="field full"><label for="aid-txt">Bản thảo (sửa trực tiếp được)</label><textarea id="aid-txt" rows="16" style="font-family:'Times New Roman',serif;font-size:14px;line-height:1.5"></textarea></div>
       <div class="form"><div class="field full"><label for="aid-rv">Yêu cầu chỉnh sửa</label><input id="aid-rv" maxlength="2000" placeholder="Ví dụ: thêm mục kinh phí, rút gọn còn 1 trang"></div></div>
@@ -218,6 +369,7 @@ function draftModal(seed = {}) {
     <p class="hint">${esc(ENGINE_NOTE[kind](st.provider))}</p></div>
   <div class="modal-f"><button class="btn" data-act="close">Đóng</button></div>`, {
     'aid-mic': () => { const r = CURRENT && CURRENT.anchor === 'aid-root' ? CURRENT.rec : bindRecorder('aid-root', '#aid-b', { btn: '#aid-mic', stat: '#aid-ms', interim: '#aid-mi' }); (r.active ? r.stop() : r.start()).catch(e => showErr('#aid-err', e)); },
+    'aid-nd': () => draftModal({ doc_type: 'congvan' }),
     'aid-go': btn => S.busy(btn, () => draft(false)),
     'aid-rev': btn => S.busy(btn, () => draft(true)),
     'aid-copy': async () => { try { await navigator.clipboard.writeText($('#aid-txt').value); toast('Đã sao chép'); } catch (e) { $('#aid-txt').select(); document.execCommand('copy'); toast('Đã sao chép'); } },
@@ -308,7 +460,7 @@ async function meetingAssistant(id) {
       <h3 class="sec-t">5. Văn bản</h3>
       <div class="seg" role="group" aria-label="Văn bản xem trước"><button aria-pressed="true" data-act="aim-tab" data-k="bb">Biên bản (Mẫu 1.9)</button><button aria-pressed="false" data-act="aim-tab" data-k="tb">Thông báo kết luận (Mẫu 1.4)</button></div>
       <div class="nd30-paper" id="aim-doc" aria-live="polite"></div>
-      <div class="actions"><button class="btn primary" data-act="aim-save" ${m.can_edit ? '' : 'disabled title="Chỉ người chủ trì hoặc người tạo cuộc họp được lưu biên bản"'}>Lưu biên bản vào cuộc họp</button><button class="btn" data-act="aim-doc-bb">Tải Word: Biên bản</button><button class="btn" data-act="aim-doc-tb">Tải Word: Thông báo kết luận</button></div>
+      <div class="actions"><button class="btn primary" data-act="aim-save" ${m.can_edit ? '' : 'disabled title="Chỉ người chủ trì hoặc người tạo cuộc họp được lưu biên bản"'}>Lưu biên bản vào cuộc họp</button><button class="btn" data-act="aim-doc-bb">Tải Word (.docx): Biên bản</button><button class="btn" data-act="aim-doc-tb">Tải Word (.docx): Thông báo kết luận</button></div>
       <p class="hint">Bản thảo do AI lập. Số văn bản để trống (…) để Văn thư cấp số khi đăng ký. Người trình ký chịu trách nhiệm kiểm tra nội dung, thể thức trước khi ký.</p>
     </div>
     <p class="err" id="aim-err" hidden></p></div>
@@ -356,8 +508,8 @@ async function meetingAssistant(id) {
     'aim-alocal': () => { if (!archLocal) return; const a = document.createElement('a'); a.href = URL.createObjectURL(archLocal); a.download = `ghi-am-cuoc-hop-${m.id}-${TODAY()}.${/ogg/.test(archLocal.type) ? 'ogg' : /mp4/.test(archLocal.type) ? 'm4a' : 'webm'}`; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); },
     'aim-tab': b => { document.querySelectorAll('#aim-root [data-act=aim-tab]').forEach(t => t.setAttribute('aria-pressed', String(t === b))); doc_(); },
     'aim-save': btn => S.busy(btn, async () => { try { await POST(`/api/meetings/${m.id}/minutes`, { minutes: docs().bb.text.slice(0, 20000) }); toast('Đã lưu biên bản cuộc họp'); S.render(); } catch (e) { showErr('#aim-err', e); } }),
-    'aim-doc-bb': () => downloadHtml(ND().wordDoc(docs().bb.html, 'Biên bản cuộc họp'), 'bien-ban-hop'),
-    'aim-doc-tb': () => downloadHtml(ND().wordDoc(docs().tb.html, 'Thông báo kết luận'), 'thong-bao-ket-luan'),
+    'aim-doc-bb': () => saveFile(new Blob([ND().docx(docs().bb, 'Biên bản cuộc họp')], { type: DOCX_MIME }), `bien-ban-hop-${TODAY()}.docx`),
+    'aim-doc-tb': () => saveFile(new Blob([ND().docx(docs().tb, 'Thông báo kết luận')], { type: DOCX_MIME }), `thong-bao-ket-luan-${TODAY()}.docx`),
     'aim-assign': btn => S.busy(btn, async () => {
       const rows = [...document.querySelectorAll('.aim-ck')].filter(c => c.checked).map(c => c.dataset.i);
       if (!rows.length) return showErr('#aim-err', 'Chưa chọn việc nào.');
@@ -512,7 +664,7 @@ async function meetingAssistant(id) {
   }
 
   /* ---------- Văn bản theo thể thức ---------- */
-  function hdr() { const h = { org_parent: $('#aih-p').value.trim(), org_name: $('#aih-o').value.trim(), abbr: $('#aih-a').value.trim(), place: $('#aih-d').value.trim() }; saveHdr(h); return h; }
+  function hdr() { const h = { org_parent: $('#aih-p').value.trim(), org_name: $('#aih-o').value.trim(), abbr: $('#aih-a').value.trim(), place: $('#aih-d').value.trim() }; saveHdr(Object.assign(loadHdr(), h)); return h; }
   function docs() {
     const h = hdr();
     const who = uid => ({ name: names.get(uid) || (people.get(uid) || {}).full_name || '', title: titleOf(uid) });
@@ -578,5 +730,5 @@ Object.assign(ACTIONS, {
   'ai-draft': () => draftModal(),
   'ai-meeting': b => meetingAssistant(Number(b.dataset.id)).catch(e => toast(e.message, true))
 });
-window.SO_AI_OFFICE = { draftModal, meetingAssistant, Recorder, AudioArchive, wavFrom, engine, mountVoice, captureSeconds };
+window.SO_AI_OFFICE = { draftModal, draftFreeModal, meetingAssistant, Recorder, AudioArchive, wavFrom, engine, mountVoice, captureSeconds };
 })();
