@@ -467,15 +467,23 @@ const ctxOf = turn => ({ org_name: turn.org_name, user_name: turn.user.full_name
 const logUse = (callApi, prov, model, usage, tool, status) => callApi('POST', '/api/ai/usage', { provider: prov.name, model, tokens_in: usage.in, tokens_out: usage.out, tokens_cached: usage.cached || 0, tools: [tool], status }).catch(() => {});
 const fail = e => ({ status: e.status || 500, json: { error: e instanceof AiError || e.status ? e.message : 'Lỗi hệ thống khi xử lý yêu cầu trợ lý.' } });
 
-/** Soạn văn bản hành chính. body: { doc_type, brief, recipient?, references?, tone?, previous?, revision? } */
+/** Soạn văn bản hành chính. body: { doc_type, brief, recipient?, references?, tone?, previous?, revision?, format?, org_name?, org_parent? }
+ *  format = 'nd30': AI chỉ trả nội dung có cấu trúc (JSON), thể thức do trình duyệt dựng theo Nghị định 30/2020/NĐ-CP (ADR-013). Không có format: văn bản thuần như trước. */
 async function handleCompose({ body = {}, env, callApi, fetchImpl }) {
   try {
     if (!String(body.brief || '').trim() && !String(body.revision || '').trim()) throw new AiError(400, 'Vui lòng nhập yêu cầu, ý chính của văn bản.');
+    const structured = body.format === 'nd30';
+    if (structured && !CMP.KIND[body.doc_type]) throw new AiError(400, 'Loại văn bản này không soạn theo thể thức bằng trợ lý AI. Hãy nhập trực tiếp các trường của biểu mẫu.');
     const { turn, prov } = await openTurn(callApi, env, fetchImpl);
-    const r = await prov.step([prov.user(CMP.draftPrompt(body, ctxOf(turn)))], { system: CMP.DRAFT_SYSTEM, noTools: true, maxTokens: 12000 });
+    const ctx = ctxOf(turn);
+    const r = await prov.step([prov.user(structured ? CMP.draftJsonPrompt(body, ctx) : CMP.draftPrompt(body, ctx))], { system: structured ? CMP.draftJsonSystem(body.doc_type) : CMP.DRAFT_SYSTEM, noTools: true, maxTokens: structured ? 16000 : 12000 });
     await logUse(callApi, prov, prov.model, r.usage, 'soan_van_ban', r.stop);
     if (r.stop === 'refusal') throw new AiError(422, 'Nhà cung cấp AI từ chối soạn nội dung này.');
-    return { status: 200, json: { text: r.text, truncated: r.stop === 'max_tokens', provider: prov.name, model: prov.model, doc_type: CMP.DOC_TYPES[body.doc_type] ? body.doc_type : 'khac' } };
+    const base = { truncated: r.stop === 'max_tokens', provider: prov.name, model: prov.model, doc_type: CMP.DOC_TYPES[body.doc_type] ? body.doc_type : 'khac' };
+    if (!structured) return { status: 200, json: { text: r.text, ...base } };
+    const pd = CMP.parseDraft(r.text, body.doc_type);
+    /* Mô hình không trả đúng JSON (hoặc bị cắt giữa chừng): trả lại văn bản thô để người dùng chép vào phần nội dung */
+    return { status: 200, json: pd.ok ? { structured: true, doc: pd.doc, ...base } : { structured: false, text: String(r.text || '').trim().slice(0, 60000), ...base } };
   } catch (e) { return fail(e); }
 }
 

@@ -610,7 +610,36 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
   - trình duyệt Safari, điện thoại thật;
   - `work-ui`, `work-ui-full` chưa chạy lại (không đổi giao diện phân hệ Công việc).
 
-## Việc còn dở và sự cố đang mở (cập nhật 08/11/2026)
+## 10/11/2026. Nâng cấp soạn văn bản theo thể thức Nghị định 30/2020/NĐ-CP (so-1.18.0, ADR-013)
+- **Yêu cầu của chủ sở hữu:** "nâng cấp tính năng soạn thảo văn bản theo thể thức, tham khảo nghị định 30/2020", kèm hai tệp Word: toàn văn Nghị định và Phụ lục I đến VI.
+- **Căn cứ đối chiếu:** đọc toàn văn 38 điều và Phụ lục I Phần I, Phụ lục II, III (bảng chữ viết tắt, Mẫu 1.1 đến 1.10, 2.1). Các trang mẫu xem trực tiếp bằng cách chuyển sang PDF rồi xem ảnh, vì bản chữ thuần không có nội dung trong khung văn bản. Khác phiên 07/11/2026: nay đã có bản Word gốc (cập nhật dòng 10 danh mục căn cứ pháp lý).
+- **Việc đã làm** (nhánh `claude/amazing-thompson-i86yt4`, chưa hợp nhất):
+  - `public/nd30.js` viết lại: danh mục 26 loại văn bản theo Điều 7; dựng thể thức theo Mẫu 1.1 đến 1.10, 2.1 (đầu văn bản hai cột, tên loại, trích yếu, căn cứ, bố cục phần/chương/mục/điều/khoản/điểm, kính gửi, nơi nhận, quyền hạn người ký TM./Q./KT./TL./TUQ., độ khẩn, phạm vi lưu hành, địa chỉ cơ quan, phụ lục); xuất HTML xem trước, văn bản thuần, **tệp .docx** (A4, lề 20/15/20/30 mm, Times New Roman, số trang canh giữa lề trên từ trang 2, địa chỉ ở chân trang đầu, phụ lục đánh số trang riêng); `check()` kiểm tra thể thức kèm căn cứ từng mục. Giữ nguyên API `bienBan`, `thongBao`, `wordDoc`, `dateLine`.
+  - `ai-compose.js`, `ai.js`: `POST /api/ai/compose` có `format: "nd30"`: AI chỉ trả nội dung dạng JSON theo từng loại; `parseDraft` chỉ giữ khóa đã biết, cắt độ dài, bỏ Markdown, không cho AI đặt người ký, tên cơ quan, số, ngày. Không có `format` thì giữ nguyên như trước (thư, văn bản khác).
+  - `public/ai-office.js`, `public/app.css`: hộp thoại soạn văn bản mới (chọn loại, ô thể thức, ô nội dung, phụ lục, nhờ AI, xem trước A4, tab kiểm tra thể thức, tải .docx, sao chép, lưu vào Tài liệu); trợ lý cuộc họp cũng tải .docx. `public/sw.js` lên so-1.18.0.
+  - Tài liệu: ADR-013 (Đề xuất), hướng dẫn sử dụng mục XII.6, dòng 10 danh mục căn cứ pháp lý, mục lục tài liệu, CLAUDE.md mục 5.3i, CI.
+- **Lỗi phát hiện khi dựng thử và đã sửa trước khi đẩy** (đều có kiểm thử):
+  - dãy khoản ngắn trong phụ lục ("1. Nguyễn Văn A") bị in đậm như tiêu đề khoản; nay chỉ đậm khi tiêu đề đứng riêng một dòng và dòng sau không phải khoản khác;
+  - trích yếu quyết định bắt đầu bằng chữ viết tắt bị hạ chữ đầu thành "Về việc uBND…"; nay giữ nguyên.
+- **Kiểm thử (cục bộ/mô phỏng):**
+  - `nd30-test` (mới) 94 đạt, 0 không đạt: bảng chữ viết tắt Phụ lục III; số, ký hiệu, ngày; cỡ chữ, kiểu chữ Quốc hiệu, Tiêu ngữ, tên cơ quan; căn cứ; Điều, khoản, điểm; kính gửi, nơi nhận, người ký; phụ lục; 5 mẫu giấy, công điện, biên bản; kiểm tra thể thức; cấu trúc .docx (ZIP, CRC, XML đúng cú pháp, A4, lề, số trang, chân trang);
+  - `ai-test` 345 đạt, 0 không đạt (thêm 10 điều kiện "thể thức:");
+  - `worker-smoke` đạt (`ai 403 200 200`, `ops 200 200 number`, `backup-manifest 200 77 1`, `download 200 true`, `re-instantiate 200`, `lockout persist 429`, `work-template 200 3`, `work-post 200`); `work-test` 125/0; `work-plan-test` 21/0; `work-ext-test` 98/0; `auth-test` 78/0; `backup-test` 48/0; `ops-test` 62/0; `node --check` toàn bộ;
+  - `nd30-ui` (mới, Playwright, máy chủ AI giả lập) tất cả đạt: nhập thể thức, AI trả JSON điền đúng ô, giữ ô đã nhập, đổi loại, phụ lục, tải .docx (`unzip -t` không lỗi), lưu vào Tài liệu, giấy nghỉ phép, 1440 px sáng và 360 px tối không cuộn ngang, không lỗi JavaScript.
+  - Mở các tệp .docx dựng thử bằng LibreOffice 24.2 và so bằng mắt với Mẫu 1.2, 1.4, 1.5, 1.7, 1.9, 2.1: bố cục khớp.
+- **Sửa kiểm thử cũ, nêu rõ:**
+  - `ai-test` điều kiện "biên bản HTML: Quốc hiệu in đậm" so khớp đúng chuỗi CSS cũ; đổi sang so khớp ý ("font-weight:bold" trong thẻ chứa Quốc hiệu);
+  - `ai-test` điều kiện G (quét biến của app.js dùng ngoài `window.SO`) báo nhầm `vnd.` trong chuỗi `application/vnd.openxmlformats…`; thêm `/` vào ký tự loại trừ trước tên biến. Hai thay đổi không làm yếu mục đích kiểm thử.
+- **Chưa kiểm chứng:**
+  - mở .docx bằng Microsoft Word; in ra giấy;
+  - gọi mô hình thật với lời nhắc mới (chất lượng nội dung, tỷ lệ trả đúng JSON, tuân thủ quy ước viết hoa Phụ lục II);
+  - chạy trên Cloudflare thật;
+  - đường kẻ dưới tên cơ quan và trích yếu trong .docx dài theo ước lượng độ rộng chữ, không đo chính xác;
+  - tình trạng sửa đổi, bổ sung Nghị định 30/2020 sau năm 2020.
+- **Chưa làm:** Mẫu 3.1, 3.2 (bản sao); chữ ký số, Mẫu 2.2; "văn bản kèm theo quyết định" của Mẫu 1.3 (đưa vào phụ lục); cấu hình thông tin cơ quan dùng chung (hiện nhớ tại trình duyệt); Phụ lục IV đến VI.
+- **Chờ chủ sở hữu:** duyệt ADR-013 (3 câu hỏi cuối ADR) và hợp nhất; sau triển khai thử `.docx` trên Microsoft Word thật và thử soạn bằng khóa AI thật.
+
+## Việc còn dở và sự cố đang mở (cập nhật 10/11/2026)
 0. **Lỗi xung đột `/api/posts/:id`** (07/11/2026): đã sửa trên nhánh `claude/code-architecture-ai-optimization-11be7f` (so-1.10.1), chờ chủ sở hữu duyệt hợp nhất vào `main`; sau triển khai kiểm tra lại trên Cloudflare thật.
 1. ~~`SO_DEBUG=1` đang bật~~: đã tắt trong bản so-1.9.0 (06/11/2026).
 2. **Các việc P0 theo báo cáo rà soát:**
@@ -629,3 +658,4 @@ Ghi theo thứ tự thời gian, mới nhất ở cuối. Mỗi mục gồm: th�
 6. **Trợ lý AI (Phiên 16, Đợt 2):** đã viết trên nhánh (so-1.11.0, ADR-010 ở trạng thái Đề xuất). Chờ: chủ sở hữu duyệt ADR-010; chủ sở hữu tự khai báo `AI_API_KEY` và thử với Anthropic thật; pháp chế xác nhận điều kiện gửi dữ liệu ra nhà cung cấp AI trước khi bật trên hệ thống thật.
 7. **Trợ lý cuộc họp (ADR-011, so-1.16.1):** ADR-011 đã duyệt ngày 07/11/2026 (kèm 4 ý kiến, đã thực hiện trên nhánh). Chờ pháp chế xác nhận căn cứ xử lý đặc trưng giọng nói (dữ liệu sinh trắc học) và bản ghi âm; quy chế cần nêu việc PITR 30 ngày trên Cloudflare có thể đưa bản ghi âm đã xóa trở lại. Cần thử ghi âm thật trong một cuộc họp, đo độ chính xác gợi ý người nói, mở tệp Word bằng Microsoft Word, và đối chiếu với tệp Mẫu 1.4, 1.9 gốc.
 8. **Vận hành tự chủ (ADR-012, so-1.17.0):** chờ chủ sở hữu duyệt ADR-012 (3 câu hỏi cuối ADR) và hợp nhất nhánh `claude/van-hanh-tu-chu-giam-sat`. Sau triển khai: kiểm tra trên Cloudflare thật; đơn vị bổ sung quy chế về cập nhật tuần và phạm vi giám sát trước khi áp dụng chính thức. Đợt sau của Nhóm E: phân hệ 24, 27, 28, 29.
+9. **Soạn văn bản theo thể thức (ADR-013, so-1.18.0):** chờ chủ sở hữu duyệt ADR-013 và hợp nhất nhánh `claude/amazing-thompson-i86yt4`. Cần thử .docx bằng Microsoft Word, thử soạn bằng khóa AI thật, kiểm tra trên Cloudflare thật sau triển khai.
